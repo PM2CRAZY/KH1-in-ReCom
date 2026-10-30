@@ -23,12 +23,13 @@ Steam addresses. Tags: Checked (decomp / exe) means read; Assumption means infer
 ### KH2 engine?
 
 - No `.mdlx`, `.mset`, `.a.fm` or BAR strings. Sora's files are
-  `PLAYER/0001/PL0001.{MDL,ANN,RTM,TXA,EET,SES,BIN}`. The one `_mset` string (`0x14064F40C`)
+  `PLAYER/0001/PL0001.{MDL,ANN,RTM,TXA,EET,SES,BIN}` (`.BIN` is the player camera settings;
+  see `motion-conversion.md`). The one `_mset` string (`0x14064F40C`)
   has no code references. Checked (strings, decomp).
 - Timing (3000 units per second), a per-clip fps byte and a name-keyed action table also differ
   from KH2.
-- Conclusion: Assumption, but well supported. Re:CoM's PC motion system is not KH2's mset/anb
-  system. KH2 tooling and notes don't carry over without checking the `.ANN` layout first.
+- Conclusion: Re:CoM's motion system is not KH2's mset/anb system. The `.ANN` format is now decoded
+  (`motion-conversion.md`), and Re:CoM's Sora skeleton and many clips turn out to be KH1's. Checked (files).
 
 ## Keyblade swing to hit
 
