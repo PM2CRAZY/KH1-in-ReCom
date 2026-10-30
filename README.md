@@ -26,7 +26,8 @@ KH 1.5+2.5 install. It finds the install by itself, or you can pass `--game-dir 
 
 - Keyboard: WASD move, Shift walk, Space jump/glide, J or Enter Attack, K Dodge Roll/Guard, L lock
   on, arrows/mouse camera, 1–8 abilities, Tab hitboxes, R reset, F1 help.
-- Gamepad (KH1 default layout): A / ✕ Attack, B / ○ jump, X / □ roll/guard, R1 lock on.
+- Gamepad (KH1 default layout), PS5 DualSense or Xbox: ✕ / A Attack, ○ / B jump, □ / X
+  roll/guard, R1 / RB lock on. The HUD's `pad:` line shows the pad it sees and the buttons held.
 - `--trace out.csv` logs every frame for 1:1 comparison with KH1.
 
 ## Build

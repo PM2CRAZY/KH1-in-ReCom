@@ -9,6 +9,7 @@
 //! (or set `KH1_GAME_DIR`). F1 shows the controls. `--trace out.csv` logs every frame.
 
 mod arena;
+mod body;
 mod hud;
 mod scene;
 mod script;
@@ -153,11 +154,11 @@ fn main() {
                 .insert_resource(Latch::default())
                 .insert_resource(OrbitCam { yaw: -0.5, pitch: 0.3, dist: 4.5 })
                 .insert_resource(View { gizmos: true, help: false })
-                .add_systems(Startup, (scene::spawn_world, scene::spawn_sora, scene::spawn_dummies, hud::spawn))
+                .add_systems(Startup, (scene::spawn_world, body::spawn_sora, scene::spawn_dummies, hud::spawn))
                 .add_systems(FixedUpdate, simulate)
                 .add_systems(
                     Update,
-                    (latch_input, keys, camera_follow, scene::sync_sora, scene::sync_dummies, scene::draw_gizmos, hud::update, hud::labels, screenshot_and_exit).chain(),
+                    (latch_input, keys, camera_follow, body::sync_sora, scene::sync_dummies, scene::draw_gizmos, hud::update, hud::labels, screenshot_and_exit).chain(),
                 );
         }
         Err(msg) => {

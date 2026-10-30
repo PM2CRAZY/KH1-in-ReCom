@@ -11,6 +11,31 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 3: smoother Sora in the playground, PS5 controllers, version 0.2.1 (2026-10-30)
+
+> "lets make the actual character model looking smoother, and make sure ps5 controllers work with
+> it" (owner chose a smoother mannequin, not the real mesh)
+
+- `kh1-playground/src/body.rs` replaces the old one-capsule-per-bone figure:
+  - smooth tapered limbs (two spheres joined by a cone, with smooth normals) and rounded joints;
+  - the pelvis, chest, head and shoes are ellipsoids oriented by the surrounding bones;
+  - Sora's 14 real hair spikes, jacket tails, hood and fingers follow their own bones;
+  - MSAA ×4, plus a fill light.
+- The KH1 bone roles come from matching KH1's skeleton to Re:CoM's named one, e.g. 17/18/20/23 for
+  the right leg and 93/94/97/100 for the right arm. Checked (files).
+- **Finding:** KH1 doesn't pose the end bones of chains (flags `0x6000000`: hair tips, jacket
+  tails, hood). The figure places them from the parent's world matrix and the end bone's rest
+  translation. Checked (files: idle pose dump).
+- Gamepads:
+  - Bevy's gilrs uses Windows.Gaming.Input with SDL's controller database, which includes the
+    DualSense `054C:0CE6` and the Edge `0DF2` over USB and Bluetooth (gilrs builds USB-style
+    GUIDs). Checked (crate source; the mapping string is in the built exe).
+  - The HUD shows each pad's name, ids, stick and held buttons, with PS labels.
+  - Not tested with a real pad.
+- No change to the rewrite crates or the Re:CoM DLL, apart from the version number.
+
+---
+
 ## Stage 2: KH1 battle system Rust rewrite + playground demo, version 0.2.0 (2026-10-30)
 
 > "Lets try to do a full 1:1 Rust Rewrite of the KH1 Battle System, similar to how we did the KH2

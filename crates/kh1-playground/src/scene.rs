@@ -11,44 +11,22 @@ use crate::{to_bevy, Game, View, SCALE};
 
 /// A capsule between two bones (parent `a`, child `b`); `rest` is its length when spawned.
 #[derive(Component)]
-pub struct Seg {
-    a: usize,
-    b: usize,
-    rest: f32,
-}
-
-/// A sphere on a bone.
-#[derive(Component)]
-pub struct Ball {
-    bone: usize,
-}
-
-/// The Keyblade's body along its blade line.
-#[derive(Component)]
-pub struct BladeMesh;
-
-/// A dummy's body.
-#[derive(Component)]
 pub struct DummyBody(pub usize);
 
 /// Bone roles the mannequin uses beyond the plain bone segments. Assumption (from the
 /// hierarchy, the file has no names): bone 0 the hips, 147 the look-at bone (the model info's,
 /// the neck), 151 the bone the face and hair bones hang from (the head); 17 / 43 start the legs,
 /// 21 / 47 the feet, 101 / 206 the hands.
-mod roles {
-    pub const HIPS: usize = 0;
-    pub const NECK: usize = 147;
-    pub const HEAD: usize = 151;
-    pub const LEGS: [usize; 2] = [17, 43];
-    pub const FEET: [usize; 2] = [21, 47];
-    pub const HANDS: [usize; 2] = [101, 206];
-}
-
 pub fn spawn_world(mut commands: Commands, game: Res<Game>, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<StandardMaterial>>) {
-    commands.spawn((Camera3d::default(), Projection::Perspective(PerspectiveProjection { fov: 0.9, near: 0.05, ..default() }), Transform::from_xyz(0.0, 3.0, 6.0).looking_at(Vec3::ZERO, Vec3::Y)));
+    commands.spawn((Camera3d::default(), Msaa::Sample4, Projection::Perspective(PerspectiveProjection { fov: 0.9, near: 0.05, ..default() }), Transform::from_xyz(0.0, 3.0, 6.0).looking_at(Vec3::ZERO, Vec3::Y)));
     commands.spawn((
         DirectionalLight { illuminance: 8000.0, shadows_enabled: true, ..default() },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -1.0, 0.5, 0.0)),
+    ));
+    // A soft fill light from the other side, without shadows.
+    commands.spawn((
+        DirectionalLight { illuminance: 2500.0, shadows_enabled: false, color: Color::srgb(0.85, 0.9, 1.0), ..default() },
+        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.6, -2.4, 0.0)),
     ));
     let size = game.sim.arena.half_size * 2.0 * SCALE;
     commands.spawn((
@@ -64,101 +42,11 @@ pub fn spawn_world(mut commands: Commands, game: Res<Game>, mut meshes: ResMut<A
     ));
 }
 
-fn is_under(rig: &kh1_anim::Rig, mut b: usize, roots: &[usize]) -> bool {
-    loop {
-        if roots.contains(&b) {
-            return true;
-        }
-        match rig.parent(b) {
-            Some(p) => b = p,
-            None => return false,
-        }
-    }
-}
-
-pub fn spawn_sora(mut commands: Commands, game: Res<Game>, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<StandardMaterial>>) {
-    let sim = &game.sim;
-    let rig = &sim.rig;
-    let mat = |m: &mut Assets<StandardMaterial>, c: Color| m.add(StandardMaterial { base_color: c, perceptual_roughness: 0.6, ..default() });
-    let jacket = mat(&mut mats, Color::srgb(0.2, 0.22, 0.3));
-    let suit = mat(&mut mats, Color::srgb(0.75, 0.16, 0.16));
-    let shoe = mat(&mut mats, Color::srgb(0.95, 0.8, 0.25));
-    let skin = mat(&mut mats, Color::srgb(0.93, 0.85, 0.76));
-    let hair = mat(&mut mats, Color::srgb(0.45, 0.3, 0.18));
-    let n = rig.bone_count();
-    for b in 0..n {
-        let Some(a) = rig.parent(b) else { continue };
-        if !rig.is_posed(a) || !rig.is_posed(b) {
-            continue;
-        }
-        let len = (sim.bone_world(b) - sim.bone_world(a)).length();
-        if len <= 2.0 {
-            continue;
-        }
-        let r = (len * 0.2).clamp(1.0, 5.5);
-        let m = if is_under(rig, b, &roles::FEET) {
-            shoe.clone()
-        } else if is_under(rig, b, &roles::HANDS) {
-            skin.clone()
-        } else if is_under(rig, b, &roles::LEGS) {
-            suit.clone()
-        } else if is_under(rig, b, &[roles::HEAD]) {
-            hair.clone()
-        } else {
-            jacket.clone()
-        };
-        commands.spawn((Mesh3d(meshes.add(Capsule3d::new(r * SCALE, len * SCALE))), MeshMaterial3d(m), Transform::IDENTITY, Seg { a, b, rest: len }));
-    }
-    let torso = (sim.bone_world(roles::NECK) - sim.bone_world(roles::HIPS)).length().max(1.0);
-    commands.spawn((Mesh3d(meshes.add(Capsule3d::new(12.0 * SCALE, torso * SCALE))), MeshMaterial3d(suit.clone()), Transform::IDENTITY, Seg { a: roles::HIPS, b: roles::NECK, rest: torso }));
-    commands.spawn((Mesh3d(meshes.add(Sphere::new(1.0).mesh().uv(24, 16))), MeshMaterial3d(skin), Transform::IDENTITY, Ball { bone: roles::HEAD }));
-    commands.spawn((
-        Mesh3d(meshes.add(Cylinder::new(1.0, 1.0))),
-        MeshMaterial3d(mats.add(StandardMaterial { base_color: Color::srgb(0.85, 0.87, 0.92), metallic: 0.8, perceptual_roughness: 0.3, ..default() })),
-        Transform::IDENTITY,
-        BladeMesh,
-    ));
-}
-
 pub fn spawn_dummies(mut commands: Commands, game: Res<Game>, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<StandardMaterial>>) {
     for (i, d) in game.sim.dummies.iter().enumerate() {
         let p = d.parts[0];
-        let mesh = meshes.add(Capsule3d::new(p.radius * SCALE, (p.half_height * 2.0 - p.radius * 2.0).max(1.0) * SCALE));
+        let mesh = meshes.add(Capsule3d::new(p.radius * SCALE, (p.half_height * 2.0 - p.radius * 2.0).max(1.0) * SCALE).mesh().longitudes(48).latitudes(24));
         commands.spawn((Mesh3d(mesh), MeshMaterial3d(mats.add(StandardMaterial { base_color: Color::srgb(0.6, 0.6, 0.62), ..default() })), Transform::IDENTITY, DummyBody(i)));
-    }
-}
-
-fn place(t: &mut Transform, a: Vec3, b: Vec3, rest: f32) {
-    let d = b - a;
-    let len = d.length();
-    t.translation = (a + b) * 0.5;
-    t.rotation = Quat::from_rotation_arc(Vec3::Y, d.normalize_or(Vec3::Y));
-    t.scale = Vec3::new(1.0, if rest > 0.0 { len / (rest * SCALE) } else { 1.0 }, 1.0);
-}
-
-#[allow(clippy::type_complexity)]
-pub fn sync_sora(
-    game: Res<Game>,
-    mut segs: Query<(&Seg, &mut Transform, &mut Visibility), (Without<Ball>, Without<BladeMesh>)>,
-    mut balls: Query<(&Ball, &mut Transform), (Without<Seg>, Without<BladeMesh>)>,
-    mut blade: Query<&mut Transform, (With<BladeMesh>, Without<Seg>, Without<Ball>)>,
-) {
-    let sim = &game.sim;
-    for (s, mut t, mut vis) in &mut segs {
-        let shown = sim.rig.is_posed(s.a) && sim.rig.is_posed(s.b);
-        *vis = if shown { Visibility::Inherited } else { Visibility::Hidden };
-        if shown {
-            place(&mut t, to_bevy(sim.bone_world(s.a)), to_bevy(sim.bone_world(s.b)), s.rest);
-        }
-    }
-    for (b, mut t) in &mut balls {
-        t.translation = to_bevy(sim.bone_world(b.bone));
-        t.scale = Vec3::splat(13.0 * SCALE);
-    }
-    if let (Ok(mut t), Some((grip, tip))) = (blade.get_single_mut(), sim.blade_line) {
-        let (a, b) = (to_bevy(grip), to_bevy(tip));
-        place(&mut t, a, b, 0.0);
-        t.scale = Vec3::new(2.2 * SCALE, (b - a).length(), 2.2 * SCALE);
     }
 }
 

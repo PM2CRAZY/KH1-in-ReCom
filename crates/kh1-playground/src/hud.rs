@@ -31,7 +31,8 @@ Keyboard\n\
   Tab       hit gizmos      R  reset      F1  help\n\
 Gamepad\n\
   left stick move (KH1's dead zone), right stick camera\n\
-  A / Cross Attack, B / Circle jump, X / Square roll-guard, R1 lock on\n\
+  PS5: Cross Attack, Circle jump, Square roll/guard, R1 lock on\n\
+  Xbox: A Attack, B jump, X roll/guard, RB lock on\n\
 \n\
 With Guard and Dodge Roll both on, the roll needs the stick past 0.8 (KH1).\n\
 Rings: green = close range 180, yellow = lunge range 300 (gap to the target's surface).";
@@ -88,7 +89,14 @@ fn on(b: bool) -> &'static str {
     }
 }
 
-pub fn update(game: Res<Game>, view: Res<View>, mut hud: Query<&mut Text, (With<HudText>, Without<HelpText>)>, mut help: Query<&mut Visibility, With<HelpText>>) {
+#[allow(clippy::type_complexity)]
+pub fn update(
+    game: Res<Game>,
+    view: Res<View>,
+    pads: Query<(&Gamepad, Option<&Name>)>,
+    mut hud: Query<&mut Text, (With<HudText>, Without<HelpText>)>,
+    mut help: Query<&mut Visibility, With<HelpText>>,
+) {
     if let Ok(mut v) = help.get_single_mut() {
         *v = if view.help { Visibility::Inherited } else { Visibility::Hidden };
     }
@@ -99,6 +107,7 @@ pub fn update(game: Res<Game>, view: Res<View>, mut hud: Query<&mut Text, (With<
     use std::fmt::Write;
     let _ = writeln!(s, "KH1 FM Sora (kh1-playground)   data: {}", game.source);
     let _ = writeln!(s, "frame {}   60 Hz, step 1.0{}", sim.frame, if sim.opts.push { "" } else { "   (no dummy push)" });
+    let _ = writeln!(s, "{}", pad_line(&pads));
     let _ = writeln!(s, "state {:#x} {}   grounded {}   height {:.1}", c.state, state_name(c.state), c.grounded, c.height_above_floor);
     let len = c.motion.info(&c.moveset.motions).map_or(0.0, |m| m.length);
     let blend = if c.motion.blend > 0.0 { format!("   blend {:.0}/{:.0}", c.motion.blend_clock, c.motion.blend) } else { String::new() };
@@ -183,4 +192,56 @@ pub fn show_error(mut commands: Commands, e: Res<ErrorText>) {
         TextColor(Color::srgb(1.0, 0.65, 0.6)),
         Node { position_type: PositionType::Absolute, top: Val::Px(24.0), left: Val::Px(24.0), right: Val::Px(24.0), ..default() },
     ));
+}
+
+/// One line about the connected gamepads: name, USB ids and the buttons held right now, with
+/// PlayStation labels for Sony pads (vendor 0x054C; a DualSense is 054C:0CE6, Edge 054C:0DF2).
+fn pad_line(pads: &Query<(&Gamepad, Option<&Name>)>) -> String {
+    let mut out = Vec::new();
+    for (pad, name) in pads.iter() {
+        let sony = pad.vendor_id() == Some(0x054C);
+        let label = |b: GamepadButton| -> &'static str {
+            match (b, sony) {
+                (GamepadButton::South, true) => "Cross",
+                (GamepadButton::East, true) => "Circle",
+                (GamepadButton::West, true) => "Square",
+                (GamepadButton::North, true) => "Triangle",
+                (GamepadButton::South, false) => "A",
+                (GamepadButton::East, false) => "B",
+                (GamepadButton::West, false) => "X",
+                (GamepadButton::North, false) => "Y",
+                (GamepadButton::LeftTrigger, _) => if sony { "L1" } else { "LB" },
+                (GamepadButton::RightTrigger, _) => if sony { "R1" } else { "RB" },
+                (GamepadButton::LeftTrigger2, _) => if sony { "L2" } else { "LT" },
+                (GamepadButton::RightTrigger2, _) => if sony { "R2" } else { "RT" },
+                (GamepadButton::Start, _) => if sony { "Options" } else { "Start" },
+                (GamepadButton::Select, _) => if sony { "Create" } else { "Back" },
+                (GamepadButton::DPadUp, _) => "Up",
+                (GamepadButton::DPadDown, _) => "Down",
+                (GamepadButton::DPadLeft, _) => "Left",
+                (GamepadButton::DPadRight, _) => "Right",
+                (GamepadButton::LeftThumb, _) => "L3",
+                (GamepadButton::RightThumb, _) => "R3",
+                _ => "other",
+            }
+        };
+        let held: Vec<&str> = pad.get_pressed().map(|b| label(*b)).collect();
+        let ids = match (pad.vendor_id(), pad.product_id()) {
+            (Some(v), Some(p)) => format!("{v:04X}:{p:04X}"),
+            _ => "ids unknown".into(),
+        };
+        let l = pad.left_stick();
+        out.push(format!(
+            "pad: {} ({ids})  stick {:+.2} {:+.2}  held [{}]",
+            name.map_or("gamepad", |n| n.as_str()),
+            l.x,
+            l.y,
+            held.join(" ")
+        ));
+    }
+    if out.is_empty() {
+        "pad: none connected (USB or Bluetooth; PS5 DualSense and Xbox pads are supported)".into()
+    } else {
+        out.join("\n")
+    }
 }
