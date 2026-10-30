@@ -1,0 +1,11 @@
+[package]
+name = "kh1-data"
+description = "Finds the player's KINGDOM HEARTS FINAL MIX (PC) install and builds kh1-core's data and kh1-anim's rig from the player's own files. Ships no game data."
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+kh1-formats = { path = "../kh1-formats" }
+kh1-core = { path = "../kh1-core" }
+kh1-anim = { path = "../kh1-anim" }

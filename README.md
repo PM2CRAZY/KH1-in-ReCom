@@ -18,9 +18,21 @@ anything in play yet.
      `result: all checks passed.`
    - `kh1-recom.ini`: settings, written with the defaults on first launch.
 
+## KH1 playground (demo)
+
+`kh1-playground` is a 1:1 Rust rewrite of KH1 FM's movement and Attack, with a mannequin Sora
+posed by his real skeleton and motions and four training dummies. Everything is read from your own
+KH 1.5+2.5 install. It finds the install by itself, or you can pass `--game-dir "<folder>"`.
+
+- Keyboard: WASD move, Shift walk, Space jump/glide, J or Enter Attack, K Dodge Roll/Guard, L lock
+  on, arrows/mouse camera, 1–8 abilities, Tab hitboxes, R reset, F1 help.
+- Gamepad (KH1 default layout): A / ✕ Attack, B / ○ jump, X / □ roll/guard, R1 lock on.
+- `--trace out.csv` logs every frame for 1:1 comparison with KH1.
+
 ## Build
 
 - Tests: `cargo test`
 - Windows DLL from Linux: `tools/build-win.sh` (MinGW; writes `openkh/kh1-recom.dll`).
+- Playground: `cargo run --release -p kh1-playground`.
 
 This repository contains no game files, no extracted data and no decompiled code.

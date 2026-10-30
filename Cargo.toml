@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/kh1-recom"]
+members = [
+    "crates/kh1-recom",
+    "crates/kh1-formats",
+    "crates/kh1-core",
+    "crates/kh1-anim",
+    "crates/kh1-data",
+    "crates/kh1-playground",
+]
 
 [profile.release]
 panic = "abort"

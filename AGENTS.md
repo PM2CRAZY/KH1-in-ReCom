@@ -11,6 +11,34 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 2: KH1 battle system Rust rewrite + playground demo, version 0.2.0 (2026-10-30)
+
+> "Lets try to do a full 1:1 Rust Rewrite of the KH1 Battle System, similar to how we did the KH2
+> battle system rewrite, with a demo i can test" (owner: reference + demo; first demo movement +
+> Attack)
+
+- New crates (`docs/kh1-rewrite.md`):
+  - `kh1-formats`: reads PC HED/PKG and KH1's `.mset`, `.mdls` and `btltbl.bin`.
+  - `kh1-anim`: KH1's posing pass (curves, start pose, constraints, two-bone IK, frozen-snapshot
+    blends).
+  - `kh1-core`: the 60 Hz controller and combat.
+  - `kh1-data`: install discovery and `SoraKit`.
+  - `kh1-playground`: Bevy demo.
+- Data is read at runtime from the player's `kh1_first.pkg` (`xa_ex_0010.mset/.mdls`,
+  `btltbl.bin`). Checked (files: decoding gives the extracted files' SHA-256).
+- `kh1-anim` matches Square Enix's own Re:CoM bakes of the same KH1 motions to ≤0.019° local
+  rotation and ≤0.051 mm world position on swing / roll / run / jump. Checked (files, tests).
+- `kh1-core` corrections to the notes (cone 22°, air row 17 above, combo 13→14→8 with a close
+  target, …) are in `docs/kh1-sora.md`. Checked (decomp).
+- Assumptions are marked in the code and the HUD: root travel subtraction, MSVC `rand`, task order,
+  dummy stats (Strength 5, Defence 2, 300 HP), and the camera (an orbit camera, not KH1's).
+- Headless check: a scripted combo runs rows 13 → 14 → 8 and hits the close dummy for 3, 3 and 7.
+- The `kh1-recom` DLL is unchanged apart from its version (0.2.0); it still only checks the game.
+- 70 tests (all pass with `KH1_TEST_DATA`); clippy clean.
+- Not checked against a KH1 trace yet. Gamepad untested.
+
+---
+
 ## Stage 1: the mod's skeleton DLL, version 0.1.0 (2026-10-30)
 
 > "B, and use whichever is least effort and is most native to RECom" (owner: Panacea loads the

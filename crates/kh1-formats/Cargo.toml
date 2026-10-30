@@ -1,0 +1,12 @@
+[package]
+name = "kh1-formats"
+description = "Readers for KINGDOM HEARTS FINAL MIX (PC, Steam) files: HED/PKG archives, Sora's .mset motions, .mdls skeleton and btltbl.bin. Reads the user's own install; ships no game data."
+version = "0.1.0"
+edition = "2021"
+# The archive cipher in src/egs.rs is a port of OpenKH code (Apache-2.0).
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+md-5 = "0.10"
+sha2 = "0.10"
+flate2 = "1"

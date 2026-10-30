@@ -1,0 +1,9 @@
+[package]
+name = "kh1-anim"
+description = "Poses KINGDOM HEARTS FINAL MIX Sora's skeleton from a motion exactly like KH1 does each frame (curves, starting poses, helper constraints, IK, blends). Reads the user's own files; ships no game data."
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+kh1-formats = { path = "../kh1-formats" }

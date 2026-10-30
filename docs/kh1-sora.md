@@ -114,3 +114,25 @@ each value sits and how it is used. Checked (decomp).
   both. That design is open and needs the data first.
 - Movement constants (speeds, gravity, turn, jump arc) are in the exe and fully known, except the
   jump heights.
+
+## Corrections found while building `kh1-core` (2026-10-30; Checked (decomp) unless marked)
+
+- **Narrow cone is 22°, not 22.5°:** `0x1402A6180` halves the angle as an integer (`45 >> 1`), so
+  its cosine is 0.92718. The lead re-checked the line in the decomp.
+- **Air row 17** is for a target more than 100 units **above** Sora (y-down `dy < −100`), not below.
+- **Ground combo with a close target in front:** rows 13 and 14 are both flagged, so the combo is
+  13 → 14 (motion 202) → 8. It is 13 → 11 → 8 only with nothing in the front cone.
+- **Jump take-off:** the actor task (`0x140297FE0`) clears the "state changed" flag right after the
+  think, so the take-off never triggers the pre-step's fall request. Only state changes made in
+  physics (walk-off, landing) do. This settles the open point in `kh1-movement-motion`.
+- **Roll:** the 12-frame no-flinch timer starts counting in the roll's own frame. The flag is on at
+  the end of frames 0–10.
+- **Landing:** the 12-frame lock allows a jump, which restarts the take-off at t = 2.
+- **Glide:** its timer counts down twice per frame while gliding. After a release, the air velocity
+  is move direction × tilt.
+- **Guard** resets the hit count, so attacking out of Guard needs a block or Combo Master.
+- **Damage** is at least 1; power 0 deals 0. The MP charge is capped at 250 % of the record's.
+- **Posing:** Hermite uses the left key's `+0x0C` tangent and the right key's `+0x08`, in 1/256
+  frames. Blends are frozen-snapshot row lerps relative to "blend bones", with leg IK re-solved, not
+  a curve re-evaluation (`kh1-rewrite.md`; research notes). Verified against Square Enix's own
+  Re:CoM bakes to 0.01–0.02°.

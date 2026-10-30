@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64
           rustup target add x86_64-pc-windows-gnu
       - name: Tests
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude kh1-playground
       - name: Build DLL (Windows)
         run: ./tools/build-win.sh
       - name: Commit DLL
