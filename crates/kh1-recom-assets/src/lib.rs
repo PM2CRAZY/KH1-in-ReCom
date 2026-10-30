@@ -10,7 +10,8 @@
 //! - [`mdl`]: Re:CoM's skeleton (`.MDL`);
 //! - [`convert`]: KH1 pose (via `kh1-anim`) → Re:CoM bones → clip;
 //! - [`build`]: the whole pack + manifest from the four input files;
-//! - [`install`]: finding the files in the player's install and the Panacea mod folder.
+//! - [`install`]: finding the files in the player's install and the Panacea mod folder;
+//! - [`stats`]: KH1 enemy twins' records and Sora's KH1 Strength (`kh1-stats.json`).
 //!
 //! No game data is embedded; everything is read from the user's files at run time.
 
@@ -24,6 +25,7 @@ pub mod install;
 pub mod matching;
 pub mod math;
 pub mod mdl;
+pub mod stats;
 
 /// Errors.
 #[derive(Debug)]

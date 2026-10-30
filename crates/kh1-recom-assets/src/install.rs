@@ -58,6 +58,14 @@ pub fn read_recom(arc: &Archive, keys: &KeyTable, name: &str) -> Result<Vec<u8>>
     Ok(arc.read(keys, name)?)
 }
 
+/// KH1's installed archives (any KH1 file by name).
+pub fn kh1(game: &Path, keys: KeyTable) -> Result<Install> {
+    Ok(Install::with_keys(game, keys)?)
+}
+
+/// The KH1 stats file the runtime reads, next to [`MANIFEST`].
+pub const STATS: &str = "kh1-stats.json";
+
 /// Reads KH1's `xa_ex_0010.mset` and `.mdls` from the game folder's `kh1_*` archives.
 pub fn read_kh1(game: &Path, keys: KeyTable) -> Result<(Vec<u8>, Vec<u8>)> {
     let inst = Install::with_keys(game, keys)?;

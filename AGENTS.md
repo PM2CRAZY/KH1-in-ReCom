@@ -11,6 +11,32 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 13: KH1 damage and HP on Re:CoM's enemies, Sora's KH1 Strength, version 0.7.0 (2026-10-30)
+
+> "Yes do that order, and have it follow the Rod" / Strength path: "Rod, give up Shield" /
+> enemy stats: "Same world, LV1"
+
+- **Strength** (decision 18): new game btltbl `0x39D8` (Sora Strength 4), Dive deltas
+  `0x128 + 4 × choice` (keep Rod, give up Shield: +0), level bonuses `0x3AC0` (bonus 4 =
+  Strength +2, `0x1402B51B0` → `0x1402B5660`), Kingdom Key +3 (`0x1402A5130`). 7 at level 1 … 51
+  at 99. Checked (decomp + files).
+- **Enemy records** (decisions 12, 21): KH1's AI syscall 45 records, read by the asset step
+  from each twin's `.mdls` part 5 at the script offsets found by evaluating the scripts (per
+  world for the Shadow, LV1 / LV2 for the rest). 31 Re:CoM classes. Checked (decomp + files).
+  Pairings by internal name only: Assumption, tagged in the file.
+- **Runtime** (`win/stats.rs`, new hooks `0x14017FF50` enemy stats init and `0x14017F5A0` max HP;
+  callees `0x1402339C0` world, `0x1401AAAE0` Riku's story; all byte-checked): KH1 HP on twins,
+  KH1 damage written as the hit part's value `+0x92` in the enemy hit handler, then Re:CoM's own
+  weak-part / resistance / falloff. Sora's level from `*0x14087CBF8 + 0x1C`. Riku's story and
+  classes without a twin keep Re:CoM's numbers. Checked (decomp); not seen in game.
+- **Swing aim**: KH1 keeps the yaw taken at the press (`0x1402A7510` → `0x1402A38E0`). The mod
+  already does this. Checked (decomp).
+- Decisions 19–21 recorded. Guard (decision 20) and M6 are the next versions.
+- Assumption: Re:CoM's damage path adds nothing else to the value (`0x14015D5F0` can rewrite
+  AP; not read). The log names each class's KH1 HP / Defence per world the first time.
+
+---
+
 ## Stage 12: Re:CoM's ledge grab from a KH1 jump, version 0.6.3 (2026-10-30)
 
 > "sora is also unable to ledge grab with KH1 selected"

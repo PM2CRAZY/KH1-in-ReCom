@@ -166,6 +166,15 @@ At KH1 setting:
 19. Work order after 0.6.3 (owner, 2026-10-30): finish M5 (KH1 damage numbers, Guard's repel and
     Counterattack, the swing-turning check), then M6 (battles without cards); M1's KH1
     recordings when the owner has time.
+20. Guard against Re:CoM enemies (owner, 2026-10-30): Sora's side is KH1's (no damage, KH1's
+    recoil 0x6E, Counterattack from frame 12). Re:CoM enemies also get new reactions when Sora
+    blocks them (Re:CoM's own flinch for the attacker, blocked shots turned back), behind a
+    Config toggle. Re:CoM attacks have no KH1 priority: all are blockable with KH1's normal
+    recoil for Sora (kind 6, no pushback).
+21. Which KH1 record a Re:CoM enemy uses (owner, 2026-10-30): the record of the Re:CoM floor's
+    world as on a first KH1 visit (LV1), e.g. an Agrabah Shadow uses KH1's Agrabah Shadow.
+    Worlds KH1 doesn't have (Twilight Town, Castle Oblivion) use KH1's LV2 record. HP, Defence,
+    damage floor / cap, level and resistances come from that record (decision 12).
 
 ## Known open design questions (ask the owner, don't guess)
 

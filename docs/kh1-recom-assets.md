@@ -391,3 +391,13 @@ bones): local rotation (geodesic angle), translation and scale.
 - Pose capture in game (the M2 "done when") is not done.
 - Version / `AGENTS.md` stage entry for this crate: left to the lead (this task was limited to
   the crate and this note).
+
+## KH1 stats (`kh1-stats.json`, 0.7.0)
+
+- `kh1-recom-build` also writes `kh1-stats.json` next to `kh1-motions.json`: Sora's KH1
+  Strength for levels 1..100 (decision 18) and the KH1 twin record of 31 Re:CoM enemy classes
+  for each Re:CoM world (decision 21). Read from the player's `btltbl.bin` and the twins'
+  `.mdls` (part 5, the AI script). Module `stats`; details in `recom-kh1-attack.md` § Damage.
+- The local mod's `mod.yml` copies it like the other files.
+- Checked (files): the owner's install gives all 31 twins with valid records; the motion pack
+  and manifest it rebuilt are byte-identical to the installed ones.

@@ -131,6 +131,22 @@ pub const ATTACK_HOOKS: &[Site] = &[
     Site { name: "root motion step (0x14024DCA0)", rva: 0x0024_DCA0, expect: &[0x0F, 0x28, 0x81, 0xA0, 0x00, 0x00, 0x00] },
 ];
 
+/// KH1 enemy stats (`win::stats`, decisions 12 / 21). Same rule as [`HOOKS`].
+pub const STATS_HOOKS: &[Site] = &[
+    // mov [rsp+0x20],r9d; mov [rsp+0x10],edx
+    Site { name: "enemy stats init (0x14017FF50)", rva: 0x0017_FF50, expect: &[0x44, 0x89, 0x4C, 0x24, 0x20, 0x89, 0x54, 0x24, 0x10] },
+    // sub rsp,0x28; mov rax,[rcx+0x310]
+    Site { name: "enemy max HP (0x14017F5A0)", rva: 0x0017_F5A0, expect: &[0x48, 0x83, 0xEC, 0x28, 0x48, 0x8B, 0x81, 0x10, 0x03, 0x00, 0x00] },
+];
+
+/// Re:CoM functions the stats code calls.
+pub const STATS_CALLEES: &[Site] = &[
+    // push rbx; sub rsp,0x20; mov rax,[rip+…] (the save block)
+    Site { name: "current world (0x1402339C0)", rva: 0x0023_39C0, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0x05, 0x43, 0x77, 0x64, 0x00, 0x33, 0xDB] },
+    // sub rsp,0x28; mov edx,0x60; xor ecx,ecx (byte variable 0x60: Riku's story)
+    Site { name: "Riku's story (0x1401AAAE0)", rva: 0x001A_AAE0, expect: &[0x48, 0x83, 0xEC, 0x28, 0xBA, 0x60, 0x00, 0x00, 0x00, 0x33, 0xC9] },
+];
+
 /// Re:CoM functions the Attack calls.
 pub const ATTACK_CALLEES: &[Site] = &[
     Site { name: "end attack (0x1401F6660)", rva: 0x001F_6660, expect: &[0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83] },
@@ -177,7 +193,7 @@ pub mod data {
 
 /// Every site the startup check reads: checked-only, hooked, called.
 pub fn all_sites() -> impl Iterator<Item = &'static Site> {
-    SITES.iter().chain(HOOKS).chain(CALLEES).chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(MOVE_CALLEES).chain(ATTACK_HOOKS).chain(ATTACK_CALLEES).chain(ATTACK_DATA)
+    SITES.iter().chain(HOOKS).chain(CALLEES).chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(MOVE_CALLEES).chain(ATTACK_HOOKS).chain(ATTACK_CALLEES).chain(ATTACK_DATA).chain(STATS_HOOKS).chain(STATS_CALLEES)
 }
 
 /// What the PE headers of a loaded image say about its build.
@@ -270,7 +286,7 @@ mod tests {
         // The hooked prologues hold no rip-relative operand or branch, so they can run from the
         // trampoline (whole instructions, decoded in the comments above each site). The
         // trampoline (moved bytes + a 14-byte jump) must fit before the stub.
-        for h in HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS) {
+        for h in HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS) {
             assert!(h.expect.len() >= 5 && h.expect.len() + 14 <= crate::hookplan::STUB_AT, "{}", h.name);
             assert!(!h.expect.windows(2).any(|w| w == [0x8B, 0x05] || w == [0x8D, 0x05] || w == [0x8B, 0x0D] || w == [0x10, 0x05]), "{}", h.name);
             assert!(!h.expect.contains(&0xE8) && !h.expect.contains(&0xE9), "{}", h.name);

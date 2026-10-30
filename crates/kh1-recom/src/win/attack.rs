@@ -110,7 +110,7 @@ type ApplyFn = unsafe extern "win64" fn(usize, usize) -> i32;
 type RootFn = unsafe extern "win64" fn(usize, *mut [f32; 4], *mut f32);
 type VecFn = unsafe extern "win64" fn(usize, *mut [f32; 4]) -> u64;
 
-fn moveset() -> &'static Moveset {
+pub(super) fn moveset() -> &'static Moveset {
     MOVESET.get_or_init(Moveset::kh1_defaults)
 }
 
@@ -410,24 +410,24 @@ pub unsafe extern "win64" fn pair_dispatch(coll: usize, list: usize) -> i32 {
 }
 
 /// Whether one of the enemy's body parts took a KH1 swing's hit (consumed).
-unsafe fn take_kh1_hit(enemy: usize) -> bool {
+unsafe fn take_kh1_hit(enemy: usize) -> Option<usize> {
     let info: usize = rd(enemy + 0xF8);
     if info == 0 {
-        return false;
+        return None;
     }
     let parts: usize = rd(info + 0x40);
     let n: i32 = rd(info + 0x38);
-    let Ok(mut g) = KH1_HITS.lock() else { return false };
+    let Ok(mut g) = KH1_HITS.lock() else { return None };
     for i in 0..n.clamp(0, 32) as usize {
         let part = parts + i * 0x120;
         if let Some(k) = g.iter().position(|&x| x == part) {
             if rd::<i16>(part + 0x90) != 0 {
                 g.swap_remove(k);
-                return true;
+                return Some(part);
             }
         }
     }
-    false
+    None
 }
 
 /// Re:CoM's enemy hit handler. KH1's rule (decision 14): Sora's hits land during the enemy's card
@@ -435,8 +435,17 @@ unsafe fn take_kh1_hit(enemy: usize) -> bool {
 /// take the hit) runs for a KH1 hit.
 pub unsafe extern "win64" fn enemy_hit(enemy: usize) -> u64 {
     let o: PlRetFn = orig(&ORIG_ENEMY_HIT);
-    if !mv::kh1_on() || !take_kh1_hit(enemy) {
+    if !mv::kh1_on() {
         return o(enemy);
+    }
+    let Some(part) = take_kh1_hit(enemy) else { return o(enemy) };
+    // KH1's damage (decision 12) as the hit part's value (`+0x92`, read by `0x14016FDB0`); Re:CoM's
+    // own path then applies its weak part, resistance % and boss falloff (decision 13).
+    let pl: usize = rd(va(base(), data::MAIN_PLAYER));
+    let row = if pl != 0 { kh1_row_of(pl) } else { None };
+    let kh1 = row.and_then(|r| super::stats::kh1_hit(enemy, r, super::stats::sora_level()));
+    if let Some(d) = kh1 {
+        wr(part + 0x92, d.clamp(0, i16::MAX as i32) as i16);
     }
     let flags: u64 = rd(enemy + 0x260);
     let force = flags & 1 != 0 && flags & 0x200_0000 == 0;
@@ -452,7 +461,7 @@ pub unsafe extern "win64" fn enemy_hit(enemy: usize) -> u64 {
     let after: i32 = rd(enemy + 0x274);
     if let Ok(mut g) = HIT_LOG.lock() {
         if g.len() < 16 {
-            g.push(format!("e{:x}:dmg {}:hp {}{}", enemy & 0x00FF_FFFF, hp - after, after, if force { ":card" } else { "" }));
+            g.push(format!("e{:x}:dmg {}:hp {}{}{}", enemy & 0x00FF_FFFF, hp - after, after, if force { ":card" } else { "" }, kh1.map_or(String::new(), |d| format!(":kh1 {d}"))));
         }
     }
     r

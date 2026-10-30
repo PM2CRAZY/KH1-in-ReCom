@@ -157,32 +157,37 @@ a lock, KH1 scans every enemy part in its cones; here the scan sees only that ta
 
 ## Damage and reactions
 
-- **KH1 enemy stats.** Partly found, so KH1 damage is not on. This is the logged fallback.
-  - Checked (decomp + files). KH1 fills an enemy's stats block in `0x1402A58E0`. It is reached
-    only from AI-script syscall 45 (`0x1402BBDF0`, entry 45 of the table at `0x140529180`), with a
-    0x6C-byte record from the script's data:
-    - `+0` HP;
-    - `+4` / `+8` Strength / Defence **level indices**;
-    - `+0xC` / `+0x10` damage floor / cap;
-    - `+0x14` level;
-    - `+0x18` launch weight;
-    - `+0x24` damage scale;
-    - `+0x28..` 16 resistances (%).
-  - The indices select btltbl file `0xC8A8`: 21 rows of {Strength, Defence} (`0x14028F990`;
-    btltbl is loaded at `0x142D22D40`, `0x14028F9D0`). The rows are (2,2), (5,5), (6,6), (8,8),
-    (9,9), (11,10), (12,11), (15,13), (17,14), (17,15), (20,17), (21,18), (22,19), (24,20), (27,21),
-    (29,23), (31,24), (35,27), (40,30), (42,34), (46,46). `attack::ENEMY_STR_DEF`.
-  - **Missing:** the per-enemy records themselves. They live in each enemy's AI script data,
-    which is not in `btltbl.bin` or Sora's files, the only KH1 files in this session. Assumption:
-    the scripts are in each world's or enemy's files in KH1's package (`.ard` room archives or the
-    enemies' own files).
-  - Ready for when they're found:
-    - `attack::kh1_damage` (KH1's formula through kh1-core, with a twin's Defence from the table);
-    - `attack::parse_enemies` for `kh1-enemies.json` next to the manifest:
-      `{"enemies": [{"recom_id", "name", "hp", "strength_level", "defence_level", "min_damage",
-      "max_damage", "level"}]}`.
-  - Until then, Sora deals Re:CoM's own cardless damage (AP = attack stat `+0x43C`). The log says
-    so.
+- **KH1 enemy stats (0.7.0, decisions 12 and 21).** Research notes: `kh1-enemy-stats.md` (kept
+  with the decomp tools). Checked (decomp + files) unless tagged.
+  - KH1 fills an enemy's stats block in `0x1402A58E0` from a 0x6C-byte record its AI script
+    hands to AI syscall 45 (`0x1402BBDF0`, entry 45 of `0x140529180`): r0 HP, r1 / r2 Strength /
+    Defence index into btltbl `0xC8A8` (21 rows), r3 / r4 damage floor / cap per hit
+    (`+0xC0` / `+0xC2`, read by `0x1402BFA80`), r5 level, r6 knockback factor, r7 EXP, r9 the
+    actor's own damage scale, r10..r25 resistances %.
+  - An ordinary Heartless's AI is part 5 of its own `.mdls` (`0x140290D60`, binder
+    `0x140287E40`); bosses and a few scripted fights use their room's script. The record is
+    picked at init by the LV2 story bit (syscall 198: save `0xDC4` bit 0) and, for the Shadow,
+    by world (syscall 105). The script offsets per world / LV were found by evaluating every
+    script; room copies of the same scripts are byte-identical.
+  - The asset step (`kh1-recom-assets` `stats`) reads each twin's `.mdls` from the player's
+    KH1 packages and writes `kh1-stats.json`: Sora's KH1 Strength for levels 1..100 and, for 31
+    Re:CoM classes, the twin's record for each Re:CoM world 1..13 (decision 21: the world's
+    LV1 record; Twilight Town and Castle Oblivion, which KH1 lacks, get LV2). Pairings named
+    only by internal names are tagged `assumed` (Barrel Spider, Sea Neon, Aquatank,
+    Screwdiver, Wyvern, Creeper Plant, Neoshadow). Tornado Step isn't identified and keeps
+    Re:CoM's numbers.
+  - Runtime (`win/stats.rs`): the enemy's class is its vtable (31 Re:CoM `CEnemy*` vtables,
+    RTTI-checked at start); the world is Re:CoM's `0x1402339C0(0)` (1 Traverse Town … 13 Castle
+    Oblivion, the order of `0x140506AA0`; `0x14087B844` is the floor, not the world). Riku's
+    story (`0x1401AAAE0`) keeps Re:CoM's numbers.
+  - **HP:** a wrapper on Re:CoM's enemy stats init `0x14017FF50` (it sets `+0x274` from the
+    enemy's per-floor row `+0x310`) sets the twin's KH1 HP, and the max-HP getter `0x14017F5A0`
+    returns it for that enemy (both at KH1 only).
+  - **Damage:** in the enemy hit handler, a KH1 hit's part value (`part+0x92`, read through
+    `0x14016FDB0`) becomes KH1's damage (kh1-core's `0x1402BFA80`: curve[power − Defence],
+    the row's bounds, the twin's floor / cap and resistance, a crit roll), with Sora's KH1
+    Strength at his Re:CoM level (`*0x14087CBF8 + 0x1C`, the menu's level). The trace's hits
+    column adds `:kh1 <damage>`.
 - **Decision 13 (keep Re:CoM's extras).** Re:CoM's damage path is untouched. Once the KH1 numbers
   are on, they replace the AP, and the back bonus, weak parts and boss falloff still apply.
 - **Reactions.** The KH1 row's kind: swings (KH1 kind 3) → Re:CoM 1 (flinch), finishers (kind 5)

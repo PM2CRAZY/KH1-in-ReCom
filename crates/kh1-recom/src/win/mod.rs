@@ -5,6 +5,7 @@ mod attack;
 mod hook;
 mod menu;
 mod movement;
+mod stats;
 mod sys;
 mod trace;
 
@@ -70,8 +71,7 @@ pub(crate) fn toggle(_k: usize) {
 /// The KH1-only clips the asset step added (Guard): the manifest
 /// `kh1-motions.json` and the `PL0001.ANN` header Panacea will serve, looked for under the mod
 /// folder Panacea passed, its `recom` folder, the DLL's folders and the game folder.
-fn kh1_clips(dirs: &[PathBuf]) -> (crate::rows::Extension, Vec<(u32, String)>) {
-    use crate::{motions, rows};
+fn recom_bases(dirs: &[PathBuf]) -> Vec<PathBuf> {
     let mut bases: Vec<PathBuf> = Vec::new();
     for d in dirs {
         bases.push(d.clone());
@@ -83,6 +83,12 @@ fn kh1_clips(dirs: &[PathBuf]) -> (crate::rows::Extension, Vec<(u32, String)>) {
             }
         }
     }
+    bases
+}
+
+fn kh1_clips(dirs: &[PathBuf]) -> (crate::rows::Extension, Vec<(u32, String)>) {
+    use crate::{motions, rows};
+    let bases = recom_bases(dirs);
     let Some(manifest) = bases.iter().map(|b| b.join("kh1-motions.json")).find(|p| p.is_file()) else {
         log("movement: no kh1-motions.json found (asset step not run?): Guard has no clip");
         return (rows::Extension::default(), Vec::new());
@@ -146,7 +152,8 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
     } else {
         log("movement: not hooked; Sora moves as in Re:CoM");
     }
-    install_attack(base, s);
+    let stats_file = recom_bases(dirs).into_iter().map(|b| b.join("kh1-stats.json")).find(|p| p.is_file());
+    install_attack(base, s, stats_file.as_deref());
     let th = &crate::sites::TRACE_HOOKS;
     let hooks = [
         hook::Hook { site: &th[0], ours: trace::field_exe as *const () as usize, original: &trace::ORIG_FIELD },
@@ -163,7 +170,7 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
 
 /// KH1's Attack (`attack`, `docs/recom-kh1-attack.md`): the KH1 rows, the data patches, then the
 /// hooks, all or nothing. Needs the movement handlers.
-fn install_attack(base: usize, s: &Settings) {
+fn install_attack(base: usize, s: &Settings, stats_file: Option<&Path>) {
     if !movement::installed() {
         log("attack: movement not hooked; KH1 Attack not installed");
         return;
@@ -195,9 +202,28 @@ fn install_attack(base: usize, s: &Settings) {
             "attack: KH1 Attack in Re:CoM's attack action 0xA, field and battle (combo_plus {}, air_combo_plus {}, combo_master {}); KH1 Keyblade chain in the pair dispatch; hits land during enemy cards; no-flinch roll; root motion one update late",
             a.combo_plus, a.air_combo_plus, a.combo_master
         ));
-        log("attack: damage: Re:CoM's own numbers (cardless AP = attack stat) -- FALLBACK: KH1's per-enemy stats records are not in the player's files read so far (docs/recom-kh1-attack.md)");
+        install_stats(base, stats_file);
     } else {
         log("attack: not hooked; Sora attacks as in Re:CoM (the Battle case and row-pick slot stay patched but are not reached)");
+    }
+}
+
+/// KH1 damage and HP on Re:CoM's KH1-equivalent enemies (`stats`): needs `kh1-stats.json`.
+fn install_stats(base: usize, stats_file: Option<&Path>) {
+    if !stats::load(stats_file) {
+        log("attack: damage: Re:CoM's own numbers (cardless AP = attack stat): no KH1 stats");
+        return;
+    }
+    let site = |name: &str| crate::sites::STATS_HOOKS.iter().find(|h| h.name == name).expect("site");
+    let hooks = [
+        hook::Hook { site: site("enemy stats init (0x14017FF50)"), ours: stats::stat_init as *const () as usize, original: &stats::ORIG_STAT_INIT },
+        hook::Hook { site: site("enemy max HP (0x14017F5A0)"), ours: stats::max_hp as *const () as usize, original: &stats::ORIG_MAX_HP },
+    ];
+    // SAFETY: the targets' bytes are checked again inside, before anything is written.
+    if unsafe { hook::install_all(base, &hooks) } {
+        log("attack: damage: KH1's (Sora's KH1 Strength, the twin's Defence, floor, cap and resistance; Re:CoM's weak part and falloff on top); KH1 HP on twins");
+    } else {
+        log("attack: damage: Re:CoM's own numbers: the stats hooks are not in");
     }
 }
 

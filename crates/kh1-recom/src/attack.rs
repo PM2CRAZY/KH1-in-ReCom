@@ -415,26 +415,24 @@ pub fn attack_events(out: &FrameOut) -> Vec<String> {
         .collect()
 }
 
-// ---- KH1 enemy stats (decision 12): the format the asset step would write ----
+// ---- KH1 enemy stats (decisions 12, 21) ----
 
-/// One KH1 enemy stats record (the 0x6C-byte record KH1's AI script hands to syscall 45,
-/// `0x1402BBDF0` → `0x1402A58E0`; Checked (decomp) for the layout). Strength and Defence are level
-/// indices into btltbl's table at file `0xC8A8` (21 rows of {Strength, Defence}; Checked (files +
-/// decomp `0x14028F990`)).
+/// One KH1 twin record as the asset step resolves it (`kh1-stats.json`; the 0x6C-byte record
+/// KH1's AI hands to syscall 45, `0x1402BBDF0` → `0x1402A58E0`, with Strength / Defence already
+/// looked up in btltbl `0xC8A8`). Checked (decomp + files).
 #[derive(Clone, Debug, PartialEq)]
 pub struct EnemyStats {
-    pub name: String,
     pub hp: i32,
-    pub strength_level: u32,
-    pub defence_level: u32,
+    pub strength: i32,
+    pub defence: i32,
+    /// Damage floor / cap per hit (stats `+0xC0` / `+0xC2`; 0 = none).
     pub min_damage: u16,
     pub max_damage: u16,
     pub level: i32,
+    pub exp: i32,
+    /// Per element, % (stats `+0x78..`).
+    pub resist: [i32; 16],
 }
-
-/// btltbl's enemy {Strength, Defence} by level index (file `0xC8A8`). Checked (files).
-pub const ENEMY_STR_DEF: [(u8, u8); 21] =
-    [(2, 2), (5, 5), (6, 6), (8, 8), (9, 9), (11, 10), (12, 11), (15, 13), (17, 14), (17, 15), (20, 17), (21, 18), (22, 19), (24, 20), (27, 21), (29, 23), (31, 24), (35, 27), (40, 30), (42, 34), (46, 46)];
 
 /// The KH1 swing damage against a KH1 twin's stats (`0x1402BFA80` through kh1-core), before
 /// Re:CoM's extras (back bonus, weak part, boss falloff) which its own damage path applies.
@@ -443,35 +441,76 @@ pub fn kh1_damage(m: &Moveset, kh1_row: usize, strength: i32, twin: &EnemyStats,
     let data = m.attack(rw.attack)?;
     let attacker = AttackerStats { strength, ..Default::default() };
     let live = LiveAttack::new(data, &WeaponData::kingdom_key(), &attacker, 1.0);
-    let def = ENEMY_STR_DEF.get(twin.defence_level as usize).map_or(0, |d| d.1 as i32);
-    let stats = kh1_core::DefenderStats { hp: twin.hp, max_hp: twin.hp, defence: def, level: twin.level, min_damage: twin.min_damage, max_damage: twin.max_damage, ..Default::default() };
+    let mut resist = [1.0f32; 16];
+    for (r, v) in resist.iter_mut().zip(twin.resist.iter()) {
+        *r = *v as f32 / 100.0;
+    }
+    let stats = kh1_core::DefenderStats { hp: twin.hp, max_hp: twin.hp, defence: twin.defence, level: twin.level, min_damage: twin.min_damage, max_damage: twin.max_damage, resist, ..Default::default() };
     Some(kh1_core::damage::compute_damage(&live, &kh1_core::DamageCurve::kh1_defaults(), &stats, rng))
 }
 
-/// Reads `kh1-enemies.json` (written by the asset step once KH1's per-enemy records are found):
-/// `{"enemies": [{"recom_id": <type × 10000 + variant>, "name": "...", "hp": n, "strength_level": n,
-/// "defence_level": n, "min_damage": n, "max_damage": n, "level": n}, …]}`.
-pub fn parse_enemies(text: &str) -> Result<Vec<(u32, EnemyStats)>, String> {
-    let v = crate::json::parse(text)?;
-    let list = v.get("enemies").and_then(|e| e.as_array()).ok_or("no `enemies` array")?;
-    let mut out = Vec::new();
-    for e in list {
-        let num = |k: &str| e.get(k).and_then(|x| x.as_f64()).ok_or_else(|| format!("enemy without `{k}`"));
-        let name = e.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        out.push((
-            num("recom_id")? as u32,
-            EnemyStats {
-                name,
-                hp: num("hp")? as i32,
-                strength_level: num("strength_level")? as u32,
-                defence_level: num("defence_level")? as u32,
-                min_damage: num("min_damage").unwrap_or(0.0) as u16,
-                max_damage: num("max_damage").unwrap_or(0.0) as u16,
-                level: num("level").unwrap_or(0.0) as i32,
-            },
-        ));
+/// `kh1-stats.json` (written by the asset step, `kh1-recom-assets` `stats`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Kh1Stats {
+    /// Sora's KH1 Strength at levels 1..=100 (keep Rod, give up Shield; decision 18).
+    pub sora_strength: Vec<i32>,
+    /// Re:CoM class name → its twin's record per Re:CoM world id 1..=13.
+    pub enemies: Vec<(String, Vec<EnemyStats>)>,
+}
+
+impl Kh1Stats {
+    /// Sora's KH1 Strength at a Re:CoM level (clamped to 1..=100).
+    pub fn strength(&self, level: u32) -> Option<i32> {
+        self.sora_strength.get(level.clamp(1, 100) as usize - 1).copied()
     }
-    Ok(out)
+    /// The twin record for a Re:CoM class in a Re:CoM world (1-based). Worlds outside 1..=13
+    /// (none, special floors) give nothing: Re:CoM's own numbers stand.
+    pub fn twin(&self, class: &str, world: i32) -> Option<&EnemyStats> {
+        if !(1..=13).contains(&world) {
+            return None;
+        }
+        self.enemies.iter().find(|(c, _)| c == class)?.1.get(world as usize - 1)
+    }
+}
+
+/// Reads `kh1-stats.json`.
+pub fn parse_stats(text: &str) -> Result<Kh1Stats, String> {
+    let v = crate::json::parse(text)?;
+    let ints = |x: &crate::json::Value, what: &str| -> Result<Vec<i32>, String> {
+        x.as_array().ok_or_else(|| format!("`{what}` is not an array"))?.iter().map(|n| n.as_f64().map(|f| f as i32).ok_or_else(|| format!("`{what}`: not a number"))).collect()
+    };
+    let sora_strength = ints(v.get("sora_strength").ok_or("no `sora_strength`")?, "sora_strength")?;
+    if sora_strength.len() != 100 {
+        return Err(format!("`sora_strength` has {} levels, not 100", sora_strength.len()));
+    }
+    let mut enemies = Vec::new();
+    for e in v.get("enemies").and_then(|e| e.as_array()).ok_or("no `enemies` array")? {
+        let class = e.get("class").and_then(|c| c.as_str()).ok_or("enemy without `class`")?.to_string();
+        let mut worlds = Vec::new();
+        for w in e.get("worlds").and_then(|w| w.as_array()).ok_or_else(|| format!("{class}: no `worlds`"))? {
+            let num = |k: &str| w.get(k).and_then(|x| x.as_f64()).ok_or_else(|| format!("{class}: record without `{k}`"));
+            let res = ints(w.get("resist").ok_or_else(|| format!("{class}: no `resist`"))?, "resist")?;
+            let mut resist = [100; 16];
+            for (r, x) in resist.iter_mut().zip(res) {
+                *r = x;
+            }
+            worlds.push(EnemyStats {
+                hp: num("hp")? as i32,
+                strength: num("strength")? as i32,
+                defence: num("defence")? as i32,
+                min_damage: num("floor")? as u16,
+                max_damage: num("cap")? as u16,
+                level: num("level")? as i32,
+                exp: num("exp").unwrap_or(0.0) as i32,
+                resist,
+            });
+        }
+        if worlds.len() != 13 {
+            return Err(format!("{class}: {} worlds, not 13", worlds.len()));
+        }
+        enemies.push((class, worlds));
+    }
+    Ok(Kh1Stats { sora_strength, enemies })
 }
 
 #[cfg(test)]

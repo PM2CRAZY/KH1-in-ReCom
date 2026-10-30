@@ -86,42 +86,38 @@ fn blade_track_moves_on_once_per_pose() {
     assert_eq!(t.frame(6, a2), None, "the next swing seeds again");
 }
 
+fn twin(defence: i32) -> EnemyStats {
+    EnemyStats { hp: 12, strength: 8, defence, min_damage: 0, max_damage: 0, level: 1, exp: 1, resist: [100; 16] }
+}
+
 #[test]
 fn kh1_damage_uses_the_twins_defence_curve() {
     let m = Moveset::kh1_defaults();
     let mut rng = kh1_core::Kh1Rand::new(1);
-    // A twin at defence level 3 (Defence 8): Strength 10 swing → curve[2] = 2.
-    let twin = EnemyStats { name: "Shadow".into(), hp: 12, strength_level: 3, defence_level: 3, min_damage: 0, max_damage: 0, level: 1 };
-    assert_eq!(kh1_damage(&m, 13, 10, &twin, &mut rng).unwrap().damage, 2);
+    // Defence 8, Strength 10 swing → curve[2] = 2.
+    assert_eq!(kh1_damage(&m, 13, 10, &twin(8), &mut rng).unwrap().damage, 2);
     // The finisher adds 4 power → curve[6] = 6 (or a critical 10 + 4 → curve[10] = 12).
     for _ in 0..20 {
-        let d = kh1_damage(&m, 8, 10, &twin, &mut rng).unwrap();
+        let d = kh1_damage(&m, 8, 10, &twin(8), &mut rng).unwrap();
         assert_eq!(d.damage, if d.critical { 12 } else { 6 });
     }
-    assert_eq!(ENEMY_STR_DEF.len(), 21);
-    assert_eq!(ENEMY_STR_DEF[3], (8, 8));
+    // A cap of 1 per hit (KH1's record +0x10) holds.
+    let mut capped = twin(0);
+    capped.max_damage = 1;
+    assert_eq!(kh1_damage(&m, 8, 40, &capped, &mut rng).unwrap().damage, 1);
 }
 
 #[test]
-fn enemies_json_reads_the_documented_format() {
-    let t = r#"{"enemies": [{"recom_id": 10010, "name": "Shadow", "hp": 12, "strength_level": 3, "defence_level": 3, "level": 1}]}"#;
-    let v = parse_enemies(t).unwrap();
-    assert_eq!(v.len(), 1);
-    assert_eq!(v[0].0, 10010);
-    assert_eq!(v[0].1.hp, 12);
-    assert_eq!(v[0].1.max_damage, 0);
-    assert!(parse_enemies("{}").is_err());
-    assert!(parse_enemies(r#"{"enemies": [{"name": "x"}]}"#).is_err());
-}
-
-#[test]
-fn battle_case_stub_calls_the_swing_exe_then_the_default() {
-    let b = battle_case::stub();
-    assert_eq!(&b[..4], &[0x48, 0x8B, 0xCF, 0xE8]);
-    let call = i32::from_le_bytes(b[4..8].try_into().unwrap()) as i64;
-    assert_eq!(0x0001_401F_A6C1_i64 + 8 + call, 0x0001_401E_AEB0);
-    assert_eq!(b[8], 0xE9);
-    let jmp = i32::from_le_bytes(b[9..13].try_into().unwrap()) as i64;
-    assert_eq!(0x0001_401F_A6C1_i64 + 13 + jmp, 0x0001_401F_9CC9);
-    assert_eq!(battle_case::entry(), [0xC1, 0xA6, 0x1F, 0x00]);
+fn stats_json_reads_the_asset_steps_format() {
+    let rec = r#"{"hp": 12, "strength": 8, "defence": 8, "floor": 2, "cap": 300, "level": 6, "exp": 1, "resist": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]}"#;
+    let worlds = vec![rec; 13].join(", ");
+    let strength = (1..=100).map(|l| (6 + l).to_string()).collect::<Vec<_>>().join(", ");
+    let t = format!(r#"{{"format": "kh1-recom-assets stats 1", "sora_strength": [{strength}], "enemies": [{{"class": "CEnemyShadow", "worlds": [{worlds}]}}]}}"#);
+    let s = parse_stats(&t).unwrap();
+    assert_eq!(s.strength(1), Some(7));
+    assert_eq!(s.strength(150), Some(106));
+    assert_eq!(s.twin("CEnemyShadow", 1).unwrap().defence, 8);
+    assert!(s.twin("CEnemyShadow", 0).is_none() && s.twin("CEnemyShadow", 14).is_none());
+    assert!(s.twin("CEnemySoldier", 1).is_none());
+    assert!(parse_stats("{}").is_err());
 }

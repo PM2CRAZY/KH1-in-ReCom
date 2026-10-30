@@ -147,7 +147,22 @@ fn run() -> Result<(), String> {
     let json = built.manifest_json(&sources.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>());
     std::fs::write(&man, &json).map_err(|e| format!("{}: {e}", man.display()))?;
     println!("wrote {} ({} bytes)", man.display(), json.len());
+    // KH1 stats (decisions 12, 18, 21): the enemy twins' records and Sora's Strength.
+    let (stats, n) = kh1_stats(&game, keys)?;
+    let sp = man.with_file_name(install::STATS);
+    std::fs::write(&sp, &stats).map_err(|e| format!("{}: {e}", sp.display()))?;
+    println!("wrote {} ({} KH1 enemy twins, {} bytes)", sp.display(), n, stats.len());
     Ok(())
+}
+
+fn kh1_stats(game: &std::path::Path, keys: kh1_formats::egs::KeyTable) -> Result<(String, usize), String> {
+    let inst = install::kh1(game, keys).map_err(|e| format!("KH1 files: {e}"))?;
+    let btl = inst.read("btltbl.bin").map_err(|e| format!("btltbl.bin: {e}"))?;
+    let parsed = kh1_formats::btltbl::Btltbl::parse(btl.clone()).map_err(|e| format!("btltbl.bin: {e}"))?;
+    // The Kingdom Key (item 0x51): its weapon row's Strength (+0x30).
+    let kk = parsed.weapon_for_item(0x51).map_err(|e| format!("Kingdom Key: {e}"))?.strength as i32;
+    let mut read = |name: &str| inst.read(name).map_err(|e| kh1_recom_assets::Error::Format(format!("{name}: {e}")));
+    kh1_recom_assets::stats::build_json(&mut read, &btl, kk).map_err(|e| e.to_string())
 }
 
 fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
