@@ -52,14 +52,20 @@ magic, summon and item tables.
 - **Cloud** (summon).
 - **Friend cards** (Donald, Goofy, Aladdin, Ariel, Jack, Peter Pan, The Beast, The King, Pluto):
   no party in the arena for now (owner, 2026-10-29).
-- Not yet decided, listed so it isn't lost:
-  - **sleights** (combinations of cards, including the magic ones like Fira and the summon ones);
-  - **enemy cards** (Sora's enemy-card abilities);
-  - **map cards** (room cards stay Re:CoM's; they aren't battle cards).
+- **Enemy cards** (Sora's enemy-card abilities): removed for now (owner, 2026-10-29).
+- **Sleights with no KH1 equivalent**: removed for now (owner, 2026-10-29). The full sleight-by-
+  sleight list is still to be made from Re:CoM's sleight table (`StockSkillList`).
+- Map cards (room cards) stay Re:CoM's; they aren't battle cards.
+
+## Sleights
+
+Owner (2026-10-29): those with a KH1 equivalent become KH1's version. Magic sleights such as
+Fira and Firaga become KH1's magic levels; physical ones such as Sonic Blade, Strike Raid,
+Ars Arcanum and Ragnarok become KH1 abilities. The rest are removed and noted. The table of
+each sleight and its KH1 match is still to do.
 
 ## Keyblades
 
 Re:CoM's attack cards are Keyblade cards: Kingdom Key, Three Wishes, Crabclaw, … , Bond of
 Flame (`0x1405060F0`..). At KH1 setting the attack cards go entirely, and Sora attacks KH1's way.
-Which Keyblade Sora holds and its stats is open; it ties in with progression, which stays Re:CoM's
-level-up for now.
+Owner (2026-10-29): Sora starts with **Kingdom Key, using KH1's stats**.

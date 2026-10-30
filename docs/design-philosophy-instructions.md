@@ -132,9 +132,12 @@ At KH1 setting:
 4. Party: Donald and Goofy don't appear, for now.
 5. Progression: Re:CoM's level-up choices, for now. To be revisited.
 6. Riku's story (Reverse/Rebirth) stays as it is, for now.
+7. Sleights: those with a KH1 equivalent become KH1's version (magic sleights like Fira and
+   Firaga become KH1's magic levels; physical ones like Sonic Blade, Strike Raid, Ars Arcanum
+   and Ragnarok become KH1 abilities). The rest are removed for now and noted.
+8. Enemy cards: removed for now and noted.
+9. Keyblade: Sora starts with Kingdom Key, using KH1's stats.
 
 ## Known open design questions (ask the owner, don't guess)
 
-- **Sleights and enemy cards** at KH1 setting (see `docs/card-replacement.md`).
-- **Keyblade and stats** at KH1 setting, with no attack cards.
 - Revisit later: party, progression.
