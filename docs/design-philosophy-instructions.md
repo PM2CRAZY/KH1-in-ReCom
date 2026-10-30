@@ -122,16 +122,19 @@ At KH1 setting:
 - The card-value question (2026-10-29) is settled: with no cards in battle, there are no card
   breaks against KH1 attacks.
 
+### Answers (owner, 2026-10-29)
+
+1. Magic, summons and items are replaced by their KH1 equivalents. Those with no equivalent are
+   removed for now and listed in `docs/card-replacement.md` for later.
+2. Re:CoM-only enemies and bosses: keep their Re:CoM behaviour but without card plays, attacking
+   on their own timing (option a), for now.
+3. First strike: yes, a KH1 field hit keeps Re:CoM's stun / first-strike bonus into the arena.
+4. Party: Donald and Goofy don't appear, for now.
+5. Progression: Re:CoM's level-up choices, for now. To be revisited.
+6. Riku's story (Reverse/Rebirth) stays as it is, for now.
+
 ## Known open design questions (ask the owner, don't guess)
 
-- **The rest of the deck at KH1 setting.** Assistant's reading, waiting for confirmation: the whole
-  deck goes (magic, item, summon, friend cards and sleights), and KH1's command menu, MP, items
-  and summons replace it.
-- **Re:CoM-only enemies and bosses** (no KH1 equivalent, e.g. Organization XIII, Riku Replica):
-  how they fight with no cards.
-- **First strike.** Does a KH1 field hit keep Re:CoM's stun / first-strike bonus going into the
-  arena?
-- **Party.** Re:CoM's friend cards summon Donald and Goofy temporarily; KH1's party is always
-  present. Which, and per world?
-- **Progression.** Re:CoM's level-up choices versus KH1's stat growth, AP and abilities.
-- **Reverse/Rebirth (Riku's story).** Assumption: it stays Re:CoM's.
+- **Sleights and enemy cards** at KH1 setting (see `docs/card-replacement.md`).
+- **Keyblade and stats** at KH1 setting, with no attack cards.
+- Revisit later: party, progression.
