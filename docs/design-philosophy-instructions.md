@@ -148,6 +148,12 @@ At KH1 setting:
     isn't a bake of KH1's exact motion. KH1's converted clips are only for moves Re:CoM lacks
     (High Jump, Hurricane Blast, Counterattack, Ripple Drive…). Speeds and timing stay KH1's.
     The function-by-function mapping (KH1 request → Re:CoM action row) is built in M4.
+12. Damage to Re:CoM's own enemies at KH1 setting (owner, 2026-10-30): KH1's formula with each
+    enemy's KH1 twin's stats (HP, Defence…). This needs KH1's enemy stat tables (not found yet).
+13. Re:CoM's damage extras (back-attack bonus, weak points, boss falloff after 5 hits) stay on for
+    KH1 hits (owner: "Keep them").
+14. Card priority at KH1 setting: KH1's rule. Sora's hits land even while an enemy plays a card.
+15. The card shown over an attacking enemy is hidden at KH1 setting.
 
 ## Known open design questions (ask the owner, don't guess)
 

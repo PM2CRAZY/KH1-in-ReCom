@@ -11,6 +11,37 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 8: KH1 movement inside Re:CoM's player actions (M4), version 0.5.0 (2026-10-30)
+
+> "looks good enough for now, lets work on phase 2"
+
+- At `combat = kh1`, for the main `CPlayerSora` only (Riku untouched), Re:CoM's own movement
+  actions run KH1's rules and numbers (`docs/recom-kh1-movement.md`):
+  - actions 2/3/4 are ground movement, 6 Dodge Roll / Guard, 7 take-off / air / landing, 8 glide;
+  - Re:CoM still plays the animations, applies root motion, moves and collides Sora.
+- Hooks, all byte-checked and all-or-nothing (39 site byte lists re-checked against the exe):
+  - move exe `0x1401EEDA0`, stick class `0x1401E9630`, move step `0x1401EF3C0`;
+  - jump init `0x1401F29F0`, avoid init `0x1401F10C0`, jump exe `0x1401EDA60`;
+  - Sora avoid exe `0x140217310`, Sora glide exe `0x140217B50`;
+  - trace-only hooks on Field / Battle exes (one flag test while not recording).
+- Units, Checked (exe + decomp):
+  - KH1 (x, y, z) cm, y down = Re:CoM (x, −y, −z)/100 m, y up;
+  - KH1 yaw ψ = Re:CoM π − ψ;
+  - Re:CoM's `+0x464` = dt × 0.02 (60 Hz frames);
+  - Re:CoM's jump peaks at 1.92 m at frame 28, KH1's at 190 units at frame 28.
+- Animations follow decision 11: Re:CoM's rows, plus three appended rows for the KH1-only High Jump,
+  its apex, and Guard (from the asset manifest).
+- Abilities in `kh1-recom.ini` (`high_jump`, `glide`, `superglide`, `dodge_roll`, `guard`).
+- F9 Re:CoM trace in the kh1-trace schema.
+- 1:1, Checked (tests) against kh1-core frame for frame. Known: the Dodge Roll moves one frame
+  early (same distance and end point), and follow-on animations start one frame late (the lock
+  releases on KH1's frame).
+- Owner decisions recorded this stage (design doc 12–15): KH1 damage formula with KH1-twin stats;
+  keep Re:CoM's hit extras; KH1 card priority (hits land); enemy cards hidden.
+- Not checked in game. Tester thread `testers/recom-movement/thread.md`.
+
+---
+
 ## Stage 7: Config window border fits the Combat row, version 0.4.2 (2026-10-30)
 
 > Owner's 0.4.1 screenshots: the fill reached below "Combat" but the border stopped at "Game

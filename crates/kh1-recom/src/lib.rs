@@ -7,17 +7,24 @@
 //! passed:
 //!
 //! - adds a "Combat" row to Re:CoM's Config menu, drawn and driven by Re:CoM's own menu code,
-//!   with Re:CoM's window panel drawn one row taller (`menu`, `docs/recom-config-menu.md`).
+//!   with Re:CoM's window panel drawn one row taller (`menu`, `docs/recom-config-menu.md`);
+//! - at `combat = kh1`, runs KH1 Sora's movement as the handlers of Re:CoM's own movement actions
+//!   (`movement`, `rows`, `units`; `docs/recom-kh1-movement.md`);
+//! - F9 records a Re:CoM trace in kh1-trace's CSV schema (`trace`).
 //!
-//! `motions` (with `json`) reads the asset build step's manifest and `PL0001.ANN` header; nothing
-//! uses it at run time yet (the "KH1 motions test" switch was removed, owner 2026-10-30).
+//! `motions` (with `json`) reads the asset build step's manifest and `PL0001.ANN` header, for the
+//! KH1-only clips the movement plays (High Jump, Guard).
 
 pub mod hookplan;
 pub mod json;
 pub mod menu;
 pub mod motions;
+pub mod movement;
+pub mod rows;
 pub mod settings;
 pub mod sites;
+pub mod trace;
+pub mod units;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -84,6 +91,16 @@ pub fn startup_report(
                 "settings: combat = {}, config_menu = {}",
                 s.combat.as_str(),
                 settings::switch_str(s.config_menu)
+            );
+            let a = s.abilities;
+            let _ = writeln!(
+                r,
+                "settings: KH1 abilities: high_jump = {}, glide = {}, superglide = {}, dodge_roll = {}, guard = {}",
+                settings::switch_str(a.high_jump),
+                settings::switch_str(a.glide),
+                settings::switch_str(a.superglide),
+                settings::switch_str(a.dodge_roll),
+                settings::switch_str(a.guard)
             );
             for w in warnings {
                 let _ = writeln!(r, "settings warning: {w}");

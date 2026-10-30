@@ -16,3 +16,15 @@ extern "system" {
 pub const MEM_COMMIT_RESERVE: u32 = 0x3000;
 pub const MEM_RELEASE: u32 = 0x8000;
 pub const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+
+#[link(name = "user32")]
+extern "system" {
+    pub fn GetAsyncKeyState(vk: i32) -> i16;
+    pub fn GetForegroundWindow() -> *mut c_void;
+    pub fn GetWindowThreadProcessId(window: *mut c_void, pid: *mut u32) -> u32;
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    pub fn GetCurrentProcessId() -> u32;
+}

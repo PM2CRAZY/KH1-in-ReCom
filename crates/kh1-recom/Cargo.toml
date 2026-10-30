@@ -1,9 +1,12 @@
 [package]
 name = "kh1-recom"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 description = "KH1 combat in Kingdom Hearts Re:Chain of Memories (PC, Steam): the DLL Panacea loads."
 license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kh1-core = { path = "../kh1-core" }
