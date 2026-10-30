@@ -52,9 +52,14 @@ magic, summon and item tables.
 - **Cloud** (summon).
 - **Friend cards** (Donald, Goofy, Aladdin, Ariel, Jack, Peter Pan, The Beast, The King, Pluto):
   no party in the arena for now (owner, 2026-10-29).
-- **Enemy cards** (Sora's enemy-card abilities): removed for now (owner, 2026-10-29).
+- **Enemy cards** (Sora's enemy-card abilities): removed for now (owner, 2026-10-29). Their
+  effect names, from the exe (`0x1405288F0`..`0x140528C20`, Checked): Incrementor, Combo Plus, Guard, Fire Boost, Blizzard Boost, Thunder Boost, Cure Boost, Retrograde, Reload Kinesis, Combo Finish, Back Attack, Quickload, Drain, Random Values, Decrementor, Auto-Reload, Float, Vanish, All Zeros, Item Bracer, Duel Trigger, Protect, Reload Lock, Magic Boost, Hyper Healing, Random Flush, Leaf Bracer, Reload Haste, Summon Boost, Wide Attack, Dispel, Value Break, Mimic, Attack Haste, Berserk, Attack Bracer, Regen, Shell, Second Chance, Overdrive, Sleight Lock, Quick Recovery, Auto-Life, Double Sleight, Warp Break, Sleightblind, Confu-Strike, Quick Barrier, Shot Charge, Aero Guard, Combo Boost, Water Charge, Omni Break, Double Strike, Premium Guard, Invincible.
+  Several share a name with a KH1 ability (Combo Plus, Guard, Second Chance, Berserk, …). Matching
+  them to KH1 abilities is for later.
 - **Sleights with no KH1 equivalent**: removed for now (owner, 2026-10-29). The full sleight-by-
-  sleight list is still to be made from Re:CoM's sleight table (`StockSkillList`).
+  sleight list is still to be made. The names aren't in the exe: they're in the data file
+  `stockskilllist.bin` (loaded as `StockSkillList`, `0x14087A810`), which needs the player's
+  extracted Re:CoM files.
 - Map cards (room cards) stay Re:CoM's; they aren't battle cards.
 
 ## Sleights
