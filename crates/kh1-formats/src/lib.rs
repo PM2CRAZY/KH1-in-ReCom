@@ -7,6 +7,8 @@
 //! - [`mset`]: Sora's motion set (`xa_ex_0010.mset`): request map, motions, curves, flag tracks
 //! - [`mdls`]: Sora's skeleton (`xa_ex_0010.mdls`): bones, parents, rest transforms
 //! - [`btltbl`]: `btltbl.bin`: action rows, attack records, damage curve, globals, weapons
+//! - [`mobj`]: whole `.mdls` files read and written (container, models, PS2 packets, textures)
+//! - [`cvbl`]: the PC's remastered meshes (`.cvbl` HD assets), read and written
 //!
 //! No game data is embedded here. The one piece of the archive cipher that comes from the game
 //! (a 256-byte substitution table) is read from the user's own executable at runtime; this crate
@@ -19,8 +21,10 @@
 #![warn(missing_docs)]
 
 pub mod btltbl;
+pub mod cvbl;
 pub mod egs;
 pub mod mdls;
+pub mod mobj;
 pub mod mset;
 mod reader;
 

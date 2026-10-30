@@ -85,3 +85,10 @@ A KH1 `.mdls` writer that round-trips: decode a KH1 enemy, encode it, and KH1 lo
 it unchanged. Then a Re:CoM model (an Organization member) through the same writer, in place of
 a KH1 enemy, within the arena. If either fails, the flip has no native path for models. Maps
 would need the same test after that.
+
+## Step 1 done (2026-10-30, version 0.7.3)
+
+The model writer exists and is byte-exact on all 500 `.mdls` and 941 `.cvbl` of the owner's
+install (`kh1-model-writer.md`). Finding: the PC draws the `.cvbl` HD mesh, so a native new model
+needs a `.cvbl` and `.dds` textures as well as the `.mdls`. The in-game check is
+`testers/kh1-flip-model/thread.md`.

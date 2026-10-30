@@ -136,7 +136,9 @@ impl KeyTable {
         m
     }
 
-    fn decrypt_head(&self, seed: &[u8; 16], data: &mut [u8]) {
+    /// XORs the first 0x100 bytes of a stream with the mask of `seed` (the entry's 16-byte
+    /// header). The same call decrypts and encrypts. Remastered assets use their entry's seed.
+    pub fn decrypt_head(&self, seed: &[u8; 16], data: &mut [u8]) {
         let m = self.mask(seed);
         let end = data.len().min(0x100);
         for (i, b) in data[..end].iter_mut().enumerate() {
@@ -199,6 +201,109 @@ pub fn decode_entry(keys: &KeyTable, raw: &[u8]) -> Result<Vec<u8>> {
     flate2::read::DeflateDecoder::new(&data[2..]).read_to_end(&mut out)?;
     if out.len() != h.decompressed as usize {
         return bad(format!("decompressed {} bytes, expected {}", out.len(), h.decompressed));
+    }
+    Ok(out)
+}
+
+/// One remastered (HD) asset of a PKG entry: `.dds` textures, `.cvbl` meshes, `.scd` sounds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HdAsset {
+    /// The asset's name, e.g. `-c0.cvbl` or `-1c0.dds` (at most 31 bytes).
+    pub name: String,
+    /// The tag the game matches it by: an offset in the original file, or -1.
+    pub orig_offset: i32,
+    /// The asset's bytes, decoded.
+    pub data: Vec<u8>,
+}
+
+/// Size of one remastered asset header in a PKG entry.
+pub const HD_HEADER_SIZE: usize = 0x30;
+
+fn align16(n: usize) -> usize {
+    (n + 15) & !15
+}
+
+/// Decodes an entry's original file and every remastered asset from the whole raw PKG entry
+/// (the bytes at its hed offset, `stored_len` long).
+///
+/// Layout (OpenKH `EgsHdAsset.cs`; Checked (files): all 500 KH1 `.mdls` entries): the 16-byte
+/// header, `remastered` headers of 0x30 bytes (`name[0x20] | offset | orig_offset |
+/// decompressed | compressed`, not encrypted), the original data, then each asset's data, each
+/// padded to 16 bytes. Assets use the entry header as their seed.
+pub fn decode_entry_full(keys: &KeyTable, raw: &[u8]) -> Result<(Vec<u8>, Vec<HdAsset>)> {
+    let data = decode_entry(keys, raw)?;
+    let seed: [u8; 16] = Bytes(raw).arr(0)?;
+    let h = PkgHeader::parse(&seed)?;
+    let mut pos = 16 + h.remastered as usize * HD_HEADER_SIZE + align16(h.stored_data_len());
+    let mut assets = Vec::with_capacity(h.remastered as usize);
+    for i in 0..h.remastered as usize {
+        let at = 16 + i * HD_HEADER_SIZE;
+        let b = Bytes(raw);
+        let name = b.cstr(at, 0x20)?;
+        let orig_offset = b.i32(at + 0x24)?;
+        let dec = b.i32(at + 0x28)?;
+        let comp = b.i32(at + 0x2C)?;
+        if dec < 0 || comp < -2 {
+            return bad(format!("hd asset {name}: implausible sizes {dec} / {comp}"));
+        }
+        let stored = if comp >= 0 { comp } else { dec } as usize;
+        let mut d = b.slice(pos, stored)?.to_vec();
+        if comp > -2 {
+            keys.decrypt_head(&seed, &mut d);
+        }
+        if comp >= 0 {
+            if d.len() < 2 {
+                return bad(format!("hd asset {name}: compressed data too short"));
+            }
+            let mut out = Vec::with_capacity(dec as usize);
+            flate2::read::DeflateDecoder::new(&d[2..]).read_to_end(&mut out)?;
+            // Five Halloween Town models' `-1c2.dds` inflate to 12 bytes more than their
+            // header says (Checked (files)); the size the header gives is what the game asks
+            // the decompressor for, so the rest is dropped.
+            if out.len() > dec as usize {
+                out.truncate(dec as usize);
+            }
+            d = out;
+        }
+        if d.len() != dec as usize {
+            return bad(format!("hd asset {name}: {} bytes, expected {dec}", d.len()));
+        }
+        assets.push(HdAsset { name, orig_offset, data: d });
+        pos += align16(stored);
+    }
+    Ok((data, assets))
+}
+
+/// Builds a plain (not compressed, not encrypted) PKG entry: what Panacea serves from
+/// `<mod_path>/kh1/raw/<file>` in place of the archive's entry, HD assets included.
+///
+/// Layout as [`decode_entry_full`] reads it, with every size field `-2` (plain). Each asset's
+/// offset field is its position in the entry (Panacea's `LoadFile` recomputes the same values
+/// for a raw file). `date` is the header's date word.
+pub fn build_plain_entry(data: &[u8], assets: &[HdAsset], date: i32) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    let n = assets.len();
+    for v in [data.len() as i32, n as i32, -2, date] {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    let mut pos = 16 + n * HD_HEADER_SIZE + align16(data.len());
+    for a in assets {
+        if a.name.len() > 0x1F || a.name.contains('\0') {
+            return bad(format!("hd asset name {:?} does not fit", a.name));
+        }
+        let mut name = [0u8; 0x20];
+        name[..a.name.len()].copy_from_slice(a.name.as_bytes());
+        out.extend_from_slice(&name);
+        for v in [pos as i32, a.orig_offset, a.data.len() as i32, -2] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        pos += align16(a.data.len());
+    }
+    out.extend_from_slice(data);
+    out.resize(align16(out.len()), 0);
+    for a in assets {
+        out.extend_from_slice(&a.data);
+        out.resize(align16(out.len()), 0);
     }
     Ok(out)
 }
@@ -278,6 +383,15 @@ impl Archive {
         })
     }
 
+    /// Reads one entry's whole raw bytes (header, HD headers, data and HD assets), as stored.
+    pub fn read_raw_entry(&self, e: &HedEntry) -> Result<Vec<u8>> {
+        let mut f = File::open(&self.pkg_path)?;
+        f.seek(SeekFrom::Start(e.offset))?;
+        let mut raw = vec![0u8; e.stored_len as usize];
+        f.read_exact(&mut raw)?;
+        Ok(raw)
+    }
+
     /// Reads one entry's original-format data.
     pub fn read_entry(&self, keys: &KeyTable, e: &HedEntry) -> Result<Vec<u8>> {
         let mut f = File::open(&self.pkg_path)?;
@@ -343,6 +457,17 @@ impl Install {
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         let (a, _) = self.find(name).ok_or_else(|| Error::NotFound(name.to_string()))?;
         a.read(&self.keys, name)
+    }
+
+    /// Reads `name` with its HD assets, and the entry header's date word.
+    pub fn read_full(&self, name: &str) -> Result<(Vec<u8>, Vec<HdAsset>, i32)> {
+        let (a, e) = self.find(name).ok_or_else(|| Error::NotFound(name.to_string()))?;
+        let raw = a.read_raw_entry(e)?;
+        let (data, assets) = decode_entry_full(&self.keys, &raw).map_err(|err| match err {
+            Error::Format(s) => Error::Format(format!("{name}: {s}")),
+            other => other,
+        })?;
+        Ok((data, assets, Bytes(&raw).i32(12)?))
     }
 }
 
@@ -434,6 +559,27 @@ mod tests {
         raw.extend_from_slice(b"hello");
         assert_eq!(decode_entry(&kt, &raw).unwrap(), b"hello");
         assert!(decode_entry(&kt, &raw[..18]).is_err());
+    }
+
+    /// A plain entry with HD assets decodes back to the same file and assets, with Panacea's
+    /// offsets (16-byte header, 0x30 per asset header, data and each asset padded to 16).
+    #[test]
+    fn plain_entry_with_assets_round_trips() {
+        let kt = KeyTable(core::array::from_fn(|i| i as u8));
+        let data: Vec<u8> = (0..37u8).collect();
+        let assets = vec![
+            HdAsset { name: "-c0.cvbl".into(), orig_offset: -1, data: vec![1; 20] },
+            HdAsset { name: "-1c0.dds".into(), orig_offset: 0x1C0, data: vec![2; 16] },
+        ];
+        let e = build_plain_entry(&data, &assets, 7).unwrap();
+        let (d, a) = decode_entry_full(&kt, &e).unwrap();
+        assert_eq!(d, data);
+        assert_eq!(a, assets);
+        let first = 16 + 2 * HD_HEADER_SIZE + 48;
+        assert_eq!(Bytes(&e).i32(16 + 0x20).unwrap(), first as i32);
+        assert_eq!(Bytes(&e).i32(16 + HD_HEADER_SIZE + 0x20).unwrap(), (first + 32) as i32);
+        assert_eq!(e.len(), first + 32 + 16);
+        assert!(build_plain_entry(&data, &[HdAsset { name: "x".repeat(32), orig_offset: 0, data: vec![] }], 0).is_err());
     }
 
     /// The three files and their SHA-256 (of the user's own copies).

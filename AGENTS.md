@@ -11,6 +11,35 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 16: KH1 model writer, the flip test's step 1, version 0.7.3 (2026-10-30)
+
+> "would it not be easier to just bring all the maps and unique enemies/bosses into KH1 as a mod
+> for KH1?" / option (b): "b" (owner, twice: scope it, then run the decisive test)
+
+- Notes: `docs/flip-feasibility.md` (the scope) and `docs/kh1-model-writer.md` (this stage).
+- `kh1-formats`:
+  - `mobj.rs`: whole `.mdls` files read and written (container, `MOBJ`, both models, PS2
+    packets, weighted vertices, textures). Every size, count and offset is rebuilt.
+  - `cvbl.rs`: the PC's HD meshes (`.cvbl`) read and written.
+  - `egs.rs`: `decode_entry_full` (an entry with its HD assets), `build_plain_entry` (a plain
+    entry for Panacea's `<mod_path>/kh1/raw/` route), `Archive::read_raw_entry`,
+    `Install::read_full`; `KeyTable::decrypt_head` is public.
+- `kh1-recom-assets`: `flip.rs` and the CLI `kh1-flip-test` (`roundtrip`, `install rebuild |
+  big | remove`).
+- Results: byte-exact on the owner's install, 500 of 500 `.mdls` and 941 of 941 `.cvbl`, and
+  every rebuilt entry decodes back (run on the owner's PC through the device link). Checked
+  (files). The Shadow's `rebuild` and `big` (×1.5 positions) entries are on the owner's PC.
+- Facts found: the PC draws the `.cvbl` HD mesh, not the PS2 packets; HD textures are tagged by
+  `.mdls` texture offsets; the block after `MOBJ` holds `_KN5` / `BONE` / `URSL` data; offsets
+  past the end of a `.mdls` point at the end rounded up to 0x80. Checked (files + source).
+- Assumptions: Panacea's raw route works for KH1 models; the 12 extra inflated bytes of five
+  Halloween Town `-1c2.dds` are never read.
+- No change to the DLL or to Re:CoM. Not seen in game: `testers/kh1-flip-model/thread.md`.
+- Windows type-check not run locally (the Windows target can't be downloaded in this session);
+  the DLL doesn't use the changed crates, and the build bot builds and tests the workspace.
+
+---
+
 ## Stage 15: sounds for Guard, its success and the Counterattack, version 0.7.2 (2026-10-30)
 
 > "guard and counterattack work on soras end, lets try to get their sounds working go ahead" /
