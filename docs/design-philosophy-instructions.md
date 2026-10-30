@@ -154,6 +154,12 @@ At KH1 setting:
     KH1 hits (owner: "Keep them").
 14. Card priority at KH1 setting: KH1's rule. Sora's hits land even while an enemy plays a card.
 15. The card shown over an attacking enemy is hidden at KH1 setting.
+16. Ledges at KH1 setting (owner, 2026-10-30, option b): Re:CoM's own ledge climb and hang stay as
+    they are.
+17. (Lead, under decision 11) High Jump uses Re:CoM's own higher-jump animation rows (0x14/0x15).
+    The Dodge Roll's one-frame root-motion lead is fixed natively by delaying Re:CoM's root-motion
+    step one frame for Sora. Roll protection uses KH1's exact frames: 12 no-flinch frames plus the
+    untouchable window from the roll motion's events, not Re:CoM's full invulnerability.
 
 ## Known open design questions (ask the owner, don't guess)
 
