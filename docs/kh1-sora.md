@@ -17,7 +17,8 @@ The exe has the logic. The per-move numbers live in two data files:
 - **Sora's motion set `xa_ex_0010.mset`**: each motion's length, root travel, and the flag tracks
   that hold hit-active frames, the combo window, the "free to act" frame and cancel windows.
 
-So 1:1 needs the player's extracted KH1 files, read by the asset build step. The decomp shows where
+So 1:1 needs the player's extracted KH1 files, read by the asset build step. The values are now
+read: see `kh1-sora-data.md`. The decomp shows where
 each value sits and how it is used. Checked (decomp).
 
 ## States: table-driven
@@ -49,8 +50,8 @@ each value sits and how it is used. Checked (decomp).
   Checked (decomp).
 - **Gravity 0.48469388 units/frame².** Rise time `T = sqrt(2h/g)`, a double-eased sine rise,
   then a parabolic fall, **capped at 20 units/frame**. Checked (decomp).
-- Jump height h comes from `btltbl` (`+0xAC` normal, `+0xAE` High Jump, for Sora). Assumption:
-  190 normal, which matches g exactly. The value is in the data file.
+- Jump height h comes from `btltbl` (`+0xAC` normal, `+0xAE` High Jump, for Sora). Read from the
+  file: 190 normal, 290 High Jump (`kh1-sora-data.md`).
 - Releasing jump after frame 6 cuts the rise: 5 more frames, 6.06 units. Checked (decomp).
 - Air control: 0.1 × speed per frame toward the stick, |v| capped at max(previous, 8); drag 0.95
   per 2 frames with no stick. Checked (decomp).
