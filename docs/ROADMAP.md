@@ -23,6 +23,9 @@ and it is checked against KH1 traces.
 
 ## Phase 1: foundations inside Re:CoM
 
+Status (2026-10-30): everything for M1–M3 is built and installed (version 0.4.0). Each is waiting
+on its in-game check (`testers/kh1-traces`, `testers/recom-phase1`).
+
 **M1. Verify the oracle against KH1** (before building on it)
 - A KH1 trace tool: a small KH1-side logger (state, motion and frame, position, velocity,
   combo counter, hits) in the same CSV format as the playground's `--trace`.

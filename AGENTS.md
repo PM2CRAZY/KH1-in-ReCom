@@ -11,6 +11,57 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 5: Phase 1 in Re:CoM: KH1 motions asset step, motion switch, Config rows, version 0.4.0 (2026-10-30)
+
+> "lets finish phase 1" (ROADMAP M2 + M3)
+
+- **Asset step** (`crates/kh1-recom-assets`, CLI `kh1-recom-build`; `docs/kh1-recom-assets.md`):
+  - Converts all 118 KH1 Sora motions (via `kh1-anim`) into new 60 fps slots 161–278 of Re:CoM's
+    `PLAYER/0001/PL0001.ANN`, and the matching Keyblade clips into `PLAYER/0002/PL0002.ANN`.
+    Re:CoM's own slots stay byte-identical.
+  - Writes `<mod_path>\Recom\…` plus `kh1-motions.json`. Panacea serves files from
+    mod_path + "/recom" by archive path. Checked (OpenKH Panacea source).
+  - Validation: Re:CoM pack decode → encode is byte-identical; converted clips match KH1's pose
+    ≤0.045 mm / 0.005° per frame. Against Square Enix's own bakes they are ≤0.019° (body) and
+    ≤0.007° (Keyblade, entry 98). Checked (files, tests).
+  - Known: the Keyblade tip `k9` is off by 1.58° in entry 4 (KH1 bone 283's copy-orientation
+    constraint in `kh1-anim`), and by 0.18° in entry 74.
+  - Loader: no 161-slot limit; sizes come from the file (`0x14029F3A0`), and the name lookup
+    (`0x1401A47E0` / `0x1402A42B0`) handles slots ≥161. Checked (decomp).
+- **DLL** (`crates/kh1-recom`; `docs/recom-config-menu.md`, `docs/recom-motion-switch.md`):
+  - Hook infrastructure: byte-checked, all-or-nothing. Starts from Panacea's `OnInit`.
+  - Config: two rows, "Combat: Re:CoM / KH1" and "KH1 motions test: Off / On", added to the camp
+    menu's Config screen using Re:CoM's own item, layout, cursor and help code. Hooks: Config input
+    `0x1400D3EB0` (`48 89 5C 24 08 57 48 83 EC 20`) and draw `0x1400DF1B0`
+    (`48 8B C4 55 41 54 41 55 41 56`). Bytes re-checked by the lead against the exe.
+  - The values are saved in `kh1-recom.ini`: the Config save has no byte that can be proven free.
+  - `config_menu = off` is a safety switch.
+  - The KH1 motions test repoints 12 name pointers in Sora's action table (`0x1407C5E80`): idle,
+    walk, run, swings 1–2, lunge, finisher. Re:CoM resolves and plays them itself from the next
+    room load. Data only, nothing per frame.
+- Not checked in game: the rows' look and behaviour, the clips playing, the Keyblade following.
+  Tester thread `testers/recom-phase1/thread.md`.
+
+## Stage 4: KH1 trace logger, replay and diff (M1), version 0.3.0 (2026-10-30)
+
+> "lets finish phase 1" (ROADMAP M1)
+
+- `crates/kh1-trace` (`docs/kh1-trace.md`):
+  - `kh1-trace.dll` for KH1 FM Steam. Build check: PE time stamp `0x669E37CE`, size
+    `0x2F91000`.
+  - One hook on the per-actor task `0x140297FE0` (`48 8B C4 57 48 83 EC 60`). F9 records
+    `kh1-trace-<n>.csv` with about 70 columns: state, motion, position, velocities, combo, and the
+    inputs.
+  - `kh1-tracediff` compares two traces.
+- Playground: `--replay <csv>` feeds the recorded inputs to the controller and diffs the result.
+  Replay is deterministic byte for byte (tests).
+- Finding: KH1's "ground contact" is +0x2D0 bit 0, not bit 1. Checked (decomp).
+- Assumptions: the camera yaw formula (checked against KH1's own move vector on real traces); Sora
+  is party slot 0; Panacea calls `OnInit` before frames run.
+- Not run in KH1 yet. Tester thread `testers/kh1-traces/thread.md`.
+
+---
+
 ## Stage 3: smoother Sora in the playground, PS5 controllers, version 0.2.1 (2026-10-30)
 
 > "lets make the actual character model looking smoother, and make sure ps5 controllers work with

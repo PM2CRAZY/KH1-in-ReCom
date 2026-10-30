@@ -1,10 +1,20 @@
 //! KH1 combat in Kingdom Hearts Re:Chain of Memories (PC, Steam).
 //!
-//! OpenKH's Panacea loads this DLL into `KINGDOM HEARTS Re_Chain of Memories.exe`. Version 0.1.0
-//! changes nothing in the game: it checks that it runs on the Steam build it targets, checks the
-//! first bytes of every function later stages will hook, reads `kh1-recom.ini`, and writes
-//! `kh1-recom.log` next to the game.
+//! OpenKH's Panacea loads this DLL into `KINGDOM HEARTS Re_Chain of Memories.exe` (from
+//! `mod_path\Recom\dll`) and calls its `OnInit(mod folder)`. At start it checks that it runs on
+//! the Steam build it targets and the first bytes of every function it hooks or calls, reads
+//! `kh1-recom.ini`, and writes `kh1-recom.log` next to the game. Then, only when every check
+//! passed:
+//!
+//! - adds two rows to Re:CoM's Config menu ("Combat", "KH1 motions test"), drawn and driven by
+//!   Re:CoM's own menu code (`menu`, `docs/recom-config-menu.md`);
+//! - with "KH1 motions test" on, re-points Sora's action-table rows to the KH1 clips the asset
+//!   build step appended to `PL0001.ANN` (`motions`, `docs/recom-motion-switch.md`).
 
+pub mod hookplan;
+pub mod json;
+pub mod menu;
+pub mod motions;
 pub mod settings;
 pub mod sites;
 
@@ -45,7 +55,7 @@ pub fn startup_report(
     }
     let mut all_ok = name_ok && build_ok;
     if build_ok {
-        for s in sites::SITES {
+        for s in sites::all_sites() {
             let found = read_site(s.rva, s.expect.len());
             match sites::check_site(s, &found) {
                 sites::SiteCheck::Ok => {
@@ -68,7 +78,13 @@ pub fn startup_report(
     match ini {
         Ok(text) => {
             let (s, warnings) = settings::parse(&text);
-            let _ = writeln!(r, "settings: combat = {}", s.combat.as_str());
+            let _ = writeln!(
+                r,
+                "settings: combat = {}, kh1_motions = {}, config_menu = {}",
+                s.combat.as_str(),
+                settings::switch_str(s.kh1_motions),
+                settings::switch_str(s.config_menu)
+            );
             for w in warnings {
                 let _ = writeln!(r, "settings warning: {w}");
             }
@@ -80,11 +96,7 @@ pub fn startup_report(
     let _ = writeln!(
         r,
         "{}",
-        if all_ok {
-            "result: all checks passed. Version 0.1.0 changes nothing in the game."
-        } else {
-            "result: checks FAILED. The mod will install no hooks on this build."
-        }
+        if all_ok { "result: all checks passed." } else { "result: checks FAILED. The mod changes nothing on this build." }
     );
     (r, all_ok)
 }
@@ -99,13 +111,12 @@ mod tests {
     #[test]
     fn report_passes_on_matching_build() {
         let pe = Some(sites::PeInfo { timestamp: sites::STEAM_TIMESTAMP, size_of_image: sites::STEAM_SIZE_OF_IMAGE });
-        let read = |rva: u32, n: usize| {
-            sites::SITES.iter().find(|s| s.rva == rva).map(|s| s.expect[..n].to_vec()).unwrap_or_default()
-        };
+        let read = |rva: u32, n: usize| sites::all_sites().find(|s| s.rva == rva).map(|s| s.expect[..n].to_vec()).unwrap_or_default();
         let path = format!("D:\\Steam\\x\\{}", sites::EXE_NAME);
         let (r, ok) = startup_report(&path, pe, &read, Ok(settings::DEFAULT_FILE.into()));
         assert!(ok, "{r}");
-        assert!(r.contains("combat = kh1"));
+        assert!(r.contains("combat = kh1, kh1_motions = off, config_menu = on"), "{r}");
+        assert!(r.contains("Config screen draw"));
     }
 
     #[test]

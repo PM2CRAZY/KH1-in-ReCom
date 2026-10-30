@@ -220,6 +220,11 @@ impl Sim {
 
     /// One 60 Hz frame.
     pub fn step(&mut self, pad: &Pad) -> &Output {
+        self.step_dt(pad, 1.0)
+    }
+
+    /// One frame with KH1's frame step `dt` (`0x14233FBDC`: 1.0 at 60 fps), as a replay feeds it.
+    pub fn step_dt(&mut self, pad: &Pad, dt: f32) -> &Output {
         if pad.lock_toggle {
             self.lock = if self.lock.is_some() { None } else { self.nearest() };
             let s = match self.lock {
@@ -252,7 +257,7 @@ impl Sim {
             Vec::new()
         };
         let mut world = ArenaWorld { arena: &self.arena, bodies };
-        let out = self.ctrl.step(&input, &parts, &mut world, 1.0);
+        let out = self.ctrl.step(&input, &parts, &mut world, dt);
         self.frame += 1;
         for e in &out.events {
             if !matches!(e, Event::MotionStarted(_)) {
@@ -299,7 +304,7 @@ impl Sim {
         // The dummies' own frame.
         for (d, info) in self.dummies.iter_mut().zip(self.info.iter_mut()) {
             let floor = self.arena.floor_under(d.pos.x, d.pos.z, d.pos.y);
-            d.step(&kit.combat.reaction, floor, 1.0);
+            d.step(&kit.combat.reaction, floor, dt);
             if d.stats.hp <= 0 && matches!(d.state, DummyState::Idle | DummyState::Down { .. }) {
                 info.respawn += 1;
                 if info.respawn >= RESPAWN_FRAMES {

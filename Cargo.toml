@@ -7,6 +7,8 @@ members = [
     "crates/kh1-anim",
     "crates/kh1-data",
     "crates/kh1-playground",
+    "crates/kh1-trace",
+    "crates/kh1-recom-assets",
 ]
 
 [profile.release]

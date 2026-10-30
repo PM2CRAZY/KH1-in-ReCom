@@ -14,6 +14,7 @@ kh1-core = { path = "../kh1-core" }
 kh1-data = { path = "../kh1-data" }
 kh1-anim = { path = "../kh1-anim" }
 kh1-formats = { path = "../kh1-formats" }
+kh1-trace = { path = "../kh1-trace" }
 bevy = { version = "=0.15.3", default-features = false, features = [
     "bevy_asset",
     "bevy_color",

@@ -1,0 +1,17 @@
+[package]
+name = "kh1-trace"
+description = "KH1 FM (Steam) trace logger DLL for OpenKH Panacea, the trace CSV schema shared with kh1-playground, and kh1-tracediff. Records Sora's state and inputs per frame; changes nothing in the game."
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+# cdylib: kh1_trace.dll (Panacea loads it into KINGDOM HEARTS FINAL MIX.exe); rlib: the schema
+# and diff code for kh1-playground and kh1-tracediff.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "kh1-tracediff"
+path = "src/bin/kh1-tracediff.rs"
+
+[dependencies]

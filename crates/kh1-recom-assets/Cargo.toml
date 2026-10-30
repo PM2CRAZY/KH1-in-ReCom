@@ -1,0 +1,17 @@
+[package]
+name = "kh1-recom-assets"
+description = "The asset build step: converts KH1 FM Sora's motions (the player's own xa_ex_0010.mset / .mdls) into Re:Chain of Memories' own motion pack (PL0001.ANN), so Re:CoM's engine plays them natively. Reads the user's own installs; ships no game data."
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "kh1-recom-build"
+path = "src/main.rs"
+
+[dependencies]
+kh1-formats = { path = "../kh1-formats" }
+kh1-anim = { path = "../kh1-anim" }

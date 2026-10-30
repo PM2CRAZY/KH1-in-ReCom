@@ -1,4 +1,5 @@
-//! The Steam Re:CoM build this mod targets, and the functions later stages will hook.
+//! The Steam Re:CoM build this mod targets, the functions it hooks or calls, and those later
+//! stages will hook.
 //!
 //! Every address is a Steam RVA (image base 0x140000000). Each site's expected first bytes were
 //! read from the Steam exe (`KINGDOM HEARTS Re_Chain of Memories.exe`, SHA-256 `acf42e96…6bbf`)
@@ -19,7 +20,7 @@ pub struct Site {
     pub expect: &'static [u8],
 }
 
-/// Functions later stages will hook. Nothing is hooked in 0.1.0: these are only checked.
+/// Functions later stages will hook. These are only checked.
 pub const SITES: &[Site] = &[
     Site { name: "initAttack (battle attack init)", rva: 0x001F_0D90, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48] },
     Site { name: "field swing init", rva: 0x001F_0F70, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x8B] },
@@ -30,6 +31,46 @@ pub const SITES: &[Site] = &[
     Site { name: "use-card button", rva: 0x001E_8FF0, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x83, 0xB9, 0xB0, 0x07, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD9] },
     Site { name: "motion pack (.ANN) loader", rva: 0x0029_F3A0, expect: &[0x40, 0x53, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC] },
 ];
+
+/// Functions this version hooks. `expect` is exactly the bytes moved to the trampoline: whole,
+/// position-independent instructions (read from the Steam exe, checked against the decomp).
+pub const HOOKS: &[Site] = &[
+    // mov [rsp+8],rbx; push rdi; sub rsp,0x20
+    Site { name: "Config screen input (CCamp)", rva: 0x000D_3EB0, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20] },
+    // mov rax,rsp; push rbp; push r12; push r13; push r14
+    Site { name: "Config screen draw (CCamp)", rva: 0x000D_F1B0, expect: &[0x48, 0x8B, 0xC4, 0x55, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56] },
+];
+
+/// Re:CoM functions this version calls (from the hooks). Checked like the hook sites, so a
+/// different build never gets called into.
+pub const CALLEES: &[Site] = &[
+    Site { name: "camp: pad direction (0x140111A70)", rva: 0x0011_1A70, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0xF2] },
+    Site { name: "camp: pad confirm (0x140111B90)", rva: 0x0011_1B90, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0xFA, 0x48, 0x8B, 0xD9] },
+    Site { name: "menu sound (0x1402AA360)", rva: 0x002A_A360, expect: &[0x48, 0x83, 0xEC, 0x48, 0x48, 0x8B, 0x05, 0x5D, 0x87, 0x5B, 0x00] },
+    Site { name: "operator new (0x1404ACE54)", rva: 0x004A_CE54, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9, 0xEB, 0x0F] },
+    Site { name: "CButton ctor (0x140112A90)", rva: 0x0011_2A90, expect: &[0x48, 0x8D, 0x05, 0xD9, 0x12, 0x40, 0x00, 0x48, 0xC7, 0x41, 0x18, 0x00, 0x00, 0x00, 0x00] },
+    Site { name: "CButton setup (0x140112F10)", rva: 0x0011_2F10, expect: &[0x48, 0x8B, 0xC4, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x60] },
+    Site { name: "layout position (0x140246100)", rva: 0x0024_6100, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x83, 0x3D, 0x21, 0x6D, 0x63, 0x00, 0x00] },
+    Site { name: "text set (0x140259000)", rva: 0x0025_9000, expect: &[0x48, 0x85, 0xD2, 0x0F, 0x84, 0x91, 0x00, 0x00, 0x00, 0x48, 0x89, 0x5C, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x30] },
+    Site { name: "sprite position (0x1402485B0)", rva: 0x0024_85B0, expect: &[0x8B, 0x02, 0x89, 0x81, 0xF0, 0x00, 0x00, 0x00, 0x8B, 0x42, 0x04, 0x89, 0x81, 0xF4, 0x00, 0x00, 0x00] },
+    Site { name: "player stateInitial (resolves action names)", rva: 0x001F_A6E0, expect: &[0x40, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x50] },
+    Site { name: "motion name resolve (0x1402A42B0)", rva: 0x002A_42B0, expect: &[0x40, 0x56, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x4C, 0x8B, 0xF2] },
+];
+
+/// Data this version reads or calls through, with its address (Steam). Checked (exe).
+pub mod data {
+    /// Sequence ids for label items (`u16[]`).
+    pub const LABEL_SEQ: u64 = 0x1_407C_1230;
+    /// Per value item, a pointer to its sequence ids (9 pointers).
+    pub const VALUE_SEQ: u64 = 0x1_407C_1240;
+    /// Pointer to the global whose `+0x274` picks the label font (0xC for 3 and 6).
+    pub const FONT_GLOBAL: u64 = 0x1_40AF_73B0;
+}
+
+/// Every site the startup check reads: checked-only, hooked, called.
+pub fn all_sites() -> impl Iterator<Item = &'static Site> {
+    SITES.iter().chain(HOOKS).chain(CALLEES)
+}
 
 /// What the PE headers of a loaded image say about its build.
 #[derive(Debug, PartialEq, Eq)]
@@ -106,13 +147,25 @@ mod tests {
 
     #[test]
     fn sites_have_enough_bytes_and_are_unique() {
-        for s in SITES {
+        for s in all_sites() {
             assert!(s.expect.len() >= 5, "{}", s.name);
         }
-        let mut r: Vec<u32> = SITES.iter().map(|s| s.rva).collect();
+        let mut r: Vec<u32> = all_sites().map(|s| s.rva).collect();
+        let n = r.len();
         r.sort();
         r.dedup();
-        assert_eq!(r.len(), SITES.len());
+        assert_eq!(r.len(), n);
+    }
+
+    #[test]
+    fn hooks_move_whole_instructions_without_rip_operands() {
+        // The two hooked prologues hold no rip-relative operand or branch, so they can run from
+        // the trampoline. Each is 10 bytes (whole instructions, decoded in the module docs).
+        for h in HOOKS {
+            assert_eq!(h.expect.len(), 10, "{}", h.name);
+            assert!(!h.expect.windows(2).any(|w| w == [0x8B, 0x05] || w == [0x8D, 0x05]), "{}", h.name);
+            assert!(!h.expect.contains(&0xE8) && !h.expect.contains(&0xE9), "{}", h.name);
+        }
     }
 
     #[test]

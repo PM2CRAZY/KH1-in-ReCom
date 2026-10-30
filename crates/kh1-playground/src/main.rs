@@ -7,10 +7,13 @@
 //!
 //! Run: `kh1-playground --game-dir "D:\Steam\steamapps\common\KINGDOM HEARTS -HD 1.5+2.5 ReMIX-"`
 //! (or set `KH1_GAME_DIR`). F1 shows the controls. `--trace out.csv` logs every frame.
+//! `--replay kh1-trace-1.csv [--trace out.csv]` replays a recorded trace's inputs headless
+//! (`replay.rs`) and compares the result with it (`kh1-tracediff`).
 
 mod arena;
 mod body;
 mod hud;
+mod replay;
 mod scene;
 mod script;
 mod sim;
@@ -47,6 +50,7 @@ fn usage() -> String {
         "kh1-playground [--game-dir <KH 1.5+2.5 folder>] [--trace out.csv] [--script {}] [--frames N]\n\
          \x20              [--screenshot out.png [--screenshot-frame N]] [--strength N] [--max-mp N]\n\
          \x20              [--dummy-hp N] [--dummy-defence N] [--no-push]\n\
+         \x20              [--replay kh1-trace.csv [--replay-layout kh1|playground]] (headless replay)\n\
          The game folder holds Image/dt/kh1_first.hed and KINGDOM HEARTS FINAL MIX.exe; it is also\n\
          looked for in KH1_GAME_DIR, next to this program and in common Steam / Epic folders.",
         Script::NAMES.replace(", ", "|")
@@ -131,6 +135,25 @@ fn main() {
         .map_err(|e| e.to_string())
         .and_then(|dir| SoraKit::load(&dir).map(|k| (dir, k)).map_err(|e| format!("Found the game folder but could not read Sora's files:\n  {e}")));
 
+    if let Some(input) = arg(&args, "--replay") {
+        let layout = match arg(&args, "--replay-layout").as_deref() {
+            None | Some("kh1") => replay::Layout::Kh1,
+            Some("playground") => replay::Layout::Playground,
+            Some(o) => {
+                eprintln!("unknown --replay-layout {o} (kh1 or playground)");
+                std::process::exit(2);
+            }
+        };
+        let kit = match loaded {
+            Ok((_, kit)) => kit,
+            Err(msg) => {
+                eprintln!("{msg}\n\n{}", usage());
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(replay_main(Arc::new(kit), opts, &input, arg(&args, "--trace"), layout));
+    }
+
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window { title: "KH1 FM movement & Attack (kh1-playground)".into(), resolution: WindowResolution::new(1280.0, 720.0), ..default() }),
@@ -168,6 +191,38 @@ fn main() {
         }
     }
     app.run();
+}
+
+/// `--replay`: replays `input`'s inputs, writes our trace, prints the comparison. Returns the exit
+/// code (0 match, 1 divergence, 2 error).
+fn replay_main(kit: Arc<SoraKit>, opts: Options, input: &str, out: Option<String>, layout: replay::Layout) -> i32 {
+    let trace = match kh1_trace::schema::read_file(std::path::Path::new(input)) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{e}");
+            return 2;
+        }
+    };
+    let out = out.map(PathBuf::from).unwrap_or_else(|| {
+        let p = std::path::Path::new(input);
+        p.with_file_name(format!("{}-playground.csv", p.file_stem().map_or("trace".into(), |s| s.to_string_lossy())))
+    });
+    let mut sim = Sim::new(kit, opts);
+    replay::setup(&mut sim, &trace, layout);
+    let rows = replay::run(&mut sim, &trace.rows);
+    if let Err(e) = trace::write_rows(&out, &rows) {
+        eprintln!("cannot write {}: {e}", out.display());
+        return 2;
+    }
+    println!("replayed {} frames of {input} -> {}", rows.len(), out.display());
+    use kh1_trace::diff;
+    let report = diff::compare(&trace.rows, &rows, diff::Align::FirstInput, diff::Tolerance::default(), None);
+    print!("{}", diff::format(&report, input, &out.display().to_string()));
+    if report.matches() {
+        0
+    } else {
+        1
+    }
 }
 
 /// KH1's stick read (`0x14028B4F0`, dead zone 60 of 127.5) from a −1..1 stick, as bytes.
@@ -235,7 +290,7 @@ fn simulate(mut game: ResMut<Game>, mut latch: ResMut<Latch>, cam: Res<OrbitCam>
     };
     let out = g.sim.step(&pad).clone();
     if let Some(t) = &mut g.trace {
-        if let Err(e) = t.frame(&g.sim, &out) {
+        if let Err(e) = t.frame(&g.sim, &out, &pad, 1.0) {
             eprintln!("trace write failed: {e}");
             g.trace = None;
         }

@@ -2377,11 +2377,24 @@ dependencies = [
  "kh1-core",
  "kh1-data",
  "kh1-formats",
+ "kh1-trace",
 ]
 
 [[package]]
 name = "kh1-recom"
-version = "0.2.0"
+version = "0.2.1"
+
+[[package]]
+name = "kh1-recom-assets"
+version = "0.1.0"
+dependencies = [
+ "kh1-anim",
+ "kh1-formats",
+]
+
+[[package]]
+name = "kh1-trace"
+version = "0.1.0"
 
 [[package]]
 name = "khronos-egl"
