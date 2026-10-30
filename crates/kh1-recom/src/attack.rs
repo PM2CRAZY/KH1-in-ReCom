@@ -136,12 +136,23 @@ pub fn kh1_row_bytes(recom: &[u8; 16], kh1_row: usize, m: &Moveset) -> Option<[u
     Some(b)
 }
 
-/// The KH1 rows by KH1 row id (0..=18; unused rows are zero), from Re:CoM's rows 1–7.
-pub fn kh1_table(recom_rows_1_7: &[[u8; 16]; 7], m: &Moveset) -> Vec<[u8; 16]> {
-    let mut t = vec![[0u8; 16]; 19];
+/// KH1's Counterattack row (motion 213, record `0x4E18`).
+pub const COUNTERATTACK_ROW: usize = 0x3E;
+
+/// The KH1 rows by KH1 row id (0..=0x3E; unused rows are zero), from Re:CoM's rows 1–7. The
+/// Counterattack (row 0x3E) plays the appended action row `counter_clip` (its KH1-only clip),
+/// in the layout of Re:CoM's row 1; without that row it stays empty (not offered).
+pub fn kh1_table(recom_rows_1_7: &[[u8; 16]; 7], m: &Moveset, counter_clip: Option<u32>) -> Vec<[u8; 16]> {
+    let mut t = vec![[0u8; 16]; COUNTERATTACK_ROW + 1];
     for &(r, id) in ROW_MAP.iter() {
         if let Some(b) = kh1_row_bytes(&recom_rows_1_7[id as usize - 1], r, m) {
             t[r] = b;
+        }
+    }
+    if let Some(clip) = counter_clip.filter(|c| *c <= 0xFF) {
+        if let Some(mut b) = kh1_row_bytes(&recom_rows_1_7[0], COUNTERATTACK_ROW, m) {
+            b[0] = clip as u8;
+            t[COUNTERATTACK_ROW] = b;
         }
     }
     t
@@ -300,10 +311,34 @@ impl Kh1Sora {
         self.row_exec(h, picked, dir, w, finisher, length, pos, ev);
     }
 
+    /// `0x1402A7510`, command type 99 (Counterattack, command 0x63): CB+0x41 + 1, then row 0x3E
+    /// (`0x1402A68F0`). The command aims at its target (entry byte 0 bit 2, `0x1402A38E0`), else
+    /// the stick, else the facing. Checked (decomp + files).
+    pub(crate) fn command_counterattack(&mut self, h: &mut dyn Host, dir: &mut Vec3, w: &mut f32, target: Option<TargetPart>, pos: Vec3, ev: &mut Vec<Event>) {
+        match target {
+            Some(t) => {
+                let d = (t.centre - pos).flat().normalized();
+                *dir = d;
+                self.target_yaw = d.yaw();
+            }
+            None => {
+                if dir.is_zero_xz() {
+                    *dir = Vec3::from_yaw(self.facing);
+                }
+            }
+        }
+        *w = 0.0;
+        self.combo_counter = self.combo_counter.wrapping_add(1);
+        let length = self.params.ground_length(&self.abilities);
+        self.row_exec(h, COUNTERATTACK_ROW, dir, w, false, length, pos, ev);
+    }
+
     /// `0x1402A68F0` (with `0x1402A3980`, the row reader).
     #[allow(clippy::too_many_arguments)]
     fn row_exec(&mut self, h: &mut dyn Host, r: usize, dir: &mut Vec3, w: &mut f32, finisher: bool, length: u8, pos: Vec3, ev: &mut Vec<Event>) {
         let Some(rw) = self.moveset.row(r).cloned() else { return };
+        // `0x1402B3270`: each row start clears CB+0x50 (the clash bit).
+        self.clashed = false;
         let mut hop = rw.hop;
         let mut counter_reset = false;
         let air_row = matches!(r, row::HURRICANE_BLAST..=row::AIR_SWING_1);

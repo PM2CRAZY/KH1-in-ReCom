@@ -122,6 +122,41 @@ unsafe fn kh1_row_of(pl: usize) -> Option<usize> {
     (ptr >= start && ptr < start + t.len() * 16 && (ptr - start).is_multiple_of(16)).then(|| (ptr - start) / 16)
 }
 
+/// Sora's body (`player+0x690`) guard fields (Checked (decomp `0x14016F1C0`, body ctor)):
+/// `+0x9C` flags (1 guard, 0x20 guarded), `+0x8C` guard element mask (all by default), `+0xB0`
+/// the guard's half-angle (π by default).
+const BODY_GUARD: usize = 0x690 + 0x9C;
+const BODY_GUARD_ANGLE: usize = 0x690 + 0xB0;
+/// KH1's guard arc: cosine −0.1736 (record `0x4DA8` +0x64) = ±100°.
+const KH1_GUARD_ANGLE: f32 = 1.745_329_3;
+static GUARD_ON: AtomicUsize = AtomicUsize::new(0);
+static GUARD_HIT: AtomicUsize = AtomicUsize::new(0);
+
+/// KH1's guard object live: Re:CoM's own body guard on Sora (all elements, ±100°), or off.
+pub(super) unsafe fn set_guard(pl: usize, on: bool) {
+    let f: u32 = rd(pl + BODY_GUARD);
+    if on {
+        wr(pl + BODY_GUARD, f | 1);
+        wr(pl + BODY_GUARD_ANGLE, KH1_GUARD_ANGLE);
+        GUARD_ON.store(pl, Ordering::Relaxed);
+    } else {
+        wr(pl + BODY_GUARD, f & !1);
+        wr(pl + BODY_GUARD_ANGLE, std::f32::consts::PI);
+        GUARD_ON.store(0, Ordering::Relaxed);
+    }
+    GUARD_HIT.store(0, Ordering::Relaxed);
+}
+
+/// A guarded hit since the last KH1 frame.
+pub(super) unsafe fn take_guard_hit(pl: usize) -> bool {
+    GUARD_HIT.swap(0, Ordering::Relaxed) == pl || rd::<u32>(pl + BODY_GUARD) & 0x20 != 0
+}
+
+/// Whether our attack table holds this KH1 row.
+pub(super) fn row_ready(r: usize) -> bool {
+    TABLE.get().is_some_and(|t| t.get(r).is_some_and(|b| b[0] != 0))
+}
+
 pub(super) fn set_no_flinch(pl: usize, on: bool) {
     NO_FLINCH.store(if on { pl } else { 0 }, Ordering::Relaxed);
 }
@@ -472,6 +507,11 @@ pub unsafe extern "win64" fn enemy_hit(enemy: usize) -> u64 {
 /// other readers are the room-card regen ticks, which don't run inside this call).
 pub unsafe extern "win64" fn damage_check(pl: usize) -> u64 {
     let o: PlRetFn = orig(&ORIG_DAMAGE_CHECK);
+    // A hit guarded by Sora's body guard (`body+0x9C & 0x20`, `player+0x72C`): kept for the next
+    // KH1 frame (Re:CoM clears the bit each frame, `0x1401F4000` / `0x1401FABC0`).
+    if GUARD_ON.load(Ordering::Relaxed) == pl && rd::<u32>(pl + BODY_GUARD) & 0x20 != 0 {
+        GUARD_HIT.store(pl, Ordering::Relaxed);
+    }
     if NO_FLINCH.load(Ordering::Relaxed) != pl || !mv::kh1_sora(pl) {
         return o(pl);
     }
@@ -527,7 +567,7 @@ pub unsafe fn build_table(b: usize) -> bool {
         log("attack: Re:CoM's attack rows 1-7 are not the Steam exe's; KH1 Attack not installed");
         return false;
     }
-    let t: &'static [[u8; 16]] = Box::leak(atk::kh1_table(&live, moveset()).into_boxed_slice());
+    let t: &'static [[u8; 16]] = Box::leak(atk::kh1_table(&live, moveset(), mv::EXT.get().and_then(|e| e.get(crate::rows::COUNTERATTACK))).into_boxed_slice());
     TABLE.set(t).is_ok()
 }
 

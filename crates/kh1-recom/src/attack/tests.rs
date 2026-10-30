@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn kh1_rows_keep_recoms_clip_and_take_kh1s_windows() {
     let m = Moveset::kh1_defaults();
-    let t = kh1_table(&RECOM_ROWS_1_7, &m);
+    let t = kh1_table(&RECOM_ROWS_1_7, &m, Some(0x48));
     // Row 13 (motion 200): Re:CoM row 1's action 0x30 and effect 1; KH1 hit 14–24 held one frame
     // earlier for Re:CoM's exe-time test; combo window 22–40; kind 1 (flinch); only flag 0x80.
     let r = t[13];
@@ -25,6 +25,11 @@ fn kh1_rows_keep_recoms_clip_and_take_kh1s_windows() {
     assert_eq!((t[18][4], t[18][5]), (5, 19));
     // Rows Re:CoM can't play stay empty.
     assert_eq!(t[3], [0u8; 16]);
+    // Counterattack (row 0x3E, motion 213): the appended clip row, hit 8–24 a frame earlier,
+    // window 18–56, flinch; none without the clip.
+    let c = t[COUNTERATTACK_ROW];
+    assert_eq!((c[0], c[4], c[5], c[1], c[3], c[0xB]), (0x48, 7, 23, 18, 56, 1));
+    assert_eq!(kh1_table(&RECOM_ROWS_1_7, &m, None)[COUNTERATTACK_ROW], [0u8; 16]);
     // Re:CoM's own rows never carry flag 0x80 (the gate's KH1 test leaves them alone).
     assert!(RECOM_ROWS_1_7.iter().all(|r| r[0xF] & FLAG_KH1 == 0 && row_window(r).is_none()));
 }

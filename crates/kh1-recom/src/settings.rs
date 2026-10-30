@@ -65,6 +65,7 @@ pub struct Kh1Abilities {
     pub superglide: bool,
     pub dodge_roll: bool,
     pub guard: bool,
+    pub counterattack: bool,
     /// Copies of Combo Plus / Air Combo Plus (each adds a swing to the combo), and Combo Master.
     pub combo_plus: u8,
     pub air_combo_plus: u8,
@@ -73,7 +74,7 @@ pub struct Kh1Abilities {
 
 impl Default for Kh1Abilities {
     fn default() -> Self {
-        Kh1Abilities { high_jump: false, glide: false, superglide: false, dodge_roll: true, guard: true, combo_plus: 0, air_combo_plus: 0, combo_master: false }
+        Kh1Abilities { high_jump: false, glide: false, superglide: false, dodge_roll: true, guard: true, counterattack: true, combo_plus: 0, air_combo_plus: 0, combo_master: false }
     }
 }
 
@@ -85,6 +86,7 @@ impl Kh1Abilities {
             superglide: self.superglide,
             dodge_roll: self.dodge_roll,
             guard: self.guard,
+            counterattack: self.counterattack,
             combo_plus: self.combo_plus,
             air_combo_plus: self.air_combo_plus,
             combo_master: self.combo_master,
@@ -94,7 +96,7 @@ impl Kh1Abilities {
 
     /// KH1's ability bits (`0x142D5EC10`), as the trace writes them.
     pub fn bits(self) -> u32 {
-        (self.high_jump as u32) << 9 | (self.glide as u32) << 7 | (self.superglide as u32) << 8 | (self.guard as u32) << 4 | (self.dodge_roll as u32) << 5
+        (self.high_jump as u32) << 9 | (self.glide as u32) << 7 | (self.superglide as u32) << 8 | (self.guard as u32) << 4 | (self.dodge_roll as u32) << 5 | (self.counterattack as u32) << 2
     }
 }
 
@@ -124,6 +126,7 @@ glide = off
 superglide = off
 dodge_roll = on
 guard = on
+counterattack = on
 ; Combo Plus / Air Combo Plus: how many are equipped (0-9); combo_master = on | off
 combo_plus = 0
 air_combo_plus = 0
@@ -159,7 +162,7 @@ pub fn parse(text: &str) -> (Settings, Vec<String>) {
                 Some(b) => s.config_menu = b,
                 None => warnings.push(bad("config_menu must be on or off")),
             },
-            k @ ("high_jump" | "glide" | "superglide" | "dodge_roll" | "guard") => match parse_switch(v) {
+            k @ ("high_jump" | "glide" | "superglide" | "dodge_roll" | "guard" | "counterattack") => match parse_switch(v) {
                 Some(b) => {
                     let a = &mut s.abilities;
                     *match k {
@@ -167,6 +170,7 @@ pub fn parse(text: &str) -> (Settings, Vec<String>) {
                         "glide" => &mut a.glide,
                         "superglide" => &mut a.superglide,
                         "dodge_roll" => &mut a.dodge_roll,
+                        "counterattack" => &mut a.counterattack,
                         _ => &mut a.guard,
                     } = b;
                 }
@@ -239,7 +243,7 @@ pub fn store(text: &str, s: &Settings) -> String {
     let t = set_key(text, "combat", s.combat.as_str());
     let mut t = set_key(&t, "config_menu", switch_str(s.config_menu));
     let a = s.abilities;
-    for (k, v) in [("high_jump", a.high_jump), ("glide", a.glide), ("superglide", a.superglide), ("dodge_roll", a.dodge_roll), ("guard", a.guard)] {
+    for (k, v) in [("high_jump", a.high_jump), ("glide", a.glide), ("superglide", a.superglide), ("dodge_roll", a.dodge_roll), ("guard", a.guard), ("counterattack", a.counterattack)] {
         t = set_key(&t, k, switch_str(v));
     }
     let t = set_key(&t, "combo_plus", &a.combo_plus.to_string());
@@ -286,8 +290,10 @@ mod tests {
         let (s, w) = parse("high_jump = on\nglide = yes\nsuperglide = 1\ndodge_roll = off\nguard = no\nglide = maybe\n");
         assert_eq!(w.len(), 1, "{w:?}");
         assert_eq!(s.abilities, Kh1Abilities { high_jump: true, glide: true, superglide: true, dodge_roll: false, guard: false, ..Default::default() });
-        assert_eq!(s.abilities.bits(), 0x200 | 0x80 | 0x100);
-        assert_eq!(Kh1Abilities::default().bits(), 0x10 | 0x20);
+        assert_eq!(s.abilities.bits(), 0x200 | 0x80 | 0x100 | 0x4);
+        assert_eq!(Kh1Abilities::default().bits(), 0x10 | 0x20 | 0x4);
+        let (off, _) = parse("counterattack = off\n");
+        assert!(!off.abilities.counterattack && !off.abilities.to_core().counterattack);
         let c = s.abilities.to_core();
         assert!(c.high_jump && c.glide && c.superglide && !c.dodge_roll && !c.guard);
     }

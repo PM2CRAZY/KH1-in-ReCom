@@ -238,21 +238,46 @@ All Checked (decomp + files) unless tagged.
   `+0x444 & 1` all clear), the party AI and summons. A swing keeps the yaw taken at the press, as
   kh1-core does. Checked (decomp). Assumption: a swing sets flag 4 (kh1-core's model).
 
-## Guard's repel and Counterattack (stopped)
+## Guard, guard success and Counterattack (0.7.1; decision 20)
 
-- KH1: the Guard row `0x3D` (record `0x4DA8`, clash type 2: a pure guard with no hit) blocks
-  attacks from the front within ±100° during motion 212's hit track (10–36). A press in its combo
-  window (22–54) after a block is row `0x3E` (Counterattack, motion 213).
-- Re:CoM has native guard fields on a body. The apply `0x14016F1C0` returns 2 (guarded) when
-  `body+0x9C & 1`, the attribute bit in `body+0x8C` is set, and the attacker is within `body+0xB0`
-  radians of the body's facing. The player's body is at `player+0x690`, so `+0x72C` is its `+0x9C`.
-- **Not built.** The player's side of a guarded hit isn't read yet: what `0x1401E6DE0` and the
-  hit handlers do with flag `0x20`. Its only visible use is `+0x72C & 8` (reflect, effect 2).
-  KH1's clash rules aren't either: guard against priority, the attacker's recoil motion `+0x40`.
-  KH1's Counterattack clip (entry 111) is KH1-only, so it needs a new row from the asset step.
-- Native option: set Sora's body guard fields for KH1's guard window, from the Guard handler,
-  using KH1's ±100° (1.745 rad in `+0xB0`). Then read Re:CoM's guarded-hit result to start the
-  Counterattack window. Next version, after the read.
+Research notes `kh1-guard-counter.md` (kept with the decomp tools). Checked (decomp + files)
+unless tagged.
+
+- **KH1.** Guard (row 0x3D, record `0x4DA8`) is a pure-guard attack object on the Keyblade
+  (clash type 2, ±100°: cosine −0.1736), live on motion 212's hit track (frames 10–36). When it
+  stops an enemy attack, `0x1402B4BC0` always gives Sora a recoil: kind 6 (`0x14029D720`) unless
+  the enemy out-prioritises the Keyblade by more than 40 (kind 7).
+  - Kind 6: request 0x6E at once (the guard motion and its object end), the idle queued, flag
+    0x80 (no damage, no reaction) whose 8-frame countdown starts at the next action request or
+    the lock release, CB+0x41 − 1, CB+0x50 |= 0x10, a pushback only when the enemy's priority
+    is higher. Motion 0x6E (entry 72): 60 frames, no travel, free 28–60, combo window 28–60.
+  - Counterattack (ability 19, `0x142D5EC10 & 4`): the menu's first slot becomes command 0x63
+    (`0x140294220`) while the request is 0x6E, CB+0x50 holds the clash bit and a target exists;
+    the accept (`0x140293480`) takes it from motion time 12. Command step `0x1402A7510` type 99:
+    CB+0x41 + 1, row 0x3E (record `0x4E18`, motion 213: 86 frames, hit 8–24, combo window 18–56,
+    travel 267.05), aimed at the target, else the stick, else the facing.
+- **In Re:CoM (native).** Re:CoM's own body guard does the blocking: the hit apply
+  `0x14016F1C0` returns 2 (guarded: no damage, no hit counter) when `body+0x9C & 1`, the hit's
+  element bit is in `body+0x8C` (all by default) and the attacker is within `body+0xB0` of the
+  body's facing, and it sets `body+0x9C |= 0x20`. Sora's body is `player+0x690`.
+  - The KH1 handler sets `+0x72C |= 1` and `+0x740 = 1.7453` (100°) while the guard motion's
+    hit track is live, and clears them (angle back to π) after.
+  - The damage-check wrapper (`0x1401E6DE0`) catches `+0x72C & 0x20` before Re:CoM clears it
+    (`0x1401F4000` / `0x1401FABC0` each frame) and hands it to the next KH1 frame, which runs the
+    kind-6 success: KH1's request 0x6E (Re:CoM's bake `p001_081`, row 0x24), the lock, the combo
+    counter −1, the clash bit, and flag 0x80 as Re:CoM's `+0x418 & 1` (the damage check skips
+    hits) until 8 frames after the next action or the lock release.
+  - The Counterattack is KH1's row 0x3E in our attack table, playing the asset step's KH1-only
+    clip (`p001_226`) through a second appended action row. ini `counterattack = on | off`.
+- **Differences from KH1, by decision 20:** Re:CoM attacks have no KH1 priority, so every
+  attack Re:CoM's guard stops gives kind 6 with no pushback. Re:CoM's guard covers Sora's body,
+  not the Keyblade's capsule, and measures the angle to the hit point. Re:CoM enemies get no
+  reaction yet (their recoil and turned-back shots are the next version, behind a Config
+  toggle).
+- Assumption: leaving the recoil early in its free frames counts as the lock release for the
+  8-frame countdown. Not traced in KH1.
+- Note to re-check: Stage 9 found the roll's `0x140297F30(Sora, 12)` leaves damage on (no-flinch
+  only); this research reads flag 0x80 as no damage too (`0x1402BEEE0`). The roll is unchanged.
 
 ## MP charge (skipped, noted)
 

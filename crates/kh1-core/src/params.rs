@@ -249,6 +249,8 @@ pub struct Abilities {
     pub superglide: bool,
     /// bit 0x10 (id 21).
     pub guard: bool,
+    /// bit 0x4 (id 19): the Counterattack command after a guard success (`0x140294220`).
+    pub counterattack: bool,
     /// bit 0x20 (id 22).
     pub dodge_roll: bool,
     /// Copies of ability 6 / 7 (+1 combo length each).

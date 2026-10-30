@@ -17,7 +17,8 @@
 //! normal jump's rows (KH1 entries 10 / 11).
 //!
 //! KH1-only (new rows appended to the table, each naming a converted clip from the manifest):
-//! Guard (entry 110, request 212).
+//! Guard (entry 110, request 212) and Counterattack (entry 111, request 213). The guard-success
+//! recoil (request 0x6E, entry 72) is Re:CoM's own `p001_081` (row 0x24, its bake).
 
 use kh1_core::motion::request;
 
@@ -45,18 +46,24 @@ pub mod row {
     /// Re:CoM's higher jump take-off and top (`p001_028` / `p001_029`).
     pub const HIGH_JUMP: u32 = 0x14;
     pub const HIGH_JUMP_TOP: u32 = 0x15;
+    /// Re:CoM's `p001_081` (KH1 entry 72's bake, Checked (files): the recoil 0x6E).
+    pub const RECOIL: u32 = 0x24;
 }
 
 /// KH1 requests for the KH1-only rows, in the order they are appended.
-pub const KH1_ONLY: [(u16, u32); 1] = [(212, 110)];
+pub const KH1_ONLY: [(u16, u32); 2] = [(212, 110), (213, 111)];
 
 /// KH1 Guard's request.
 pub const GUARD: u16 = 212;
+/// KH1 Counterattack's request (row 0x3E).
+pub const COUNTERATTACK: u16 = 213;
+/// KH1's guard-success recoil (kind 6, `0x14029D720`).
+pub const RECOIL: u16 = 0x6E;
 
 /// The appended rows: `ext[i]` is the row id of `KH1_ONLY[i]`, when its clip exists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Extension {
-    pub rows: [Option<u32>; 1],
+    pub rows: [Option<u32>; 2],
 }
 
 impl Extension {
@@ -73,7 +80,7 @@ impl Extension {
         e
     }
 
-    fn get(&self, req: u16) -> Option<u32> {
+    pub fn get(&self, req: u16) -> Option<u32> {
         KH1_ONLY.iter().position(|&(r, _)| r == req).and_then(|i| self.rows[i])
     }
 
@@ -149,6 +156,9 @@ pub fn row_for(req: u16, s: &Stance, ext: &Extension) -> Option<(u32, bool)> {
         request::DODGE_ROLL => return Some((row::ROLL, true)),
         // KH1's Guard motion has the root bit (no travel).
         GUARD => return ext.get(req).map(|r| (r, true)),
+        // KH1's recoil has no travel; Re:CoM's bake of it is row 0x24.
+        RECOIL => row::RECOIL,
+        COUNTERATTACK => return ext.get(req).map(|r| (r, true)),
         _ => return None,
     };
     Some((r, false))
@@ -210,14 +220,17 @@ mod tests {
     #[test]
     fn extension_rows_are_appended_in_order() {
         let all = Extension::plan(|_| true);
-        assert_eq!(all.rows, [Some(0x47)]);
+        assert_eq!(all.rows, [Some(0x47), Some(0x48)]);
         let s = Stance::default();
         // The converted High Jump clips are no longer used, even when the pack has them.
         assert_eq!(row_for(9, &s, &all), Some((row::HIGH_JUMP, false)));
         assert_eq!(row_for(GUARD, &s, &all), Some((0x47, true)));
-        assert_eq!(Extension::plan(|e| e != 110).count(), 0);
+        assert_eq!(row_for(COUNTERATTACK, &s, &all), Some((0x48, true)));
+        assert_eq!(row_for(RECOIL, &s, &all), Some((row::RECOIL, false)));
+        let no_guard = Extension::plan(|e| e != 110);
+        assert_eq!(no_guard.rows, [None, Some(0x47)], "the counterattack moves up when the guard clip is missing");
         let rows = appended_rows(&all, |e| Some(format!("p001_{}", 150 + e)));
-        assert_eq!(rows, vec![(0x47, "p001_260".to_string())]);
+        assert_eq!(rows, vec![(0x47, "p001_260".to_string()), (0x48, "p001_261".to_string())]);
         assert!(appended_rows(&all, |_| None).is_empty());
     }
 }

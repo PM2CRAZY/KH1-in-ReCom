@@ -227,6 +227,9 @@ impl Moveset {
         let mut guard = MotionInfo::new(54.0).with_flag(Hit(0), 10.0, 36.0).with_flag(ComboWindow, 22.0, 54.0);
         guard.root_motion = true; // flag set, no travel
         put(110, &[212], guard);
+        // Entry 72, request 0x6E: the guard-success / repel recoil (60 frames, no travel). Checked
+        // (files: free 28–60, combo window 28–60).
+        put(72, &[0x6E], MotionInfo::new(60.0).with_flag(Free, 28.0, inf).with_flag(ComboWindow, 28.0, 60.0));
         put(111, &[213], MotionInfo::new(86.0).with_flag(Hit(0), 8.0, 24.0).with_flag(ComboWindow, 18.0, 56.0).with_flag(Trail, 4.0, 24.0).with_forward_keys(&[(0.0, 0.0), (4.0, 12.86), (6.0, 44.08), (14.0, 163.77), (24.0, 237.5), (36.0, 267.05), (86.0, 267.05)]));
         put(117, &[0xDC], MotionInfo::new(38.0).with_flag(Free, 30.0, inf).with_forward_keys(&[(0.0, 0.0), (12.0, 213.82), (24.0, 350.0), (38.0, 350.0)]));
 

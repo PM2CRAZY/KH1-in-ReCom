@@ -499,6 +499,27 @@ impl Host for RecomHost {
         // untouchable roll bit `+0x418 & 1` (KH1's roll has no untouchable frames).
         super::attack::set_no_flinch(self.pl, on);
     }
+
+    fn set_guard(&mut self, on: bool) {
+        unsafe { super::attack::set_guard(self.pl, on) }
+    }
+
+    fn guard_blocked(&mut self) -> bool {
+        unsafe { super::attack::take_guard_hit(self.pl) }
+    }
+
+    fn set_untouchable(&mut self, on: bool) {
+        // KH1's flag 0x80 after a guard success: Re:CoM's `+0x418 & 1`, which makes the damage
+        // check `0x1401E6DE0` skip hits (Checked (decomp)).
+        unsafe {
+            let f: u32 = rd(self.pl + p::FLAGS_418);
+            wr(self.pl + p::FLAGS_418, if on { f | 1 } else { f & !1 });
+        }
+    }
+
+    fn row_available(&mut self, r: usize) -> bool {
+        super::attack::row_ready(r)
+    }
 }
 
 /// One KH1 frame for the player.

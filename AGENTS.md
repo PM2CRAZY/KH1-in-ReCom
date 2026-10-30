@@ -11,6 +11,27 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 14: KH1 Guard blocks, its recoil, and the Counterattack, version 0.7.1 (2026-10-30)
+
+> "Go ahead and" (owner, after "I'll start on Guard"); decision 20 (KH1 for Sora's side; new
+> Re:CoM enemy reactions behind a toggle, next version)
+
+- KH1's rules (`docs/recom-kh1-attack.md` § Guard): guard object live on frames 10–36; kind-6
+  success `0x14029D720`; Counterattack offered from frame 12 of request 0x6E (`0x140294220`,
+  `0x140293480`), row 0x3E. Checked (decomp + files).
+- Re:CoM side: Sora's body guard `player+0x72C` bit 0 and `+0x740` = 100° while live; the
+  guarded bit `+0x72C & 0x20` read in the damage-check wrapper; flag 0x80 as `+0x418 & 1`; the
+  recoil plays Re:CoM's row 0x24 (`p001_081`, KH1 entry 72's bake); the Counterattack plays the
+  KH1-only clip `p001_226` through a second appended action row (`rows::KH1_ONLY`) and a KH1 row
+  0x3E in the attack table. Checked (decomp).
+- kh1-core: motion 0x6E (entry 72: 60 frames, free 28–60, window 28–60), the Counterattack
+  ability bit, a `GuardSucceeded` event. The oracle's controller has no clash yet; the handler
+  tests check KH1's numbers directly.
+- ini: `counterattack = on` (default).
+- Not seen in game. Enemy reactions (decision 20's toggle) are the next version.
+
+---
+
 ## Stage 13: KH1 damage and HP on Re:CoM's enemies, Sora's KH1 Strength, version 0.7.0 (2026-10-30)
 
 > "Yes do that order, and have it follow the Rod" / Strength path: "Rod, give up Shield" /

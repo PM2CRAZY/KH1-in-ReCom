@@ -229,6 +229,18 @@ pub trait Host {
         false
     }
     /// The current swing has hit (`player+0x644`, set by `procAttackCollision`).
+    /// Sora's body guard (Re:CoM's `body+0x9C & 1`, ±100°) on or off: KH1's guard object is live.
+    fn set_guard(&mut self, _on: bool) {}
+    /// Re:CoM's apply guarded a hit on Sora's body since the last frame (`body+0x9C & 0x20`).
+    fn guard_blocked(&mut self) -> bool {
+        false
+    }
+    /// No damage and no reaction (KH1's flag 0x80 after a guard success; Re:CoM `+0x418 & 1`).
+    fn set_untouchable(&mut self, _on: bool) {}
+    /// Whether Re:CoM can play this KH1 row (its attack row exists).
+    fn row_available(&mut self, _kh1_row: usize) -> bool {
+        true
+    }
     fn swing_hit(&mut self) -> bool {
         false
     }
@@ -338,6 +350,15 @@ pub struct Kh1Sora {
     pub swing: Option<SwingStart>,
     /// KH1's random float (the finisher choice).
     pub(crate) rng: kh1_core::Kh1Rand,
+    /// The guard object is live and Re:CoM's body guard is on (reported to the host).
+    pub guard_on: bool,
+    /// CB+0x50's clash bit (0x10): set by a guard success, cleared at each row start.
+    pub clashed: bool,
+    /// KH1's flag 0x80 after a guard success: on, its 8-frame countdown running, frames left.
+    pub untouchable: bool,
+    untouchable_counting: bool,
+    untouchable_left: f32,
+    untouchable_reported: bool,
 }
 
 /// The facing Re:CoM holds may differ from ours by rounding; more than this means Re:CoM turned
@@ -381,6 +402,12 @@ impl Kh1Sora {
             combo_counter: 1,
             swing: None,
             rng: kh1_core::Kh1Rand::default(),
+            guard_on: false,
+            clashed: false,
+            untouchable: false,
+            untouchable_counting: false,
+            untouchable_left: 0.0,
+            untouchable_reported: false,
         }
     }
 
@@ -450,7 +477,7 @@ impl Kh1Sora {
             state::GLIDE => a(GLIDE, 0, phase::GLIDE),
             _ if self.lock => match self.rec.head() {
                 request::DODGE_ROLL => a(AVOID, SUB_ROLL, phase::FALL),
-                crate::rows::GUARD => a(AVOID, SUB_GUARD, phase::NONE),
+                crate::rows::GUARD | crate::rows::RECOIL => a(AVOID, SUB_GUARD, phase::NONE),
                 _ => a(JUMP, 0, phase::LAND),
             },
             _ => {
@@ -659,9 +686,15 @@ impl Kh1Sora {
             self.motion_update(h, dt, step);
         }
         let ev = &mut out.events;
-        // Command accept (KH1's menu task, before Sora's think).
-        let attack_cmd = input.attack.pressed && self.accepts_attack();
-        if input.attack.pressed && !attack_cmd {
+        // A guarded hit since the last frame (Re:CoM's apply on Sora's body guard).
+        if self.guard_on && h.guard_blocked() {
+            self.guard_success(h, ev);
+        }
+        // Command accept (KH1's menu task, before Sora's think). The Counterattack replaces the
+        // Attack command while it is offered (`0x140294220`).
+        let counter_cmd = input.attack.pressed && self.counter_offered(input.target.is_some()) && h.row_available(crate::attack::COUNTERATTACK_ROW);
+        let attack_cmd = input.attack.pressed && !counter_cmd && self.accepts_attack();
+        if input.attack.pressed && !attack_cmd && !counter_cmd {
             ev.push(Event::AttackRefused(kh1_core::Refused::NotAccepted));
         }
 
@@ -692,7 +725,9 @@ impl Kh1Sora {
             self.pad_handler(h, input, &mut dir, &mut w, pos, step, ev, &mut out.height, &mut out.recom_spring);
         }
         if !input.jump.pressed {
-            if attack_cmd {
+            if counter_cmd {
+                self.command_counterattack(h, &mut dir, &mut w, input.target, pos, ev);
+            } else if attack_cmd {
                 self.command_attack(h, &mut dir, &mut w, input.target, input.locked, pos, ev);
             }
         } else {
@@ -754,6 +789,7 @@ impl Kh1Sora {
             self.no_flinch_reported = self.no_flinch_on;
             h.set_no_flinch(self.no_flinch_on);
         }
+        self.untouchable_step(h, step);
 
         // ---- physics: this frame's displacement; Re:CoM's mover moves and collides ----
         let disp = match self.state {
@@ -775,7 +811,62 @@ impl Kh1Sora {
         }
         h.set_action(self.recom_action());
         self.issue(h);
+        // KH1's guard object: live on the Guard motion's hit track (frames 10–36).
+        let guard = self.rec.head() == crate::rows::GUARD && self.rec.flags & kh1_core::motion::flag::HIT_ANY != 0;
+        if guard != self.guard_on {
+            self.guard_on = guard;
+            h.set_guard(guard);
+        }
         out
+    }
+
+    /// KH1's kind-6 guard success (`0x14029D720`): request 0x6E at once (the guard motion and its
+    /// object end), the idle queued, flag 0x80 for 8 frames (frozen while the recoil holds the
+    /// lock), CB+0x41 − 1, CB+0x50 |= 0x10. Re:CoM attacks have no priority: no pushback
+    /// (decision 20). Checked (decomp).
+    pub(crate) fn guard_success(&mut self, h: &mut dyn Host, ev: &mut Vec<Event>) {
+        self.play(crate::rows::RECOIL as u32 | req::ACTION, 0.0);
+        self.append(req::RELEASE | request::IDLE as u32, 0.0);
+        self.lock = true;
+        self.combo_counter = self.combo_counter.saturating_sub(1);
+        self.clashed = true;
+        self.untouchable = true;
+        self.untouchable_counting = false;
+        self.untouchable_left = 8.0;
+        if self.guard_on {
+            self.guard_on = false;
+            h.set_guard(false);
+        }
+        ev.push(Event::GuardSucceeded);
+    }
+
+    /// `0x140294220`: the Counterattack is offered while the recoil 0x6E plays after a clash, with
+    /// a target, and the accept `0x140293480` takes it from motion time 12. Checked (decomp).
+    pub fn counter_offered(&self, has_target: bool) -> bool {
+        self.abilities.counterattack && self.clashed && has_target && self.rec.head() == crate::rows::RECOIL && 12.0 <= self.rec.frame
+    }
+
+    /// The 8-frame countdown of KH1's flag 0x80 (`0x140297FE0`): it starts at the next action
+    /// request or when the lock releases. Assumption: leaving the recoil early (its free frames
+    /// 28–60) counts as the release.
+    fn untouchable_step(&mut self, h: &mut dyn Host, step: f32) {
+        if self.untouchable {
+            if !self.untouchable_counting {
+                if !self.lock || self.rec.head() != crate::rows::RECOIL {
+                    self.untouchable_counting = true;
+                }
+            } else {
+                self.untouchable_left -= step;
+                if self.untouchable_left <= 0.0 {
+                    self.untouchable = false;
+                    self.untouchable_counting = false;
+                }
+            }
+        }
+        if self.untouchable != self.untouchable_reported {
+            self.untouchable_reported = self.untouchable;
+            h.set_untouchable(self.untouchable);
+        }
     }
 
     /// KH1's state and lock at the end of this frame as KH1 reports them, i.e. after its physics
@@ -897,6 +988,7 @@ impl Kh1Sora {
                 *w = 0.0;
                 self.target_yaw = d.yaw();
                 // `0x1402A3980` for row 0x3D: the Guard motion (its repel is M5's attack object).
+                self.clashed = false;
                 self.play(crate::rows::GUARD as u32 | req::ACTION, 0.0);
                 self.append(req::RELEASE | request::IDLE as u32, 0.0);
                 ev.push(Event::Guarded);

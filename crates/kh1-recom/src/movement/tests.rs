@@ -74,6 +74,10 @@ struct FakeRecom {
     model_offset: Vec3,
     swings: Vec<SwingStart>,
     swing_ends: usize,
+    /// Re:CoM's body guard as we set it, a guarded hit to report, and the no-damage bit.
+    guard: bool,
+    block_next: bool,
+    untouchable: bool,
 }
 
 impl FakeRecom {
@@ -99,6 +103,9 @@ impl FakeRecom {
             model_offset: Vec3::ZERO,
             swings: Vec::new(),
             swing_ends: 0,
+            guard: false,
+            block_next: false,
+            untouchable: false,
         }
     }
 
@@ -210,6 +217,18 @@ impl Host for FakeRecom {
     }
     fn swing_hit(&mut self) -> bool {
         self.hit
+    }
+    fn set_guard(&mut self, on: bool) {
+        self.guard = on;
+    }
+    fn guard_blocked(&mut self) -> bool {
+        // Re:CoM's apply only guards while the body guard is on.
+        let b = self.block_next && self.guard;
+        self.block_next = false;
+        b
+    }
+    fn set_untouchable(&mut self, on: bool) {
+        self.untouchable = on;
     }
     fn end_swing(&mut self, _airborne: bool) {
         self.swing_ends += 1;
@@ -718,5 +737,83 @@ fn swing_and_roll_away_from_the_origin_keep_soras_position() {
             // The swing's root travel only: KH1's 100 units of motion 200 (to frame 34 and still).
             assert!(((last - start).length() - 100.0).abs() < 1e-2, "{:?}", last - start);
         }
+    }
+}
+
+/// One handler frame with an enemy in front (Re:CoM's target), no oracle (kh1-core's controller
+/// has no clash yet; the numbers are KH1's from the decomp, `docs/recom-kh1-attack.md` § Guard).
+fn step_with_target(p: &mut Pair, pad: Pad) -> FrameOut {
+    let jump = Button::from_held(p.prev.jump, pad.jump);
+    let square = Button::from_held(p.prev.square, pad.square);
+    let attack = Button::from_held(p.prev.attack, pad.attack);
+    p.prev = pad;
+    let target = kh1_core::TargetPart { owner: 1, centre: Vec3::new(0.0, 0.0, 150.0), radius: 30.0 };
+    let out = p.ours.frame(&mut p.recom, &FrameInput { move_dir: Vec3::ZERO, tilt: 0.0, jump, square, lock_target: None, attack, target: Some(target), locked: false }, p.first);
+    p.first = false;
+    p.recom.after_exe();
+    out
+}
+
+#[test]
+fn guard_success_recoils_and_offers_the_counterattack_from_frame_12() {
+    let mut p = Pair::new(Abilities { counterattack: true, ..all() }, Floor::flat());
+    for k in 0..5 {
+        step_with_target(&mut p, Pad { square: k == 4, ..Default::default() });
+    }
+    assert_eq!(p.ours.rec.head(), crate::rows::GUARD);
+    // The guard object (and Re:CoM's body guard) is live on frames 10–36 of the Guard motion.
+    let mut live_from = None;
+    for k in 0..20 {
+        step_with_target(&mut p, Pad::default());
+        if p.recom.guard && live_from.is_none() {
+            live_from = Some((k, p.ours.rec.frame));
+        }
+    }
+    let (_, f) = live_from.expect("the body guard comes on");
+    assert!((10.0..11.0).contains(&f), "on from the Guard motion's frame 10, got {f}");
+    assert!(p.recom.guard, "still live inside 10–36");
+    // A hit is guarded: the recoil 0x6E at once, no damage, the guard off.
+    p.recom.block_next = true;
+    let out = step_with_target(&mut p, Pad::default());
+    assert!(out.events.contains(&Event::GuardSucceeded));
+    assert_eq!(p.ours.rec.head(), crate::rows::RECOIL);
+    assert!(p.recom.untouchable && !p.recom.guard);
+    // Before frame 12 of the recoil an Attack press is refused (no Counterattack yet).
+    let out = step_with_target(&mut p, Pad { attack: true, ..Default::default() });
+    assert!(out.events.contains(&Event::AttackRefused(kh1_core::Refused::NotAccepted)), "{:?}", out.events);
+    step_with_target(&mut p, Pad::default());
+    let mut started = None;
+    for k in 0..20 {
+        let out = step_with_target(&mut p, Pad { attack: k % 2 == 0, ..Default::default() });
+        if let Some(e) = out.events.iter().find(|e| matches!(e, Event::AttackStarted { .. })) {
+            started = Some((p.ours.rec.frame, e.clone()));
+            break;
+        }
+    }
+    let (_, e) = started.expect("the Counterattack starts");
+    assert_eq!(e, Event::AttackStarted { row: crate::attack::COUNTERATTACK_ROW, request: 213, counter: 1, finisher: false });
+    assert_eq!(p.recom.swings.last().unwrap().kh1_row, crate::attack::COUNTERATTACK_ROW);
+    // Flag 0x80 counts 8 frames from the Counterattack's request, then ends.
+    for _ in 0..7 {
+        step_with_target(&mut p, Pad::default());
+    }
+    assert!(p.recom.untouchable);
+    step_with_target(&mut p, Pad::default());
+    step_with_target(&mut p, Pad::default());
+    assert!(!p.recom.untouchable);
+}
+
+#[test]
+fn without_the_ability_a_guard_success_offers_no_counterattack() {
+    let mut p = Pair::new(Abilities { counterattack: false, ..all() }, Floor::flat());
+    for k in 0..20 {
+        step_with_target(&mut p, Pad { square: k == 4, ..Default::default() });
+    }
+    p.recom.block_next = true;
+    step_with_target(&mut p, Pad::default());
+    assert_eq!(p.ours.rec.head(), crate::rows::RECOIL);
+    for k in 0..20 {
+        let out = step_with_target(&mut p, Pad { attack: k % 2 == 0, ..Default::default() });
+        assert!(!out.events.iter().any(|e| matches!(e, Event::AttackStarted { .. })), "frame {k}");
     }
 }

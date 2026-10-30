@@ -139,6 +139,8 @@ pub enum Event {
     GlideEnded,
     Rolled,
     Guarded,
+    /// The guard stopped an attack: KH1's kind-6 recoil (`0x14029D720`).
+    GuardSucceeded,
     AttackStarted { row: usize, request: i16, counter: u8, finisher: bool },
     AttackRefused(Refused),
     MotionStarted(u16),
