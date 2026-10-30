@@ -202,6 +202,37 @@ a lock, KH1 scans every enemy part in its cones; here the scan sees only that ta
   - The trace's `hits` column logs each KH1 hit: the HP before and after, and `:card` when it
     broke into a card play.
 
+## Sora's KH1 Strength (decision 18: keep the Rod, give up the Shield)
+
+All Checked (decomp + files) unless tagged.
+- **New game** (`0x1402852C0`): each party record (`save + 4 + 0x74 × i`) is filled from btltbl
+  file `0x39D8`, 23 bytes per character: HP, MP, AP, Strength, Defence, 16 resistances, 2 more.
+  Sora: HP 18, MP 3, AP 3, **Strength 4**, Defence 3, all resistances 100.
+- **Dive to the Heart** (`dh01.ard` script; event syscall 481 = `0x1401B03E0` → `0x140284B70`):
+  adds btltbl `0x128 + 4 × choice` = (Strength, Defence, MP, AP) deltas. The script computes the
+  choice from the kept item (var 256) and the given-up one (var 257): kept 0 → 0 / 1, kept 1 →
+  2 / 3, kept 2 → 4 / 5. Rows: (+1, −2, −1, 0), (+1, −1, −1, −2), (−1, +1, −1, 0), (0, +1, −1, −2),
+  (−2, 0, 0, 0), (0, −2, 0, 0). Assumption: items 0 / 1 / 2 are Sword / Shield / Rod (the deltas
+  fit: keeping the Rod is the only choice without MP −1, giving up the Rod costs AP 2). So the
+  owner's path, keep Rod and give up Shield, is row 5: Strength +0, Defence −2.
+- **Level-ups** (`0x1402B51B0`): the bonus for reaching level L is btltbl `0x3AC0[L − 2]`
+  (Sora's table, from `0x140528CC0`; the same table for every Dive choice). The choice only picks
+  the EXP curve (`0x140528028[save + 0x48D]`) and the ability list (`0x140528D10[save + 0x48C]`).
+  Bonus 4 = Strength +2 (`0x1402B5660`; 1 HP +3, 2 MP +1, 3 AP +2, 5 Defence +2, 6 / 7 slots).
+- **In battle** (`0x1402A5130`): stats `+0x4C` = save Strength + the weapon's `+0x30` (Kingdom Key
+  3) + accessories (none here).
+- So Sora's KH1 Strength at Re:CoM level L = 4 + 0 + 3 + 2 × (number of 4s in the first L − 1
+  entries of `0x3AC0`): 7 at level 1, 9 at 2, 13 at 10, 17 at 20, 27 at 50, 51 at 99. The asset
+  step reads these from the player's btltbl.
+
+## Swings and a moving locked target (checked 2026-10-30)
+
+- KH1 takes the aim once, at the Attack command: `0x1402A7510` → `0x1402A38E0` → `0x1402A3B00`
+  (the row's face-target flag). The other callers of `0x1402A3B00` are the movement think
+  `0x1402A7B30` (runs only while `0x140297870` says Sora is free: flags `& 4`, `+0x88 & 0x20`,
+  `+0x444 & 1` all clear), the party AI and summons. A swing keeps the yaw taken at the press, as
+  kh1-core does. Checked (decomp). Assumption: a swing sets flag 4 (kh1-core's model).
+
 ## Guard's repel and Counterattack (stopped)
 
 - KH1: the Guard row `0x3D` (record `0x4DA8`, clash type 2: a pure guard with no hit) blocks

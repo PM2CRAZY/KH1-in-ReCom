@@ -162,7 +162,7 @@ At KH1 setting:
     untouchable window from the roll motion's events, not Re:CoM's full invulnerability.
     (Stage 9 finding: KH1's roll has no untouchable window; protection is the 12 no-flinch frames.)
 18. Sora's KH1 Strength (owner, 2026-10-30, option a): KH1's level-1 Sora plus the Kingdom Key,
-    growing with Re:CoM's level-ups. Growth path: the Rod (owner, 2026-10-30).
+    growing with Re:CoM's level-ups. Path: keep the Rod, give up the Shield (owner, 2026-10-30).
 19. Work order after 0.6.3 (owner, 2026-10-30): finish M5 (KH1 damage numbers, Guard's repel and
     Counterattack, the swing-turning check), then M6 (battles without cards); M1's KH1
     recordings when the owner has time.
