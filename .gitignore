@@ -1,0 +1,4 @@
+# Never commit game files or decompiled code.
+local/
+target/
+*.exe
