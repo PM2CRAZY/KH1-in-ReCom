@@ -11,6 +11,38 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 1: the mod's skeleton DLL, version 0.1.0 (2026-10-30)
+
+> "B, and use whichever is least effort and is most native to RECom" (owner: Panacea loads the
+> mod; at KH1 setting Sora plays KH1's motions re-baked at 60 fps)
+
+- New crate `crates/kh1-recom`: a cdylib that OpenKH's Panacea loads (`openkh/mod.yml`, copied as
+  `dll/kh1-recom.dll`). On load it starts one thread and then nothing runs per frame:
+  - checks the exe is the Steam build: PE time stamp `0x669E38DF`, size of image `0xD4A000`.
+    Checked (exe).
+  - checks the first 16 bytes of each future hook site. Checked (exe bytes = decomp function
+    starts):
+    - initAttack `0x1401F0D90`
+    - field swing init `0x1401F0F70`
+    - player motion request `0x1401F7180`
+    - attack row pick `0x1401F7520`
+    - Battle exe `0x1401F9840`
+    - Field exe `0x1401FA0F0`
+    - use-card button `0x1401E8FF0`
+    - `.ANN` loader `0x14029F3A0`
+  - reads `kh1-recom.ini` (`combat = kh1 | recom`, default `kh1`), writing it if missing. Nothing
+    reads the setting yet. The Config-menu toggle is still to do.
+  - writes `kh1-recom.log` next to the game.
+- **No hooks installed and nothing patched.** The game plays exactly as Re:CoM.
+- Panacea knows Re:CoM: its `DBGHELP.dll` names the Re:CoM exe, uses a `/recom` mod subfolder, and
+  hooks Re:CoM's `Axa::CFileMan`. Checked (files: strings in the owner's Panacea DLL). Whether it
+  loads `dll/*.dll` for Re:CoM as it does for KH1: Assumption, to check with the first launch.
+- Build: MinGW cross-compile (`tools/build-win.sh`); build bot `.github/workflows/build.yml`
+  commits `openkh/kh1-recom.dll` on `testing`. 7 unit tests.
+- Not checked in game yet: that Panacea loads the DLL, and the log on the owner's machine.
+
+---
+
 ## Stage 0: groundwork (2026-10-29)
 
 > "Where I'd start: a cardless Attack, built into Re:CoM's own battle code. Before that comes a

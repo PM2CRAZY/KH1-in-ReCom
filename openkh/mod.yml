@@ -1,0 +1,11 @@
+title: KH1 Combat in Re:Chain of Memories
+originalAuthor: PM
+description: >-
+  Kingdom Hearts 1 Final Mix's combat for Sora in Kingdom Hearts Re:Chain of Memories (PC, Steam,
+  KH 1.5+2.5). Version 0.1.0 only checks the game and writes kh1-recom.log next to it; it changes
+  nothing in play yet. Settings are in kh1-recom.ini in the game folder (made on first launch).
+assets:
+- name: dll/kh1-recom.dll
+  method: copy
+  source:
+  - name: kh1-recom.dll

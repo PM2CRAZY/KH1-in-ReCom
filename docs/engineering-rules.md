@@ -21,7 +21,8 @@ Work only on repo `PM2CRAZY/KH1-in-ReCom`, branch `testing`.
   Checked / Assumption tags.
 - Findings go into `docs/` as plain notes: the address, what it does, and a tag
   (`Checked (exe / decomp / files / trace)` or `Assumption`).
-- Run tests and the Windows type-check before pushing. After a push, wait for the build bot's
+- Run tests (`cargo test`) and the Windows build (`tools/build-win.sh`, which is the Windows
+  type-check) before pushing. After a push, wait for the build bot's
   commit, then pull with `--rebase`.
 
 ## Addresses and sources of truth
