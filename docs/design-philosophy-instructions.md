@@ -160,6 +160,9 @@ At KH1 setting:
     The Dodge Roll's one-frame root-motion lead is fixed natively by delaying Re:CoM's root-motion
     step one frame for Sora. Roll protection uses KH1's exact frames: 12 no-flinch frames plus the
     untouchable window from the roll motion's events, not Re:CoM's full invulnerability.
+    (Stage 9 finding: KH1's roll has no untouchable window; protection is the 12 no-flinch frames.)
+18. Sora's KH1 Strength (owner, 2026-10-30, option a): KH1's level-1 Sora plus the Kingdom Key,
+    growing with Re:CoM's level-ups. Open detail: which KH1 growth path (Sword / Shield / Rod).
 
 ## Known open design questions (ask the owner, don't guess)
 
