@@ -105,16 +105,33 @@ combo-ender knockback, Trinity, Donald's and Goofy's AI settings, the lock-on ca
 bar. When you find one, say what it is, where it is, and whether it matters for 1:1 feel, then
 ask before adding it.
 
+## Decided by the owner (2026-10-29)
+
+> "the goal is to remove attack cards entirely, and have the card battles be replaced entirely by
+> the KH1 combat."
+
+At KH1 setting:
+
+- **Sora in the field** moves and attacks like KH1 Sora, natively, with all his abilities. He is
+  not a passthrough.
+- **Battle transitions stay Re:CoM's.** Attacking a Heartless in the field, or walking into one,
+  puts Sora into the battle arena with it, as in Re:CoM.
+- **In the arena, no cards are used.** Sora fights as he does in KH1.
+- **Enemies with a KH1 equivalent** (Shadow, for example) act, attack and animate exactly 1:1 as
+  in KH1, natively inside Re:CoM's enemy systems.
+- The card-value question (2026-10-29) is settled: with no cards in battle, there are no card
+  breaks against KH1 attacks.
+
 ## Known open design questions (ask the owner, don't guess)
 
-- **Battle transitions.** Re:CoM fights in a separate battle instance after field contact; KH1
-  fights in the field. Keep the transition, remove it, or make it a toggle?
-- **The deck at KH1 setting.** Removed entirely, kept for sleights or summons only, or a toggle
-  per card type?
-- **Enemy behaviour.** At KH1 setting, do enemies still play cards (and can Sora's attacks
-  card-break them), or do they use plain KH1-style attack timing?
-- **Card value of a cardless KH1 hit** (asked 2026-10-29, no answer yet): (a) no value, never
-  breaks or is broken; (b) a fixed value; (c) a Config toggle between (a) and (b).
+- **The rest of the deck at KH1 setting.** Assistant's reading, waiting for confirmation: the whole
+  deck goes (magic, item, summon, friend cards and sleights), and KH1's command menu, MP, items
+  and summons replace it.
+- **Re:CoM-only enemies and bosses** (no KH1 equivalent, e.g. Organization XIII, Riku Replica):
+  how they fight with no cards.
+- **First strike.** Does a KH1 field hit keep Re:CoM's stun / first-strike bonus going into the
+  arena?
 - **Party.** Re:CoM's friend cards summon Donald and Goofy temporarily; KH1's party is always
   present. Which, and per world?
 - **Progression.** Re:CoM's level-up choices versus KH1's stat growth, AP and abilities.
+- **Reverse/Rebirth (Riku's story).** Assumption: it stays Re:CoM's.
