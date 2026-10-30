@@ -63,6 +63,7 @@ fn run() -> Result<(), String> {
     let arc = install::recom_archive(&game).map_err(|e| e.to_string())?;
     let ann = install::read_recom(&arc, &keys, install::SORA_ANN).map_err(|e| format!("{}: {e}", install::SORA_ANN))?;
     let mdl = install::read_recom(&arc, &keys, install::SORA_MDL).map_err(|e| format!("{}: {e}", install::SORA_MDL))?;
+    let ses = install::read_recom(&arc, &keys, install::SORA_SES).map_err(|e| format!("{}: {e}", install::SORA_SES))?;
     let (mset, mdls) = install::read_kh1(&game, keys.clone()).map_err(|e| format!("KH1 files: {e}"))?;
     // The Keyblade (CPlayerWeapon, resource group 2): converted when both files are there.
     let weapon = match (arc.find(install::KEYBLADE_ANN), arc.find(install::KEYBLADE_MDL)) {
@@ -147,6 +148,14 @@ fn run() -> Result<(), String> {
     let json = built.manifest_json(&sources.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>());
     std::fs::write(&man, &json).map_err(|e| format!("{}: {e}", man.display()))?;
     println!("wrote {} ({} bytes)", man.display(), json.len());
+    // Sounds for the KH1-only clips (Guard, Counterattack) in Re:CoM's own `PL0001.SES`.
+    let clip = |entry: usize| built.entries.iter().find(|e| e.kh1_entry == entry && e.source.as_str() == "kh1").map(|e| e.name.clone());
+    let (guard, counter) = (clip(110), clip(111));
+    let mut sound = kh1_recom_assets::ses::parse(&ses).map_err(|e| format!("{}: {e}", install::SORA_SES))?;
+    let n = kh1_recom_assets::ses::add_kh1(&mut sound, guard.as_deref(), counter.as_deref()).map_err(|e| e.to_string())?;
+    let ses_path = ann_path.with_file_name("PL0001.SES");
+    write(&ses_path, &kh1_recom_assets::ses::write(&sound))?;
+    println!("wrote {} ({} KH1 clip entries: guard {:?}, counterattack {:?})", ses_path.display(), n, guard, counter);
     // KH1 stats (decisions 12, 18, 21): the enemy twins' records and Sora's Strength.
     let (stats, n) = kh1_stats(&game, keys)?;
     let sp = man.with_file_name(install::STATS);

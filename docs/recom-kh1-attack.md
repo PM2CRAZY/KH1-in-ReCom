@@ -279,6 +279,51 @@ unless tagged.
 - Note to re-check: Stage 9 found the roll's `0x140297F30(Sora, 12)` leaves damage on (no-flinch
   only); this research reads flag 0x80 as no damage too (`0x1402BEEE0`). The roll is unchanged.
 
+### Guard sounds (0.7.2; owner: "Re:CoM's sounds now")
+
+Research notes `guard-counter-sounds.md` (kept with the decomp tools).
+
+- **KH1** (Checked, decomp + files; KH1 frames are 60 Hz motion frames):
+  - Guard (212): weapon + 0xD at frame 0; voice group 19 (clip 24) at the row start.
+  - Recoil 0x6E: sound `0x2AFD` at frame 0, steps at 8.09 and 59.26. That `0x2AFD` is the
+    clink is an Assumption (strong).
+  - Counterattack (213): weapon + 0xB at frame 0; finisher voice group 5 at the row start;
+    steps at 46 and 80.
+  - A guard success plays no voice. Its spark comes from the Keyblade's effect table.
+- **Re:CoM, how motion sounds play** (Checked, decomp):
+  - Sora's motion sounds are `PLAYER/0001/PL0001.SES`. Its entries bind to the motion pack's
+    clips by name at load.
+  - They start natively on every motion start (`0x1401A3470` → `0x140239260`).
+  - Their frames are 60 Hz motion frames, so KH1 frames carry over 1:1.
+- **What the mod does:**
+  - The asset step writes `PL0001.SES`: Re:CoM's 50 entries byte for byte, plus two entries
+    for the KH1-only clips.
+  - Counterattack (`p001_226`):
+    - whoosh 1237 at 0. This is Re:CoM's copy of KH1's weapon + 0xB (from the swing that
+      shares it).
+    - Re:CoM's finisher grunts at 0 (2010 / 2011 / 2012, its weights).
+    - steps at 46 and 80.
+  - Guard (`p001_225`):
+    - whoosh 1236 at 0.
+    - Re:CoM's swing grunts at 0 (2005 / 2006 / 2008).
+    - These are the nearest Re:CoM sounds, not KH1's: Re:CoM has no clip with weapon + 0xD, and
+      which Re:CoM voice is KH1's clip 24 is unknown.
+  - Guard success: Re:CoM's own guard spark and its clink, `0x1401A6B20(Sora, "always", 0xB,
+    hit point, 0, 0.0f)`, once, at the guarded hit point (`player+0x6C0`, kept by the
+    damage-check wrapper). This is what Re:CoM plays when an enemy guards Sora's swing
+    (`0x140182260`). The clink rides on the effect (the group's sound table), so the next motion
+    doesn't cut it.
+  - The recoil clip `p001_081` keeps Re:CoM's own sounds (one step at 8), because Re:CoM's own
+    repel uses it.
+- **Differences from KH1:**
+  - The sounds are Re:CoM's, not KH1's.
+  - Re:CoM fades a motion's sounds when the next motion starts. KH1 doesn't appear to
+    (Assumption).
+- **Not checked:**
+  - The sound id of `always` #0xB: its sound table's file wasn't found.
+  - That `always` is loaded wherever Sora guards (Assumption). If it isn't, `0x1402588B0` finds
+    no group and does nothing (Checked, decomp).
+
 ## MP charge (skipped, noted)
 
 - KH1 charges `record +0x2C` × (1 + (enemy level − Sora's level) × 0.2): 3 / 6 / 24 per hit, at

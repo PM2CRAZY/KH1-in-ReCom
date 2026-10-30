@@ -94,6 +94,14 @@ const WEAPON_END: u32 = 0x0022_4FB0;
 const ACTOR_BONE: u32 = 0x002A_BB20;
 const SPHERE_SPHERE: u32 = 0x0017_77E0;
 const SPHERE_COLUMN: u32 = 0x0017_6FA0;
+/// `0x1401A6B20(actor, effect group name, index, position, 0, 0.0f)`: an effect of a named group at
+/// a point, and the sound its group's table gives it (`0x1402588B0`). Checked (exe + decomp).
+const EFFECT_AT: u32 = 0x001A_6B20;
+/// The pointer to the effect group name `"always"` (`0x1407C2C40`), which the guard spark
+/// `0x140182260` passes. Checked (exe: points at `"always\0"` in the file).
+const EFFECT_ALWAYS: u32 = 0x007C_2C40;
+/// Re:CoM's guard spark (with its clink) in `"always"` (`0x140182260`). Checked (exe).
+const GUARD_SPARK: u32 = 0xB;
 const RECOM_PICKER: u64 = 0x1_401F_7520;
 /// The collision context the pair dispatch passes to the primitives (`DAT_14087A870`).
 const COLL_CONTEXT: u64 = 0x1_4087_A870;
@@ -109,6 +117,7 @@ type BoneFn = unsafe extern "win64" fn(usize, i32) -> usize;
 type ApplyFn = unsafe extern "win64" fn(usize, usize) -> i32;
 type RootFn = unsafe extern "win64" fn(usize, *mut [f32; 4], *mut f32);
 type VecFn = unsafe extern "win64" fn(usize, *mut [f32; 4]) -> u64;
+type EffectFn = unsafe extern "win64" fn(usize, usize, u32, *const [f32; 4], u64, f32) -> i32;
 
 pub(super) fn moveset() -> &'static Moveset {
     MOVESET.get_or_init(Moveset::kh1_defaults)
@@ -131,6 +140,10 @@ const BODY_GUARD_ANGLE: usize = 0x690 + 0xB0;
 const KH1_GUARD_ANGLE: f32 = 1.745_329_3;
 static GUARD_ON: AtomicUsize = AtomicUsize::new(0);
 static GUARD_HIT: AtomicUsize = AtomicUsize::new(0);
+/// Where Re:CoM's apply put the guarded hit (Sora's body `+0x30`, `player+0x6C0`, copied from the
+/// attack's `+0x60` in `0x14016F1C0`'s guard branch; Checked (decomp)), kept with `GUARD_HIT`.
+static GUARD_POINT: Mutex<[f32; 4]> = Mutex::new([0.0; 4]);
+const BODY_HIT_POINT: usize = 0x690 + 0x30;
 
 /// KH1's guard object live: Re:CoM's own body guard on Sora (all elements, ±100°), or off.
 pub(super) unsafe fn set_guard(pl: usize, on: bool) {
@@ -150,6 +163,20 @@ pub(super) unsafe fn set_guard(pl: usize, on: bool) {
 /// A guarded hit since the last KH1 frame.
 pub(super) unsafe fn take_guard_hit(pl: usize) -> bool {
     GUARD_HIT.swap(0, Ordering::Relaxed) == pl || rd::<u32>(pl + BODY_GUARD) & 0x20 != 0
+}
+
+/// Re:CoM's own guard spark and clink at the guarded point: what it plays when an enemy guards
+/// Sora's swing (`0x140182260` → `0x1401A6B20(actor, "always", 0xB, point, 0, 0.0f)`), here with
+/// Sora as the guarder. Once per guard success. If the `"always"` group isn't loaded,
+/// `0x1402588B0` finds no group and does nothing (Checked (decomp)).
+pub(super) unsafe fn guard_clink(pl: usize) {
+    let name: usize = rd(base() + EFFECT_ALWAYS as usize);
+    if name == 0 || std::slice::from_raw_parts(name as *const u8, 7) != b"always\0" {
+        log("guard: the \"always\" effect name isn't where 0x1407C2C40 points; no clink");
+        return;
+    }
+    let point = GUARD_POINT.lock().map(|g| *g).unwrap_or_else(|_| rd(pl + BODY_HIT_POINT));
+    func::<EffectFn>(EFFECT_AT)(pl, name, GUARD_SPARK, &point, 0, 0.0);
 }
 
 /// Whether our attack table holds this KH1 row.
@@ -511,6 +538,9 @@ pub unsafe extern "win64" fn damage_check(pl: usize) -> u64 {
     // KH1 frame (Re:CoM clears the bit each frame, `0x1401F4000` / `0x1401FABC0`).
     if GUARD_ON.load(Ordering::Relaxed) == pl && rd::<u32>(pl + BODY_GUARD) & 0x20 != 0 {
         GUARD_HIT.store(pl, Ordering::Relaxed);
+        if let Ok(mut g) = GUARD_POINT.lock() {
+            *g = rd(pl + BODY_HIT_POINT);
+        }
     }
     if NO_FLINCH.load(Ordering::Relaxed) != pl || !mv::kh1_sora(pl) {
         return o(pl);

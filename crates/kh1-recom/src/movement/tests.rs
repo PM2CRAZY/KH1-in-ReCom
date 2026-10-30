@@ -78,6 +78,7 @@ struct FakeRecom {
     guard: bool,
     block_next: bool,
     untouchable: bool,
+    clinks: u32,
 }
 
 impl FakeRecom {
@@ -106,6 +107,7 @@ impl FakeRecom {
             guard: false,
             block_next: false,
             untouchable: false,
+            clinks: 0,
         }
     }
 
@@ -226,6 +228,9 @@ impl Host for FakeRecom {
         let b = self.block_next && self.guard;
         self.block_next = false;
         b
+    }
+    fn guard_clink(&mut self) {
+        self.clinks += 1;
     }
     fn set_untouchable(&mut self, on: bool) {
         self.untouchable = on;
@@ -778,6 +783,7 @@ fn guard_success_recoils_and_offers_the_counterattack_from_frame_12() {
     assert!(out.events.contains(&Event::GuardSucceeded));
     assert_eq!(p.ours.rec.head(), crate::rows::RECOIL);
     assert!(p.recom.untouchable && !p.recom.guard);
+    assert_eq!(p.recom.clinks, 1, "Re:CoM's guard spark plays once per success");
     // Before frame 12 of the recoil an Attack press is refused (no Counterattack yet).
     let out = step_with_target(&mut p, Pad { attack: true, ..Default::default() });
     assert!(out.events.contains(&Event::AttackRefused(kh1_core::Refused::NotAccepted)), "{:?}", out.events);

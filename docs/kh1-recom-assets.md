@@ -401,3 +401,22 @@ bones): local rotation (geodesic angle), translation and scale.
 - The local mod's `mod.yml` copies it like the other files.
 - Checked (files): the owner's install gives all 31 twins with valid records; the motion pack
   and manifest it rebuilt are byte-identical to the installed ones.
+
+## Sora's motion sounds (`PL0001.SES`, 0.7.2)
+
+- `kh1-recom-build` also reads Re:CoM's `PLAYER/0001/PL0001.SES` and writes it next to the
+  motion pack, adding entries for the KH1-only clips (Guard, entry 110; Counterattack, 111).
+  Module `ses`. Ids and frames are in `recom-kh1-attack.md` § Guard sounds.
+- **Format** (Checked, files + decomp `0x1402387E0`):
+  - Header: `"@SES"`, version 1, entry count, entry table offset 0x10.
+  - Entries, 0x30 bytes: clip name; +0x20 −1 (filled at load); +0x24 event count; +0x28 event
+    offset.
+  - Events, 0x50 bytes: group / index (id = group × 1000 + index); bone; offset; +0x18 start
+    frame (60 Hz); +0x1C stop; +0x20 variant; +0x24 fade; +0x28 flags (1 footstep, 4 random
+    from the table at +0x40).
+  - The writer lays out the header, then the entries, then the events, and keeps Re:CoM's
+    entries unchanged. Checked (files): it rebuilds Re:CoM's own file byte for byte
+    (12,736 bytes, 50 entries).
+- Re:CoM binds entries to clips by name, so the new entries only reach the appended clips.
+  Re:CoM's own clips and sounds are unchanged.
+- The local mod's `mod.yml` copies it like the other files.

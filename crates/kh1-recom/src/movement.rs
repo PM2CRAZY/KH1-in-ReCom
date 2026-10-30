@@ -228,7 +228,6 @@ pub trait Host {
     fn start_swing(&mut self, _s: &SwingStart) -> bool {
         false
     }
-    /// The current swing has hit (`player+0x644`, set by `procAttackCollision`).
     /// Sora's body guard (Re:CoM's `body+0x9C & 1`, ±100°) on or off: KH1's guard object is live.
     fn set_guard(&mut self, _on: bool) {}
     /// Re:CoM's apply guarded a hit on Sora's body since the last frame (`body+0x9C & 0x20`).
@@ -237,10 +236,13 @@ pub trait Host {
     }
     /// No damage and no reaction (KH1's flag 0x80 after a guard success; Re:CoM `+0x418 & 1`).
     fn set_untouchable(&mut self, _on: bool) {}
+    /// Re:CoM's guard spark and its clink at the guarded point (once per guard success).
+    fn guard_clink(&mut self) {}
     /// Whether Re:CoM can play this KH1 row (its attack row exists).
     fn row_available(&mut self, _kh1_row: usize) -> bool {
         true
     }
+    /// The current swing has hit (`player+0x644`, set by `procAttackCollision`).
     fn swing_hit(&mut self) -> bool {
         false
     }
@@ -837,6 +839,7 @@ impl Kh1Sora {
             self.guard_on = false;
             h.set_guard(false);
         }
+        h.guard_clink();
         ev.push(Event::GuardSucceeded);
     }
 

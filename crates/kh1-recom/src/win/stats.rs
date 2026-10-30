@@ -2,7 +2,7 @@
 //! `docs/recom-kh1-attack.md` § Damage and reactions).
 //!
 //! - The twin: the enemy's class (its vtable, checked against its RTTI name at install) and
-//!   Re:CoM's current world (`0x14087B844`) pick a record from `kh1-stats.json`.
+//!   Re:CoM's current world (`0x1402339C0(0)`) pick a record from `kh1-stats.json`.
 //! - HP: Re:CoM's enemy stats init `0x14017FF50` sets `+0x274` from its per-world row; at KH1
 //!   our wrapper then sets the twin's KH1 HP, and the max-HP getter `0x14017F5A0` returns it for
 //!   that enemy. Both are Re:CoM's own fields and functions; HP bars, deaths and boss HP checks

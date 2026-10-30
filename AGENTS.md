@@ -11,6 +11,33 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 15: sounds for Guard, its success and the Counterattack, version 0.7.2 (2026-10-30)
+
+> "guard and counterattack work on soras end, lets try to get their sounds working go ahead" /
+> sound source: "Re:CoM's sounds now"
+
+- Asset step:
+  - `PL0001.SES` is Re:CoM's sound file plus entries for `p001_225` (Guard: whoosh 1236 and
+    swing grunts at 0) and `p001_226` (Counterattack: whoosh 1237 and finisher grunts at 0,
+    steps at 46 and 80).
+  - The KH1 frames are from `xa_ex_0010.mset`. SES frames are 60 Hz motion frames
+    (`0x1401A47C0`, 50 ticks a frame).
+  - Re:CoM's 50 entries are byte for byte. Checked (files + decomp).
+- Runtime: at a guard success, Re:CoM's own guard spark and clink, `0x1401A6B20(Sora,
+  "always", 0xB, hit point, 0, 0.0f)` (as `0x140182260` does for enemies). The hit point is
+  `player+0x6C0`, kept by the damage-check wrapper. New byte-checked callee `0x1401A6B20`; the
+  name pointer `0x1407C2C40` is checked against `"always"` at run time. Checked (exe + decomp).
+- Assumptions:
+  - The Guard whoosh and voice are the nearest Re:CoM sounds (KH1's weapon + 0xD and clip 24
+    have no known Re:CoM match).
+  - The id of `always` #0xB's clink is unknown.
+  - Re:CoM fades motion sounds on the next motion; KH1 appears not to.
+- Also: the replay tool's ability map runs without Counterattack (its bit isn't mapped). A
+  stale doc line about the world address was fixed.
+- Not seen in game.
+
+---
+
 ## Stage 14: KH1 Guard blocks, its recoil, and the Counterattack, version 0.7.1 (2026-10-30)
 
 > "Go ahead and" (owner, after "I'll start on Guard"); decision 20 (KH1 for Sora's side; new

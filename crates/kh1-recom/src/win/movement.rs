@@ -517,6 +517,10 @@ impl Host for RecomHost {
         }
     }
 
+    fn guard_clink(&mut self) {
+        unsafe { super::attack::guard_clink(self.pl) }
+    }
+
     fn row_available(&mut self, r: usize) -> bool {
         super::attack::row_ready(r)
     }

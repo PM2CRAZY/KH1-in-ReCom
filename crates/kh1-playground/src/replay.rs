@@ -96,6 +96,8 @@ pub fn abilities_from(r: &Row) -> Abilities {
         stun_impact: on(0x800_0000),
         gravity_break: on(0x1000_0000),
         zantetsuken: on(0x2000_0000),
+        // Counterattack's bit in this mask is not mapped yet; replays run without it.
+        counterattack: false,
     }
 }
 

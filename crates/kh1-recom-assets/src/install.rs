@@ -63,6 +63,9 @@ pub fn kh1(game: &Path, keys: KeyTable) -> Result<Install> {
     Ok(Install::with_keys(game, keys)?)
 }
 
+/// Sora's per-motion sound events in `Recom.pkg`.
+pub const SORA_SES: &str = "PLAYER/0001/PL0001.SES";
+
 /// The KH1 stats file the runtime reads, next to [`MANIFEST`].
 pub const STATS: &str = "kh1-stats.json";
 
