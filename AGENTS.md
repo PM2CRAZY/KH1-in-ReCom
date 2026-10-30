@@ -11,6 +11,25 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 7: Config window border fits the Combat row, version 0.4.2 (2026-10-30)
+
+> Owner's 0.4.1 screenshots: the fill reached below "Combat" but the border stopped at "Game
+> Mode". The help line on Combat was right.
+
+- Re:CoM's 9-slice (`0x14024C270` / `0x14024AD40`) only handles sprites with exactly 9 parts. The
+  panel's border and highlight are 8-part sprites, so the earlier bottom offset never reached
+  them. Checked (disasm).
+- Fix: at the same open/close points, nothing per frame:
+  - each border part below the sprite's middle gets its own copy of its shared sprite-set rect,
+    moved down 26 units;
+  - this moves the bottom corners and edge and stretches the sides;
+  - Re:CoM re-reads the rect each update (`0x14024B380`), so it then draws the frame itself.
+  - The shared data isn't changed.
+- In game (owner's 0.4.1 screenshot): the Combat row works: cursor, highlight, and the help text
+  fits on one line. The border fix hasn't been seen yet.
+
+---
+
 ## Stage 6: owner's animation rule, Config panel fit, version 0.4.1 (2026-10-30)
 
 > "i wouldn't bother having an option to switch between KH1 and RECOM animations because for all

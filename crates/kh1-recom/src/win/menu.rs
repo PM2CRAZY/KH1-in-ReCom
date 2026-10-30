@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 pub static ORIG_INPUT: AtomicUsize = AtomicUsize::new(0);
 pub static ORIG_DRAW: AtomicUsize = AtomicUsize::new(0);
 static LAYOUT_WARNED: AtomicBool = AtomicBool::new(false);
-static PANEL_LOGGED: AtomicBool = AtomicBool::new(false);
+static PANEL_LOGS: AtomicUsize = AtomicUsize::new(0);
 
 // CCamp fields used by the Config screen.
 const STATE: usize = 0xA8;
@@ -148,11 +148,13 @@ pub unsafe extern "win64" fn cfg_draw(camp: *mut u8, mode: u32) -> u64 {
     r
 }
 
-/// Re:CoM's Config window panel, one row taller: sets the bottom edge offset of each fresh
-/// 9-slice sprite of the panel's current sequence (`menu::panel`). Re:CoM's sprite code does the
-/// drawing; nothing runs per frame once the screen is open (mode 3 is not touched).
+/// Re:CoM's Config window panel, one row taller (`menu::panel`). On each sprite of the panel's
+/// current sequence: a fresh 9-slice gets its bottom edge offset and flag 8; a frame sprite (the
+/// 3x3 without its centre) gets, for each part that moves, its own copy of the part's rect
+/// moved down. Re:CoM's sprite code does all the drawing; nothing runs per frame once the
+/// screen is open (mode 3 is not touched).
 unsafe fn stretch_panel(camp: *mut u8) {
-    use menu::panel::{self, Sprite};
+    use menu::panel;
     let ctrl: *mut u8 = rd(camp, PANEL);
     if ctrl.is_null() || rd::<u8>(ctrl, panel::CTRL_COUNT) == 0 {
         return;
@@ -167,51 +169,126 @@ unsafe fn stretch_panel(camp: *mut u8) {
         return;
     }
     let spr_vt = va(base(), sites::data::SPR_OBJ_VTABLE);
-    let mut grow: Option<f32> = None;
-    let mut seen: Vec<(u8, bool)> = Vec::new();
-    let mut stretched = 0;
+    let mut grow: Option<Option<f32>> = None;
+    let mut grow_now = || *grow.get_or_insert_with(|| row_step(camp).map(|(y3, y4)| panel::grow(y3, y4)));
+    let mut report: Vec<String> = Vec::new();
+    let mut changed = false;
     let mut obj: *mut u8 = rd(list, 8);
     // The list is Re:CoM's; a bound guards against a broken one.
     for _ in 0..64 {
         if obj.is_null() {
             break;
         }
-        let is_spr = rd::<usize>(obj, 0) == spr_vt;
-        let parts = if is_spr { rd::<u8>(obj, panel::PART_COUNT) } else { 0 };
-        let has_parts = is_spr && !rd::<*const u8>(obj, panel::PARTS).is_null();
-        let flags = if is_spr { rd::<u8>(obj, panel::FLAGS) } else { 0 };
-        seen.push((parts, is_spr));
-        // Only work out the row step when a fresh 9-slice needs it.
-        let g = if is_spr && parts == panel::NINE && flags & panel::FLAG_NINE_SLICE == 0 {
-            if grow.is_none() {
-                grow = row_step(camp).map(|(y3, y4)| panel::grow(y3, y4));
-            }
-            grow
-        } else {
-            Some(0.0)
-        };
-        let Some(g) = g else {
-            return; // layout not readable: leave the panel as Re:CoM drew it
-        };
-        if let Sprite::Stretch(off) = panel::plan(is_spr, parts, has_parts, flags, g) {
-            std::ptr::write_unaligned(obj.add(panel::OFFSETS) as *mut [f32; 4], off);
-            *obj.add(panel::FLAGS) |= panel::FLAG_NINE_SLICE;
-            stretched += 1;
-        }
+        let (what, did) = stretch_sprite(obj, spr_vt, &mut grow_now);
+        report.push(what);
+        changed |= did;
         obj = rd(obj, 8);
     }
-    if !PANEL_LOGGED.swap(true, Ordering::Relaxed) {
-        let parts: Vec<String> = seen.iter().map(|&(n, spr)| if spr { n.to_string() } else { "other".into() }).collect();
-        if stretched > 0 {
-            log(&format!(
-                "config menu: window panel: {stretched} nine-part sprite(s) drawn {:.1} units taller (sprites' parts: {})",
-                grow.unwrap_or(0.0),
-                parts.join(", ")
-            ));
-        } else {
-            log(&format!("config menu: window panel has no nine-part sprite to stretch (sprites' parts: {}); left as drawn", parts.join(", ")));
-        }
+    // Logged when something changed (each animation's new sprites), a few times per session.
+    if changed && PANEL_LOGS.fetch_add(1, Ordering::Relaxed) < 6 {
+        let g = grow.flatten().map(|g| format!("{g:.1}")).unwrap_or_else(|| "?".into());
+        log(&format!("config menu: window panel, one row ({g} units) taller; sprites: {}", report.join("; ")));
     }
+}
+
+/// One sprite of the panel; returns what was done (for the log) and whether it changed it.
+unsafe fn stretch_sprite(obj: *mut u8, spr_vt: usize, grow: &mut dyn FnMut() -> Option<f32>) -> (String, bool) {
+    let what = stretch_sprite_inner(obj, spr_vt, grow);
+    let changed = what.starts_with("9 parts (9-slice)") || what.contains("moved/stretched");
+    (what, changed)
+}
+
+unsafe fn stretch_sprite_inner(obj: *mut u8, spr_vt: usize, grow: &mut dyn FnMut() -> Option<f32>) -> String {
+    use menu::panel::{self, Sprite};
+    if rd::<usize>(obj, 0) != spr_vt {
+        return "other object, left".into();
+    }
+    let n = rd::<u8>(obj, panel::PART_COUNT);
+    let parts: *mut u8 = rd(obj, panel::PARTS);
+    if parts.is_null() || n == 0 {
+        return format!("{n} parts, no part array, left");
+    }
+    let flags = rd::<u8>(obj, panel::FLAGS);
+    if n == panel::NINE {
+        let fresh = flags & panel::FLAG_NINE_SLICE == 0;
+        let g = if fresh { grow() } else { Some(0.0) };
+        let Some(g) = g else { return "9 parts, layout unreadable, left".into() };
+        return match panel::plan(true, n, true, flags, g) {
+            Sprite::Stretch(off) => {
+                std::ptr::write_unaligned(obj.add(panel::OFFSETS) as *mut [f32; 4], off);
+                *obj.add(panel::FLAGS) |= panel::FLAG_NINE_SLICE;
+                "9 parts (9-slice), bottom edge offset set".into()
+            }
+            Sprite::Done => "9 parts, already set".into(),
+            Sprite::Skip => "9 parts, left".into(),
+        };
+    }
+    // Part rects (and whether a part already has one of our copies).
+    let mut src: Vec<*const u8> = Vec::with_capacity(n as usize);
+    for i in 0..n as usize {
+        let p: *const u8 = rd(parts.add(i * panel::PART_STRIDE), 0);
+        if p.is_null() {
+            return format!("{n} parts, a part without a rect, left");
+        }
+        src.push(p);
+    }
+    let rect = |p: *const u8| -> [i32; 4] { std::ptr::read_unaligned(p as *const [i32; 4]) };
+    let scissor = !rd::<*const u8>(obj, 0x128).is_null();
+    if n == 1 {
+        let r = rect(src[0]);
+        return format!("1 part{} rect {:?}, left", if scissor { " (scissor)" } else { "" }, r);
+    }
+    if src.iter().any(|&p| is_our_copy(p)) {
+        return format!("{n} parts, frame already moved");
+    }
+    let rects: Vec<[i32; 4]> = src.iter().map(|&p| rect(p)).collect();
+    let Some(g) = grow() else { return format!("{n} parts, layout unreadable, left") };
+    let Some(new) = panel::frame_rects(&rects, g.round() as i32) else {
+        return format!("{n} parts, not a frame, left (rects {rects:?})");
+    };
+    // Every copy first, so the frame is moved whole or not at all.
+    let mut writes = Vec::new();
+    for (i, nr) in new.iter().enumerate() {
+        let Some(nr) = nr else { continue };
+        let Some(copy) = rect_copy(src[i], *nr) else {
+            return format!("{n} parts, frame: copy limit reached, left");
+        };
+        writes.push((i, copy));
+    }
+    for &(i, copy) in &writes {
+        std::ptr::write_unaligned(parts.add(i * panel::PART_STRIDE) as *mut *const u8, copy);
+    }
+    format!("{n} parts (frame), {} parts moved/stretched", writes.len())
+}
+
+/// Our rect copies: (source entry, its bytes when copied, our copy). Copies live for the whole
+/// process (Re:CoM's parts keep pointing at them). Bounded.
+#[allow(clippy::type_complexity)]
+static RECT_COPIES: std::sync::Mutex<Vec<(usize, [u8; menu::panel::RECT_SIZE], [i32; 4], usize)>> = std::sync::Mutex::new(Vec::new());
+const RECT_COPY_LIMIT: usize = 256;
+
+unsafe fn is_our_copy(p: *const u8) -> bool {
+    RECT_COPIES.lock().map(|v| v.iter().any(|e| e.3 == p as usize)).unwrap_or(false)
+}
+
+/// A copy of the rect entry at `src` with the rect `r` (other bytes as in `src`), reused when the
+/// same source, with the same bytes, was copied before.
+unsafe fn rect_copy(src: *const u8, r: [i32; 4]) -> Option<*const u8> {
+    let orig: [u8; menu::panel::RECT_SIZE] = std::ptr::read_unaligned(src as *const [u8; menu::panel::RECT_SIZE]);
+    let mut v = RECT_COPIES.lock().ok()?;
+    if let Some(e) = v.iter().find(|e| e.0 == src as usize && e.1 == orig && e.2 == r) {
+        return Some(e.3 as *const u8);
+    }
+    if v.len() >= RECT_COPY_LIMIT {
+        return None;
+    }
+    let mut b = orig;
+    for (k, y) in r.iter().enumerate() {
+        b[k * 4..k * 4 + 4].copy_from_slice(&y.to_le_bytes());
+    }
+    let copy = Box::leak(Box::new(b)).as_ptr();
+    v.push((src as usize, orig, r, copy as usize));
+    Some(copy)
 }
 
 /// Re:CoM's value-row step (layout y of row 4 minus row 3), as `build_rows` uses it.

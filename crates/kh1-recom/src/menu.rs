@@ -181,6 +181,57 @@ pub mod panel {
         Stretch([f32; 4]),
     }
 
+    /// The other sprites of the panel are drawn from their parts' rects as they are: each part
+    /// `+0` points at a 0x14-byte entry `{i32 x0, y0, x1, y1; u32 uv}` in the loaded sprite set
+    /// (shared with every other user of that set), read each update by `0x14024B380`. Re:CoM's
+    /// 9-slice offsets act only on exactly 9 parts (`0x14024AD40`). For the window's frame
+    /// sprites (8 parts: the 3x3 without its centre) the part is given its own copy of its
+    /// entry, with the same downward move the 9-slice bottom offset gives: every y below the
+    /// middle of the sprite moves down `grow` (bottom row moves, side edges stretch, top row
+    /// stays). Checked (decomp + disasm `0x14024B380`, `0x14024B910`, `0x14024BB10`).
+    pub const RECT_SIZE: usize = 0x14;
+    /// Part stride in `C2DSprObj+0x120`.
+    pub const PART_STRIDE: usize = 0x98;
+
+    /// New rects for a frame sprite, or None when it isn't one: it needs parts wholly above
+    /// its middle (top), wholly below (bottom) and across it (sides), and no part covering the
+    /// middle in both directions with nothing beside it (that would be a fill, not a frame).
+    /// `None` in the list means that part stays as it is.
+    pub fn frame_rects(rects: &[[i32; 4]], grow: i32) -> Option<Vec<Option<[i32; 4]>>> {
+        if rects.len() < 3 || grow == 0 {
+            return None;
+        }
+        let ys = |r: &[i32; 4]| (r[1].min(r[3]), r[1].max(r[3]));
+        let top = rects.iter().map(|r| ys(r).0).min()?;
+        let bottom = rects.iter().map(|r| ys(r).1).max()?;
+        // Twice the middle, to stay in integers.
+        let mid2 = top + bottom;
+        let (mut above, mut below, mut across) = (0, 0, 0);
+        for r in rects {
+            let (a, b) = ys(r);
+            if 2 * b <= mid2 {
+                above += 1;
+            } else if 2 * a >= mid2 {
+                below += 1;
+            } else {
+                across += 1;
+            }
+        }
+        if above == 0 || below == 0 || across == 0 {
+            return None;
+        }
+        let mv = |y: i32| if 2 * y > mid2 { y + grow } else { y };
+        Some(
+            rects
+                .iter()
+                .map(|r| {
+                    let n = [r[0], mv(r[1]), r[2], mv(r[3])];
+                    (n != *r).then_some(n)
+                })
+                .collect(),
+        )
+    }
+
     pub fn plan(is_spr_obj: bool, parts: u8, has_parts: bool, flags: u8, grow: f32) -> Sprite {
         if !is_spr_obj || parts != NINE || !has_parts {
             Sprite::Skip
@@ -269,6 +320,41 @@ mod tests {
         for m in [2, 3, 5, 6, 7, 8, 9] {
             assert!(!panel::restretch_after(m));
         }
+    }
+
+    #[test]
+    fn frame_bottom_moves_and_sides_stretch() {
+        // A 3x3 ring without its centre, 100 x 120, corners 10 x 12.
+        let ring = [
+            [0, 0, 10, 12],
+            [10, 0, 90, 12],
+            [90, 0, 100, 12],
+            [0, 12, 10, 108],
+            [90, 12, 100, 108],
+            [0, 108, 10, 120],
+            [10, 108, 90, 120],
+            [90, 108, 100, 120],
+        ];
+        let n = panel::frame_rects(&ring, 26).unwrap();
+        assert_eq!(n[0..3], [None, None, None], "top row stays");
+        assert_eq!(n[3], Some([0, 12, 10, 134]), "left edge stretches");
+        assert_eq!(n[4], Some([90, 12, 100, 134]));
+        assert_eq!(n[5], Some([0, 134, 10, 146]), "bottom row moves");
+        assert_eq!(n[6], Some([10, 134, 90, 146]));
+        assert_eq!(n[7], Some([90, 134, 100, 146]));
+        // Flipped rects (y0 > y1) move the same way.
+        let flipped: Vec<[i32; 4]> = ring.iter().map(|r| [r[0], r[3], r[2], r[1]]).collect();
+        assert_eq!(panel::frame_rects(&flipped, 26).unwrap()[6], Some([10, 146, 90, 134]));
+    }
+
+    #[test]
+    fn non_frames_are_left_alone() {
+        // A single quad, a top strip only, a filled block: no frame.
+        assert_eq!(panel::frame_rects(&[[0, 0, 100, 120]], 26), None);
+        assert_eq!(panel::frame_rects(&[[0, 0, 10, 12], [10, 0, 90, 12], [90, 0, 100, 12]], 26), None);
+        assert_eq!(panel::frame_rects(&[[0, 0, 100, 60], [0, 60, 100, 120], [0, 10, 100, 110]], 0), None);
+        // Rows of a block split in two halves only (nothing across the middle).
+        assert_eq!(panel::frame_rects(&[[0, 0, 100, 60], [0, 60, 100, 120], [0, 0, 50, 60]], 26), None);
     }
 
     #[test]

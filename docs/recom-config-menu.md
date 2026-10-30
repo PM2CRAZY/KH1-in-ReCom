@@ -77,9 +77,24 @@ Built in `crates/kh1-recom` (`src/menu.rs`, `src/win/menu.rs`).
     (disasm: w, h in xmm1, xmm2).
   - The fresh object has flag 8 clear (`+0x142` is set to `00 00 00 FF` as a dword by the
     ctor). Checked (disasm `0x14024A00C`).
-- The Config panel's own art (how many sprites, how many parts) lives in the camp sprite set,
-  not in the exe; it was not read (no camp files in this session). **Assumption:** the panel
-  window is a 9-part sprite. The DLL logs what it finds (below).
+- The 9-slice path is **hard-wired to exactly 9 parts** (`cmp byte [obj+0x142], 9` in
+  `0x14024C270`; the same check in `0x14024AD40`). Other sprites are drawn from their parts'
+  rects as they are. Checked (disasm).
+- A part (`0x98` bytes, array at `C2DSprObj+0x120`) has at `+0` a pointer to a 0x14-byte entry
+  `{i32 x0, y0, x1, y1; u32 uv index}` in the loaded sprite set (set by `0x14024B910` from
+  `0x140249150`), so shared with every other user of the set. Each update `0x14024BB10` reads
+  it with `0x14024B380` (corners TL, TR, BL, BR), transforms them into the part's vertices
+  `+0x40..+0x5F`, and the draw `0x14024A3F0` uses those. Nothing else reads `+0`. Checked
+  (decomp + disasm).
+- A 1-part sprite whose UVs are all zero gets a `CScissoring` (`obj+0x128`) instead of a quad:
+  its corners become a clip rect (`0x14024A3F0`, `0x140265F00`). Checked (decomp).
+- **In game (0.4.1, owner's screenshot and log, 2026-10-30):** the panel's open animation has
+  4 sprites with **1, 8, 9, 8** parts. The 9-part one is the dark fill: with the bottom offset
+  it reached one row lower, exactly the margin it had below "Game Mode" (so its scale at rest
+  is 1, and the row step is **26.0** layout units). The glossy border stayed at the old height:
+  the 8-part sprites are the frame (3x3 without the centre) and its highlight. Checked (in game).
+  Nothing else in the screenshot ends at the old bottom, so the 1-part sprite needs nothing
+  (Assumption; the log now prints its rect and whether it is a scissor).
 
 ## Our row (native)
 
@@ -101,19 +116,28 @@ owner decision, 2026-10-30; see `recom-motion-switch.md`):
     cursor is on our row, moves the cursor sprite and sets our help line exactly as the
     original does for its rows. Re:CoM deletes our items with its own.
   - **Panel one row taller.** After modes 0, 1 and 4 (the ones that can give the panel a new
-    animation), for each `C2DSprObj` of the panel's current sequence that has the
-    `C2DSprObj` vtable, 9 parts, a part array and flag 8 still clear: writes the edge offsets
-    (0, 0, 0, **one value-row step**: layout group `0xB` element `0x11` y − element `0xF` y)
-    and sets flag 8. Re:CoM's own 9-slice code then draws the panel's bottom edge one row
-    lower, the top where it was. Not Re:CoM's resize call, because that recentres the window
-    on its origin (which is the screen's top-left here). Mode 1 runs each frame only while
-    the screen opens; mode 3 (every frame while open) is not touched, so nothing of ours runs
-    per frame once open. Flag 8 set means done, so repeats change nothing.
-  - The first time, the log says either `window panel: N nine-part sprite(s) drawn X units
-    taller (sprites' parts: …)` or `window panel has no nine-part sprite to stretch (sprites'
-    parts: …); left as drawn`.
-  - **Assumption:** the panel's animation has scale 1 at rest (`0xF8`), so one layout row step
-    is one row on screen. The open/close animations scale the offset with the panel.
+    animation), on each object of the panel's current sequence with the `C2DSprObj` vtable.
+    The row step is layout group `0xB` element `0x11` y − element `0xF` y.
+    - **9 parts** with flag 8 clear (the fill): edge offsets (0, 0, 0, row step) and flag 8.
+      Re:CoM's own 9-slice code draws its bottom one row lower, the top where it was. Not
+      Re:CoM's resize call, because that recentres the window on its origin (the screen's
+      top-left here). Flag 8 set means done.
+    - **Other part counts (≥ 2) shaped like a frame** (parts wholly above the sprite's middle,
+      wholly below, and across it; `menu::panel::frame_rects`): each part with a y below the
+      middle gets its own copy of its rect entry with those y moved down by the row step, and
+      its `+0` repointed to the copy. The bottom row moves, the side edges stretch, the top row
+      keeps Re:CoM's entry. It is the same move the 9-slice bottom offset makes, in the same
+      part-local units, so frame and fill stay together through the open and close
+      animations. The copies are made once per source entry, kept for the process, reused
+      (keyed by source address, its bytes and the new rect; at most 256), and a sprite whose
+      parts already point at a copy is done. The set's own data is never written.
+    - **1 part:** left (logged with its rect and whether it is a scissor).
+    - Mode 1 runs each frame only while the screen opens; mode 3 (every frame while open) is
+      not touched, so nothing of ours runs per frame once open.
+  - The log prints `window panel, one row (X units) taller; sprites: …` (what each sprite
+    got) whenever something changed, at most 6 times per session.
+  - **Assumption:** the frame sprites have the same scale as the fill at rest (seen for the
+    fill; the frame is checked by the next screenshot).
 - New checked sites (bytes from the Steam exe): `0x140246210` (called:
   `48 83 EC 28 48 83 3D 1C 6C 63 00 00 8B D1`), `0x14024AD40`
   (`48 83 B9 20 01 00 00 00 0F 84 0B 06 00 00`) and `0x14024C270`
@@ -126,9 +150,12 @@ owner decision, 2026-10-30; see `recom-motion-switch.md`):
   (the message table is bypassed, not changed). Seen in game (owner's screenshot,
   2026-10-30): the rows render with Re:CoM's buttons, text and highlights. Checked (in game).
 - **Help line:** with the cursor on our row the help line shows our text
-  ("Re:CoM: card battles as in the original. KH1: Kingdom Hearts combat."). On Re:CoM's rows it
-  is Re:CoM's own help (the screenshot shows the camera help with the cursor on row 0, which is
-  correct). Our row's help was not seen in game yet.
+  ("Re:CoM: card battles as in the original. KH1: Kingdom Hearts combat."). Mode 9 of the
+  original first sets help `0x50041A` (its highlighted item index stays 0 when the cursor is
+  on row 5), then our hook sets ours on the same help object. `0x140259000` keeps the pointer
+  as is when `help+0x9C` is 0, else formats it with `0x1402402B0`; our text is static and has
+  no `%`. Checked (decomp); not seen in game yet. On Re:CoM's rows it is Re:CoM's own help
+  (the screenshots show the camera help with the cursor on row 0, which is correct).
 - `config_menu = off` in the ini installs neither hook: the menu, the panel and its size stay
   exactly Re:CoM's.
 - Every hooked and called function's first bytes are checked against the Steam exe before
@@ -136,10 +163,10 @@ owner decision, 2026-10-30; see `recom-motion-switch.md`):
 
 ## Needs in-game testing
 
-- The panel now ends just below "Combat" with the same margin it has below "Game Mode", its
-  corners and border intact, and grows/shrinks with the open and close animations. The log
-  line "window panel: …" says what was stretched.
-- If the log says "no nine-part sprite", the panel art is not a 9-slice; send the log line.
+- The panel's border (frame and highlight) now ends just below "Combat" with its corners
+  intact, lined up with the fill, through the open and close animations. Send the
+  "window panel, one row … taller; sprites: …" log lines (they list each sprite's parts and
+  what it got, including the 1-part sprite's rect).
 - The cursor and help line on the Combat row; up/down wrap through rows 0..5; left/right flip;
   the ini changes on each flip.
 - Opening and closing the camp and the Config screen repeatedly (item ownership and deletion).
