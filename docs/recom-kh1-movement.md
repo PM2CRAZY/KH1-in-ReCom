@@ -144,6 +144,19 @@ Every hook passes through to Re:CoM unless `combat = kh1` and the player is the 
   in the jump / avoid inits it calls. When Sora is in the air at the start of the move exe, KH1's
   walk-off runs instead (KH1's physics leaves the ground before any ground command).
 - The jump exe keeps Re:CoM's air commands (attack card or field swing, magic card) until M5.
+- **Ledges in the air (0.6.3, decision 16).** Re:CoM's jump exe grabs ledges itself, after its
+  air commands and velocity (`0x1401EE0E6..0x1401EE109`, Checked (disasm)): when not landing
+  this frame (falling, `0x1401F0920` = 2, with the ground test `0x1401F3C00` = 0), it calls
+  the wall climb check `0x1401E8C00(pl, 1)` and, above 1, the climb init `0x1401F2C20(pl, n)`;
+  otherwise the hang check `0x1401E8420(pl)` (ability bit `+0x41C & 0x20`; rising with a
+  downward velocity, or falling) and, when it passes, an inline hang block whose writes and calls
+  are exactly `0x1401F26A0`'s (action 9, row 0xF; Checked (decomp)). 0.6.0–0.6.2 ran our KH1 air
+  frame in place of that exe and skipped all of it, so Sora could not grab ledges at KH1
+  setting. From 0.6.3 our jump exe calls the same four Re:CoM functions, under the same
+  conditions, right after the KH1 air frame. Re:CoM then runs the hang, climb and drop as its
+  own actions. Not in the air: the move exe's ground checks (`0x1401E8C00(pl, 0)`,
+  `0x1401E96C0`) already ran unchanged, because the original move exe runs on the ground.
+  Glide (action 8) has no ledge check in Re:CoM either (`0x140217B50`). Checked (decomp).
 - The handler leaves KH1's displacement as the body velocity; Re:CoM's mover moves and collides
   it; the next frame reads the result (landing, walk-off) before its think, in KH1's order.
 - KH1-only fields (air arc, jump cut, glide timer, target yaw, no-flinch timer, KH1's request
@@ -295,7 +308,7 @@ hook. No other launch writes the spring speed: the player's `+0x600` is written 
 
 - High Jump's animation: decided (17), Re:CoM's rows 0x14 / 0x15 (0.6.0).
 - The root-motion frame: decided (17), fixed in 0.6.0.
-- Re:CoM's ledge climb and hang (`0x1401E8C00`, `0x1401E96C0`) still work at KH1 setting (KH1's
-  own ledge grabs are not built). Keep them?
+- Re:CoM's ledge climb and hang: decided (16), kept. The in-air grab was missing at KH1
+  setting until 0.6.3 (above).
 - From 0.6.0 (M5) the Attack is KH1's (`recom-kh1-attack.md`); cards are no longer played at KH1
   setting (the deck itself is M6).

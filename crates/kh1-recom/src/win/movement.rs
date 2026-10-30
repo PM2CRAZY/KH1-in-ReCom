@@ -125,6 +125,11 @@ pub(super) const FIELD_SWING: u32 = 0x001F_0F70;
 const INIT_ATTACK: u32 = 0x001F_0D90;
 const RELOAD_CHECK: u32 = 0x001E_6C40;
 const GIMMICK_CHECK: u32 = 0x001E_80C0;
+// Re:CoM's ledge checks and inits, as its jump exe calls them (`0x1401EE0E6..0x1401EE109`).
+const LEDGE_CLIMB_CHECK: u32 = 0x001E_8C00;
+const LEDGE_CLIMB_INIT: u32 = 0x001F_2C20;
+const LEDGE_HANG_CHECK: u32 = 0x001E_8420;
+const LEDGE_HANG_INIT: u32 = 0x001F_26A0;
 
 pub(super) type PlayerFn = unsafe extern "win64" fn(usize);
 type ClassFn = unsafe extern "win64" fn(usize) -> u64;
@@ -136,6 +141,9 @@ pub(super) type HandleFn = unsafe extern "win64" fn(u32) -> usize;
 type PadHeldFn = unsafe extern "win64" fn(usize) -> u32;
 type HeldFn = unsafe extern "win64" fn(u32, u32) -> u8;
 type GimmickFn = unsafe extern "win64" fn(usize, u64, u64, u64) -> u8;
+type LedgeCheckFn = unsafe extern "win64" fn(usize, i32) -> i32;
+type HangCheckFn = unsafe extern "win64" fn(usize) -> i32;
+type ClimbInitFn = unsafe extern "win64" fn(usize, i32);
 
 pub(super) unsafe fn rd<T: Copy>(at: usize) -> T {
     std::ptr::read_unaligned(at as *const T)
@@ -647,6 +655,43 @@ pub unsafe extern "win64" fn jump_exe(pl: usize) {
         return;
     }
     run_frame(pl, fresh);
+    air_ledge(pl);
+}
+
+/// Re:CoM's own ledge grab, after our KH1 air frame, exactly where its jump exe runs it: in the
+/// air (rising, or falling without landing this frame), after the air commands and the velocity.
+/// The wall climb `0x1401E8C00(pl, 1)`; above 1 it starts the climb `0x1401F2C20(pl, n)`. Else
+/// the hang check `0x1401E8420`; when it passes, the hang init `0x1401F26A0` (the same writes and
+/// calls as the jump exe's inline hang block, `0x1401EE10F..`). Re:CoM's hang, climb and drop
+/// then run as Re:CoM's actions 9 / 0x10 (decision 16). Checked (disasm + decomp).
+unsafe fn air_ledge(pl: usize) {
+    use crate::movement::{action, phase};
+    if rd::<u32>(pl + p::ACTION) != action::JUMP {
+        return;
+    }
+    let ph: u32 = rd(pl + p::PHASE);
+    if ph != phase::RISE && ph != phase::FALL {
+        return;
+    }
+    // Re:CoM's jump exe lands instead when falling (`0x1401F0920` = 2) on the ground.
+    if ph == phase::FALL && func::<GroundFn>(GROUND_TEST)(pl) == 0 {
+        return;
+    }
+    let n = func::<LedgeCheckFn>(LEDGE_CLIMB_CHECK)(pl, 1);
+    if n > 1 {
+        func::<ClimbInitFn>(LEDGE_CLIMB_INIT)(pl, n);
+        log_once_ledge("climb");
+    } else if func::<HangCheckFn>(LEDGE_HANG_CHECK)(pl) != 0 {
+        func::<PlayerFn>(LEDGE_HANG_INIT)(pl);
+        log_once_ledge("hang");
+    }
+}
+
+fn log_once_ledge(what: &str) {
+    static CLIMB: std::sync::Once = std::sync::Once::new();
+    static HANG: std::sync::Once = std::sync::Once::new();
+    let once = if what == "climb" { &CLIMB } else { &HANG };
+    once.call_once(|| log(&format!("movement: Re:CoM's ledge {what} started from a KH1 jump")));
 }
 
 pub unsafe extern "win64" fn avoid_exe(pl: usize) {

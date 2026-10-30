@@ -11,6 +11,32 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 12: Re:CoM's ledge grab from a KH1 jump, version 0.6.3 (2026-10-30)
+
+> "sora is also unable to ledge grab with KH1 selected"
+
+- Addresses: the jump exe `0x1401EDA60` (hooked since Stage 8). Its ledge tail is at
+  `0x1401EE0E6..0x1401EE109`: the wall climb check `0x1401E8C00(pl, 1)`, the climb init
+  `0x1401F2C20(pl, n)` when the result is above 1, the hang check `0x1401E8420(pl)`, and an
+  inline hang block. That block makes the same writes and calls as `0x1401F26A0` (action 9,
+  row 0xF). Checked (disasm + decomp).
+- Cause: at KH1 setting our hook ran the KH1 air frame in place of Re:CoM's jump exe, so the
+  ledge tail never ran (decision 16 keeps Re:CoM's ledges). Checked (decomp).
+- Change: after the KH1 air frame, the hook calls those Re:CoM functions under Re:CoM's
+  conditions: action 7, rising or falling, and not landing this frame. Re:CoM's hang, climb
+  and drop then run as its own actions 9 / 0x10. Four new callee checks with the Steam bytes
+  (`sites::MOVE_CALLEES`). The ground ledge checks already ran, because the original move exe
+  runs on the ground. Checked (decomp).
+- Assumption: a jump or drop from the hang goes through our jump init and continues as a KH1
+  jump or fall. Not seen in game yet. The log says "movement: Re:CoM's ledge hang/climb started
+  from a KH1 jump" the first time each happens.
+- Also, from the owner's 0.6.1 traces 7–8 (no code change): the position jump is fixed. The
+  "missing swings" are KH1's own press rules: presses before the combo window, and presses
+  after a swing that hit nothing. Details in `docs/recom-kh1-attack.md` § In game, 0.6.1.
+  Checked (trace + decomp).
+
+---
+
 ## Stage 11: mod version on the Combat row's help line, version 0.6.2 (2026-10-30)
 
 > "also make it so hovering over the recom/kh1 config option shows the mod version as well"

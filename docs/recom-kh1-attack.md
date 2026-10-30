@@ -322,6 +322,26 @@ New cells in the existing schema:
 counter, Sora's position, the target, lock-on), `exe` (action, motion frame, body velocity,
 contact, hit) and `root` (anchor, Re:CoM's root position, our output).
 
+## In game, 0.6.1 (owner's traces 7 and 8, 2026-10-30)
+
+- The swing / guard / roll position jump is gone: no frame-to-frame jump over 20 units in
+  either trace. Checked (trace).
+- "Sora is missing a lot of his swings": 11 presses gave no swing. Each was refused by one of
+  KH1's own rules (`kh1-sora-data.md`):
+  - 8 × `NotAccepted`: the press came before the combo window opened (13–19 frames into a
+    swing whose window is 22–40 / 26–42 / 26–54) or during the finisher, which has no window.
+    KH1 keeps no press for later: `0x140293480` drops a command while Sora can't act. Checked
+    (decomp). The owner pressed about every 15 frames, so about half the presses fell early.
+  - 3 × `LastSwingMissed`: pressed inside the window after a swing that hit nothing. KH1 ends
+    the combo there unless Combo Master is equipped. Checked (decomp).
+  - The windows match KH1's files frame for frame (row 13: hit 14–23, window 22–39 in the
+    trace, against 14–24 / 22–40). Checked (trace + files).
+- Why the swings missed, from the trace: the locked enemy walked out of range during the swing
+  (frame 112, about 190–230 units away). In frame 166 it circled Sora at about 80 units while
+  Sora's facing stayed on the yaw taken at the press, 50–70° away from it. Whether KH1 keeps
+  turning a ground swing toward a moving locked target after the press is not checked yet
+  (the row exec's face-target flag, `0x1402A38E0`). Assumption: it doesn't.
+
 ## Assumptions to check in game
 
 - The weapon's collision runs after Sora's motion update in the frame (the hit-window lead).
