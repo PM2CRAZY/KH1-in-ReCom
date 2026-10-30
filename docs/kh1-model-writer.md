@@ -53,8 +53,10 @@ places are rebuilt; their content is copied.
 - Test entries for the Shadow (`xa_ex_2020.mdls`), 7,061,408 bytes each:
   - `rebuild`: the model and its HD mesh written by our writers, same content;
   - `big`: every vertex position × 1.5 (1,422 PS2 positions, 1,368 HD positions).
-- **Not checked yet: the game.** Whether KH1 loads and draws them is the tester's step
-  (`testers/kh1-flip-model/thread.md`).
+- **In game (owner, 2026-10-30):** `rebuild` played normally; `big` showed swollen Shadows
+  with their own textures, animated and fighting (`testers/kh1-flip-model/owner-0.7.3-big-*.png`).
+  So KH1 loads a PKG entry written entirely by our code through its own loader, and draws the
+  HD mesh our writer changed. Checked (owner's screenshots).
 
 ## What this does not show yet
 

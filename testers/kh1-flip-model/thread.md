@@ -67,3 +67,27 @@ visible, so the `LoadFile` line couldn't be checked.
 >
 > 1:1 check: none applies (no gameplay values change). Couldn't check the console line (window
 > not found).
+
+**Owner (in chat, relayed):** step 2: "the shadows are puffed up" (`owner-0.7.3-big-1.png`,
+`owner-0.7.3-big-2.png`).
+
+> [!tip] Assistant
+> Step 2 passed. In your screenshots the Shadows' heads, arms and legs are swollen, with their
+> own textures and glowing eyes in place, and they're animated and fighting. So:
+> - KH1 loads a model package written entirely by our code, through its own loader (Panacea's
+>   raw route);
+> - KH1 draws the HD mesh our writer changed, skinned to its joints, with the HD textures
+>   matched by our asset table.
+>
+> I've put the normal rebuilt Shadow back in `mod\kh1\raw\` (it looks the same as KH1's own). The
+> next Build in the Mods Manager clears it anyway.
+>
+> Options for what's next:
+> (a) Step 2 of the test: read a Re:CoM Organization model (mesh, skeleton, textures; I can read
+>     only Re:CoM's skeletons today) and write it into KH1 in a Shadow's place, as a static
+>     stand-in with the Shadow's AI and motions bound to nothing. This checks whether a
+>     different-shaped model with its own textures fits KH1's memory.
+> (b) Stop the flip test here and go back to the main plan (M6, battles without cards).
+>
+> 1:1 check: none applies (no gameplay values change). Checked in game: our file loaded and
+> drawn (owner's screenshots). Couldn't check memory use, since the Shadow's size didn't change.

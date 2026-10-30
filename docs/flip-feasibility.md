@@ -90,5 +90,6 @@ would need the same test after that.
 
 The model writer exists and is byte-exact on all 500 `.mdls` and 941 `.cvbl` of the owner's
 install (`kh1-model-writer.md`). Finding: the PC draws the `.cvbl` HD mesh, so a native new model
-needs a `.cvbl` and `.dds` textures as well as the `.mdls`. The in-game check is
-`testers/kh1-flip-model/thread.md`.
+needs a `.cvbl` and `.dds` textures as well as the `.mdls`. In game (owner): KH1 loads and draws a
+Shadow whose package and HD mesh our writer made (`testers/kh1-flip-model/`). The open
+questions left are a different-shaped model (Re:CoM's) and KH1's 16 MB arena.
