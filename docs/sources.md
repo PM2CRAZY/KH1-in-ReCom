@@ -29,8 +29,8 @@ Image base for both: `0x140000000`. Ghidra addresses = `0x140000000 + RVA`.
   the shell matters.
 - One IL method is named `_loadBattleInfo`. Not looked at yet; check it when mapping
   battle entry. Assumption: it relates to battle setup.
-- Re:CoM's strings include `_mset` (at `0x14064F40C`). Assumption, not checked: this may hint at
-  KH2-engine motion sets. Checking it is part of step 0.
+- Re:CoM's strings include `_mset` (at `0x14064F40C`), but no code uses it. Checked (decomp).
+  The motion system is not KH2's: see `recom-combat.md`.
 
 ## KH1 notes from KH2-Combat-in-KH1
 
