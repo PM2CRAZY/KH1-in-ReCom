@@ -34,7 +34,8 @@ on its in-game check (`testers/kh1-traces`, `testers/recom-phase1`).
 - Done when the traces match frame for frame for walk/run, jump (normal and High Jump), glide,
   roll, guard, and the ground and air combos.
 
-**M2. The asset build step: KH1 motions in Re:CoM**
+**M2. The asset build step: KH1 motions in Re:CoM** (owner, 2026-10-30: Re:CoM's own clips
+wherever Re:CoM has the motion; only the KH1 motions it lacks are converted; no switch)
 - A converter run on the player's own files (KH1 `xa_ex_0010.mset` / `.mdls` → Re:CoM 60 fps
   clips through `kh1-anim`). It writes an extended `PL0001.ANN` (Re:CoM's 161 slots untouched,
   KH1's after) into Panacea's `Recom` folder, plus the Keyblade's motions.

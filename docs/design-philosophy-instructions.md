@@ -137,6 +137,12 @@ At KH1 setting:
    and Ragnarok become KH1 abilities). The rest are removed for now and noted.
 8. Enemy cards: removed for now and noted.
 9. Keyblade: Sora starts with Kingdom Key, using KH1's stats.
+10. Animations (2026-10-30): "i wouldn't bother having an option to switch between KH1 and RECOM
+    animations because for all intents and purposes they're the same, just use RECOM's default
+    animations, and KH1 animations for anything that isnt included in ReCOM". Re:CoM's own clips
+    (KH1 motions baked at 30 fps) play wherever Re:CoM has the motion. Only KH1 motions Re:CoM
+    lacks are converted. There's no animation switch. Timing (hit windows, combo windows, travel)
+    stays KH1's own data either way.
 
 ## Known open design questions (ask the owner, don't guess)
 
