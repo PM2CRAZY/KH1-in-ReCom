@@ -43,6 +43,15 @@
 > - Both work: step 2 of the test comes next, putting a Re:CoM Organization model through the
 >   same writer.
 >
+> **Update (owner: "copy all the files and stuff for me"):** I've copied the `rebuild` file into
+> `mod\kh1\raw\xa_ex_2020.mdls` for you, so step 1 is ready. Tell me when you've tried it and
+> I'll swap in `big` for step 2, then remove it after.
+> Your mod folder also has a Shadow texture override from another mod
+> (`mod\kh1\remastered\xa_ex_2020.mdls\-1c0..-1c2.dds`). While our file is in place, Panacea
+> should take the Shadow's textures from our file (KH1's own), not from that folder. That's
+> from reading Panacea's source, not seen yet. So the Shadows may look like the unmodded game
+> during this test. That's expected.
+>
 > 1:1 check: checked the writer against every KH1 model and HD mesh in your install, byte for
 > byte (files), and Panacea's raw-file route against OpenKH's source. Couldn't check whether KH1
 > loads and draws the files, because that needs the game running. That's this test.
