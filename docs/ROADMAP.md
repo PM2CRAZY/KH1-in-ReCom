@@ -21,7 +21,7 @@ and it is checked against KH1 traces.
 - **M0.6, mod skeleton:** a DLL that Panacea loads, which checks the Steam build and future hook
   sites. Build bot in place.
 
-## Where we are (2026-10-30, version 0.6.3)
+## Where we are (2026-10-30, version 0.7.0)
 
 | Milestone | State |
 |---|---|
@@ -29,7 +29,7 @@ and it is checked against KH1 traces.
 | M2 motions | Done in game: Re:CoM's clips where it has them, 69 KH1 clips added. |
 | M3 Config | Done in game (row, panel, help line with the version). |
 | M4 movement | Built; fixes in game (springs 0.6.0, roll/guard position 0.6.1, ledge grab 0.6.3 untested). Not yet diffed against the oracle ×50. |
-| M5 Attack | Combos, windows and press rules match KH1 in the owner's traces. Missing: KH1 damage numbers (Re:CoM's own numbers stand in; KH1's per-enemy stats not found yet), Guard's repel and Counterattack, MP charge on hits (M7), whether a swing keeps turning to a moving target. Open: Strength growth path (Sword / Shield / Rod). |
+| M5 Attack | Combos, windows and press rules match KH1 in the owner's traces. 0.7.0: KH1 damage and HP on 31 Re:CoM enemy classes (each world's KH1 record), Sora's KH1 Strength by level (keep Rod, give up Shield); not seen in game yet. Next: Guard's block, recoil and Counterattack, with new Re:CoM enemy reactions behind a toggle (decision 20). MP charge comes with M7. |
 | M6–M14 | Not started. |
 
 ## Phase 1: foundations inside Re:CoM
