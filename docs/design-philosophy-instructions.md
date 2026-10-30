@@ -143,6 +143,11 @@ At KH1 setting:
     (KH1 motions baked at 30 fps) play wherever Re:CoM has the motion. Only KH1 motions Re:CoM
     lacks are converted. There's no animation switch. Timing (hit windows, combo windows, travel)
     stays KH1's own data either way.
+11. "Included in Re:CoM" means the same kind of move (owner, 2026-10-30, option (a)): where Re:CoM
+    has the move (walk, run, jump, fall, land…), Sora uses Re:CoM's animation for it even when it
+    isn't a bake of KH1's exact motion. KH1's converted clips are only for moves Re:CoM lacks
+    (High Jump, Hurricane Blast, Counterattack, Ripple Drive…). Speeds and timing stay KH1's.
+    The function-by-function mapping (KH1 request → Re:CoM action row) is built in M4.
 
 ## Known open design questions (ask the owner, don't guess)
 
