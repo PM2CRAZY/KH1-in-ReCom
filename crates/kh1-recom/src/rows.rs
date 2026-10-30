@@ -11,11 +11,13 @@
 //! walk, run. Re:CoM's own picker `0x1401F9380` chooses among the idle / walk / run rows; [`row_for`]
 //! does the same.
 //!
+//! High Jump (decision 17, 0.6.0): Re:CoM's own higher-jump rows 0x14 / 0x15 (`p001_028` /
+//! `p001_029`, played by Re:CoM's jump init when `player+0x41C & 0x200000`, and for its springs)
+//! play KH1's High Jump take-off (request 9) and top (request 0xA). Its fall and land share the
+//! normal jump's rows (KH1 entries 10 / 11).
+//!
 //! KH1-only (new rows appended to the table, each naming a converted clip from the manifest):
-//! High Jump take-off (entry 12, request 9), High Jump top (entry 13, request 0xA), Guard (entry
-//! 110, request 212). Re:CoM has its own higher jump rows 0x14 / 0x15 (`p001_028` / `p001_029`,
-//! played when `player+0x41C & 0x200000`); the owner named High Jump as a move Re:CoM lacks, so
-//! KH1's clip is used (an open point in the doc).
+//! Guard (entry 110, request 212).
 
 use kh1_core::motion::request;
 
@@ -40,10 +42,13 @@ pub mod row {
     pub const STANCE_IDLE: u32 = 0x2A;
     pub const STANCE_WALK: u32 = 0x2B;
     pub const STANCE_RUN: u32 = 0x2C;
+    /// Re:CoM's higher jump take-off and top (`p001_028` / `p001_029`).
+    pub const HIGH_JUMP: u32 = 0x14;
+    pub const HIGH_JUMP_TOP: u32 = 0x15;
 }
 
 /// KH1 requests for the KH1-only rows, in the order they are appended.
-pub const KH1_ONLY: [(u16, u32); 3] = [(request::HIGH_JUMP, 12), (0x0A, 13), (212, 110)];
+pub const KH1_ONLY: [(u16, u32); 1] = [(212, 110)];
 
 /// KH1 Guard's request.
 pub const GUARD: u16 = 212;
@@ -51,7 +56,7 @@ pub const GUARD: u16 = 212;
 /// The appended rows: `ext[i]` is the row id of `KH1_ONLY[i]`, when its clip exists.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Extension {
-    pub rows: [Option<u32>; 3],
+    pub rows: [Option<u32>; 1],
 }
 
 impl Extension {
@@ -134,8 +139,9 @@ pub fn row_for(req: u16, s: &Stance, ext: &Extension) -> Option<(u32, bool)> {
         request::FALL | 0x0B => row::FALL,
         // LAND and the High Jump's land share KH1 entry 11.
         request::LAND | request::HIGH_LAND => row::LAND,
-        request::HIGH_JUMP => return ext.get(req).map(|r| (r, false)).or(Some((row::JUMP, false))),
-        0x0A => return ext.get(req).map(|r| (r, false)).or(Some((row::JUMP_TOP, false))),
+        // Decision 17: Re:CoM's own higher jump.
+        request::HIGH_JUMP => row::HIGH_JUMP,
+        0x0A => row::HIGH_JUMP_TOP,
         request::GLIDE => row::GLIDE,
         request::GLIDE_FAST => row::GLIDE_FAST,
         request::GLIDE_TURN_A => row::GLIDE_TURN_A,
@@ -194,9 +200,9 @@ mod tests {
         assert_eq!(row_for(0x71, &s, &none), Some((0x1B, false)));
         assert_eq!(row_for(0x74, &s, &none), Some((0x1E, false)));
         assert_eq!(row_for(0xDC, &s, &none), Some((row::ROLL, true)));
-        // Without the converted clips: High Jump falls back to Re:CoM's jump rows, Guard has none.
-        assert_eq!(row_for(9, &s, &none), Some((row::JUMP, false)));
-        assert_eq!(row_for(0xA, &s, &none), Some((row::JUMP_TOP, false)));
+        // High Jump plays Re:CoM's own higher jump (decision 17); Guard needs its converted clip.
+        assert_eq!(row_for(9, &s, &none), Some((row::HIGH_JUMP, false)));
+        assert_eq!(row_for(0xA, &s, &none), Some((row::HIGH_JUMP_TOP, false)));
         assert_eq!(row_for(GUARD, &s, &none), None);
         assert_eq!(row_for(200, &s, &none), None);
     }
@@ -204,16 +210,14 @@ mod tests {
     #[test]
     fn extension_rows_are_appended_in_order() {
         let all = Extension::plan(|_| true);
-        assert_eq!(all.rows, [Some(0x47), Some(0x48), Some(0x49)]);
+        assert_eq!(all.rows, [Some(0x47)]);
         let s = Stance::default();
-        assert_eq!(row_for(9, &s, &all), Some((0x47, false)));
-        assert_eq!(row_for(0xA, &s, &all), Some((0x48, false)));
-        assert_eq!(row_for(GUARD, &s, &all), Some((0x49, true)));
-        let guard_only = Extension::plan(|e| e == 110);
-        assert_eq!(guard_only.rows, [None, None, Some(0x47)]);
-        assert_eq!(guard_only.count(), 1);
+        // The converted High Jump clips are no longer used, even when the pack has them.
+        assert_eq!(row_for(9, &s, &all), Some((row::HIGH_JUMP, false)));
+        assert_eq!(row_for(GUARD, &s, &all), Some((0x47, true)));
+        assert_eq!(Extension::plan(|e| e != 110).count(), 0);
         let rows = appended_rows(&all, |e| Some(format!("p001_{}", 150 + e)));
-        assert_eq!(rows, vec![(0x47, "p001_162".to_string()), (0x48, "p001_163".to_string()), (0x49, "p001_260".to_string())]);
+        assert_eq!(rows, vec![(0x47, "p001_260".to_string())]);
         assert!(appended_rows(&all, |_| None).is_empty());
     }
 }

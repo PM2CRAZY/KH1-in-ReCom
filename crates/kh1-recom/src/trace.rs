@@ -39,6 +39,8 @@ pub struct PadView {
     pub confirm: Button,
     /// The lock-on target (KH1 units).
     pub lock: Option<Vec3>,
+    /// Re:CoM's attack target (`player+0x84C`, locked on or not) as a KH1 body part.
+    pub target: Option<kh1_core::TargetPart>,
 }
 
 /// KH1's view of that pad: kh1-core's stick (x right, y forward, KH1's dead zone on the raw
@@ -70,7 +72,7 @@ pub fn kh1_pad(p: &PadView) -> Kh1Pad {
 
 pub fn frame_input(p: &PadView) -> FrameInput {
     let k = kh1_pad(p);
-    FrameInput { move_dir: k.move_dir, tilt: k.tilt, jump: p.jump, square: p.square, lock_target: p.lock }
+    FrameInput { move_dir: k.move_dir, tilt: k.tilt, jump: p.jump, square: p.square, lock_target: p.lock, attack: p.confirm, target: p.target, locked: p.lock.is_some() }
 }
 
 fn replay(b: Button) -> i32 {
@@ -129,6 +131,11 @@ pub struct RecomView {
     pub motion_time: i32,
     pub blend_total: i32,
     pub blend_left: i32,
+    /// The weapon's attack volume is live (`CPlayerWeapon+0x23C`), the swing hit (`player+0x644`),
+    /// the attack id (`+0x638`).
+    pub weapon_live: bool,
+    pub swing_hit: bool,
+    pub attack_id: u32,
 }
 
 /// The KH1 state a Re:CoM action stands for (when Re:CoM's own handlers run: `combat = recom`,
@@ -161,7 +168,13 @@ pub fn state_into(r: &mut Row, v: &RecomView, kh1: Option<(&Kh1Sora, (u32, bool)
     r.row = -1;
     r.combo_counter = -1;
     r.mp_gauge = -1;
-    let recom = format!("recom action={:#x} sub={} phase={} row={:#x}", v.action, v.sub, v.phase, v.row);
+    r.hit_active = v.weapon_live;
+    r.swing_hits = Hex(v.swing_hit as u32);
+    let recom = if v.action == crate::movement::action::ATTACK {
+        format!("recom action={:#x} sub={} phase={} row={:#x} attack_id={}", v.action, v.sub, v.phase, v.row, v.attack_id)
+    } else {
+        format!("recom action={:#x} sub={} phase={} row={:#x}", v.action, v.sub, v.phase, v.row)
+    };
     match kh1 {
         Some((s, (st, lock), out)) => {
             r.state = st as i32;
@@ -185,6 +198,11 @@ pub fn state_into(r: &mut Row, v: &RecomView, kh1: Option<(&Kh1Sora, (u32, bool)
             r.air_vy = s.air_vel.y;
             r.air_vz = s.air_vel.z;
             r.target_yaw = s.target_yaw;
+            r.row = s.swing.map_or(-1, |w| w.kh1_row as i32);
+            r.combo_counter = s.combo_counter as i32;
+            r.combo_max = s.params.ground_length(&s.abilities) as i32;
+            r.air_combo_max = s.params.air_length(&s.abilities) as i32;
+            r.combo_master = s.abilities.combo_master;
             r.air_t = s.arc.t;
             r.rise_t = s.arc.rise_time;
             r.no_flinch = if s.no_flinch_on { s.no_flinch } else { 0.0 };

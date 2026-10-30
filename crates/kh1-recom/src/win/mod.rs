@@ -1,6 +1,7 @@
 //! Windows side: start-up (from Panacea's `OnInit`, or a fallback thread), hooks, and the glue
 //! between our Config row and `kh1-recom.ini`.
 
+mod attack;
 mod hook;
 mod menu;
 mod movement;
@@ -66,7 +67,7 @@ pub(crate) fn toggle(_k: usize) {
     log(&format!("config menu: combat = {}", s.combat.as_str()));
 }
 
-/// The KH1-only clips the asset step added (High Jump, its top, Guard): the manifest
+/// The KH1-only clips the asset step added (Guard): the manifest
 /// `kh1-motions.json` and the `PL0001.ANN` header Panacea will serve, looked for under the mod
 /// folder Panacea passed, its `recom` folder, the DLL's folders and the game folder.
 fn kh1_clips(dirs: &[PathBuf]) -> (crate::rows::Extension, Vec<(u32, String)>) {
@@ -83,7 +84,7 @@ fn kh1_clips(dirs: &[PathBuf]) -> (crate::rows::Extension, Vec<(u32, String)>) {
         }
     }
     let Some(manifest) = bases.iter().map(|b| b.join("kh1-motions.json")).find(|p| p.is_file()) else {
-        log("movement: no kh1-motions.json found (asset step not run?): High Jump uses Re:CoM's jump clip, Guard has no clip");
+        log("movement: no kh1-motions.json found (asset step not run?): Guard has no clip");
         return (rows::Extension::default(), Vec::new());
     };
     let m = match std::fs::read_to_string(&manifest).map_err(|e| e.to_string()).and_then(|t| motions::parse_manifest(&t)) {
@@ -145,6 +146,7 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
     } else {
         log("movement: not hooked; Sora moves as in Re:CoM");
     }
+    install_attack(base, s);
     let th = &crate::sites::TRACE_HOOKS;
     let hooks = [
         hook::Hook { site: &th[0], ours: trace::field_exe as *const () as usize, original: &trace::ORIG_FIELD },
@@ -156,6 +158,42 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
         log("trace: press F9 in game to start / stop recording kh1-recom-trace-<n>.csv next to the game");
     } else {
         log("trace: not hooked");
+    }
+}
+
+/// KH1's Attack (`attack`, `docs/recom-kh1-attack.md`): the KH1 rows, the data patches, then the
+/// hooks, all or nothing. Needs the movement handlers.
+fn install_attack(base: usize, s: &Settings) {
+    if !movement::installed() {
+        log("attack: movement not hooked; KH1 Attack not installed");
+        return;
+    }
+    // SAFETY: reads of the mapped exe; data patches with checked old values.
+    if !unsafe { attack::build_table(base) && attack::patch_data(base) } {
+        return;
+    }
+    let site = |name: &str| crate::sites::ATTACK_HOOKS.iter().find(|h| h.name == name).expect("site");
+    let hooks = [
+        hook::Hook { site: site("request bits (0x1401F8150)"), ours: attack::request_bits as *const () as usize, original: &attack::ORIG_REQUEST_BITS },
+        hook::Hook { site: site("use-card button (0x1401E8FF0)"), ours: attack::card_button as *const () as usize, original: &attack::ORIG_CARD_BUTTON },
+        hook::Hook { site: site("initAttack (0x1401F0D90)"), ours: attack::init_attack as *const () as usize, original: &attack::ORIG_INIT_ATTACK },
+        hook::Hook { site: site("field swing init (0x1401F0F70)"), ours: attack::field_init as *const () as usize, original: &attack::ORIG_FIELD_INIT },
+        hook::Hook { site: site("field swing exe (0x1401EAEB0)"), ours: attack::swing_exe as *const () as usize, original: &attack::ORIG_SWING_EXE },
+        hook::Hook { site: site("attack pair dispatch (0x14016EAD0)"), ours: attack::pair_dispatch as *const () as usize, original: &attack::ORIG_PAIR },
+        hook::Hook { site: site("enemy hit handler (0x14017F7E0)"), ours: attack::enemy_hit as *const () as usize, original: &attack::ORIG_ENEMY_HIT },
+        hook::Hook { site: site("player damage check (0x1401E6DE0)"), ours: attack::damage_check as *const () as usize, original: &attack::ORIG_DAMAGE_CHECK },
+        hook::Hook { site: site("root motion step (0x14024DCA0)"), ours: attack::root_step as *const () as usize, original: &attack::ORIG_ROOT_STEP },
+    ];
+    // SAFETY: the targets' bytes are checked again inside, before anything is written.
+    if unsafe { hook::install_all(base, &hooks) } {
+        let a = s.abilities;
+        log(&format!(
+            "attack: KH1 Attack in Re:CoM's attack action 0xA, field and battle (combo_plus {}, air_combo_plus {}, combo_master {}); KH1 Keyblade chain in the pair dispatch; hits land during enemy cards; no-flinch roll; root motion one update late",
+            a.combo_plus, a.air_combo_plus, a.combo_master
+        ));
+        log("attack: damage: Re:CoM's own numbers (cardless AP = attack stat) -- FALLBACK: KH1's per-enemy stats records are not in the player's files read so far (docs/recom-kh1-attack.md)");
+    } else {
+        log("attack: not hooked; Sora attacks as in Re:CoM (the Battle case and row-pick slot stay patched but are not reached)");
     }
 }
 

@@ -61,6 +61,17 @@ struct FakeRecom {
     motions: MotionSet,
     no_flinch: bool,
     plays: Vec<(u16, f32, f32)>,
+    /// Sora stands on a Re:CoM spring (the ability bit and `0x1401E80C0` say so).
+    on_spring: bool,
+    spring_launches: usize,
+    /// Our root-motion wrapper (`0x14024DCA0`, `crate::movement::RootDelay`): each update applies
+    /// the last update's local root travel.
+    root_delay: RootDelay,
+    /// Re:CoM's `player+0x644` for the swing playing, and the swings started.
+    hit: bool,
+    tick: u64,
+    swings: Vec<SwingStart>,
+    swing_ends: usize,
 }
 
 impl FakeRecom {
@@ -78,15 +89,29 @@ impl FakeRecom {
             motions: Moveset::kh1_defaults().motions,
             no_flinch: false,
             plays: Vec::new(),
+            on_spring: false,
+            spring_launches: 0,
+            root_delay: RootDelay::default(),
+            hit: false,
+            tick: 0,
+            swings: Vec::new(),
+            swing_ends: 0,
         }
     }
 
     /// Re:CoM after the state exe: motion advance (+ root motion), then the mover.
     fn after_exe(&mut self) {
+        self.tick += 1;
         let step = self.step;
         if let Some(c) = &mut self.clip {
             if c.just {
                 c.just = false;
+                // Re:CoM's root step still runs on a clip's first update (no travel of its own):
+                // the delay hands out the last motion's pending travel.
+                if c.root {
+                    let applied = self.root_delay.swap(1, self.tick, Vec3::ZERO);
+                    self.pos += applied.rotate_yaw(self.facing);
+                }
             } else {
                 let old = c.time;
                 let mut new = old + step;
@@ -97,8 +122,9 @@ impl FakeRecom {
                 }
                 if c.root {
                     if let Some(m) = self.motions.info(c.req) {
-                        let travel = (m.root_at(new) - m.root_at(old)).rotate_yaw(self.facing);
-                        self.pos += travel;
+                        let local = m.root_at(new) - m.root_at(old);
+                        let applied = self.root_delay.swap(1, self.tick, local);
+                        self.pos += applied.rotate_yaw(self.facing);
                     }
                 }
                 c.time = new;
@@ -160,6 +186,31 @@ impl Host for FakeRecom {
     fn set_no_flinch(&mut self, on: bool) {
         self.no_flinch = on;
     }
+    fn start_swing(&mut self, s: &SwingStart) -> bool {
+        // Re:CoM's field-swing init: action 0xA, the clip of the row, its hit flag cleared.
+        let len = self.motions.info(s.request).map_or(60.0, |m| m.length);
+        self.clip = Some(Clip { req: s.request, time: 0.0, len, once: true, root: s.root, just: true });
+        self.act = Action { id: action::ATTACK, sub: 0, phase: crate::attack::ATTACK_PHASE };
+        self.swings.push(*s);
+        true
+    }
+    fn swing_hit(&mut self) -> bool {
+        self.hit
+    }
+    fn end_swing(&mut self, _airborne: bool) {
+        self.swing_ends += 1;
+        self.act = Action { id: action::STAND, sub: 0, phase: 0 };
+    }
+    fn spring_jump(&mut self) -> bool {
+        if !spring::launches(spring::ABILITY, || if self.on_spring { spring::ON_SPRING } else { 0 }) {
+            return false;
+        }
+        // Re:CoM's own jump init: action 7, crouch, row 0x14.
+        self.spring_launches += 1;
+        self.act = Action { id: action::JUMP, sub: 0, phase: phase::CROUCH };
+        self.vel = Vec3::ZERO;
+        true
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -167,6 +218,7 @@ struct Pad {
     stick: [f32; 2],
     jump: bool,
     square: bool,
+    attack: bool,
 }
 
 struct Pair {
@@ -176,6 +228,7 @@ struct Pair {
     recom: FakeRecom,
     prev: Pad,
     first: bool,
+    o_out: Option<kh1_core::Output>,
 }
 
 #[derive(Debug)]
@@ -202,6 +255,7 @@ impl Pair {
             recom: FakeRecom::new(floor),
             prev: Pad::default(),
             first: true,
+            o_out: None,
         }
     }
 
@@ -215,9 +269,11 @@ impl Pair {
         let (dir, tilt) = Input::move_from_stick(pad.stick, 0.0);
         let jump = Button::from_held(self.prev.jump, pad.jump);
         let square = Button::from_held(self.prev.square, pad.square);
+        let attack = Button::from_held(self.prev.attack, pad.attack);
         self.prev = pad;
-        let o = self.oracle.step(&Input { move_dir: dir, tilt, jump, square, ..Default::default() }, &[], &mut self.world, step);
-        let out = self.ours.frame(&mut self.recom, &FrameInput { move_dir: dir, tilt, jump, square, lock_target: None }, self.first);
+        let o = self.oracle.step(&Input { move_dir: dir, tilt, jump, square, attack, ..Default::default() }, &[], &mut self.world, step);
+        self.o_out = Some(o.clone());
+        let out = self.ours.frame(&mut self.recom, &FrameInput { move_dir: dir, tilt, jump, square, lock_target: None, attack, target: None, locked: false }, self.first);
         self.first = false;
         self.recom.after_exe();
         let airborne = !self.recom.contact;
@@ -338,7 +394,7 @@ fn glide_and_superglide_match() {
     assert_eq!(p.recom.act.id, action::GLIDE);
     // Superglide on Square in the air, held.
     let mut p = Pair::new(all(), Floor { edge_z: 50.0, low: 2000.0 });
-    let frames = p.run_same(160, |k| Pad { jump: k < 2, square: k > 20, stick: [0.0, 1.0] });
+    let frames = p.run_same(160, |k| Pad { jump: k < 2, square: k > 20, stick: [0.0, 1.0], ..Default::default() });
     assert!(frames.iter().any(|f| f.out.events.contains(&Event::GlideStarted { superglide: true })));
 }
 
@@ -355,33 +411,34 @@ fn guard_holds_sora_for_its_motion() {
 }
 
 #[test]
-fn dodge_roll_travels_350_one_frame_ahead_of_kh1() {
-    // Running, Square: Dodge Roll (Guard is equipped, so it needs the run tilt).
+fn dodge_roll_root_motion_matches_kh1_frame_for_frame() {
+    // Running, Square: Dodge Roll (Guard is equipped, so it needs the run tilt). Re:CoM's root
+    // step runs one update late for Sora (decision 17), so its travel lands on KH1's frames.
     let mut p = Pair::new(all(), Floor::flat());
     let pad = |k: usize| Pad { square: k == 10, stick: if k <= 10 { [0.0, 1.0] } else { [0.0, 0.0] }, ..Default::default() };
-    let mut frames = Vec::new();
-    for k in 0..80 {
-        frames.push(p.step(pad(k)));
-    }
+    let frames = p.run_same(80, pad);
     assert!(frames[10].out.events.contains(&Event::Rolled));
-    for (k, f) in frames.iter().enumerate() {
-        assert_eq!(f.state, f.o_state, "frame {k}");
-        assert_eq!(f.lock, f.o_lock, "frame {k}");
-    }
-    // Root motion lands in Re:CoM's motion update of the same frame; KH1 applies it in the next
-    // frame's physics: Re:CoM is one frame of root travel ahead, and the same in the end.
-    for k in 10..60 {
-        let lead = frames[k].ours.z - frames[k].oracle.z;
-        let ahead = frames[k + 1].oracle.z - frames[k].oracle.z;
-        assert!((lead - ahead).abs() < 1e-2, "frame {k}: Re:CoM leads by {lead}, KH1's next step is {ahead}");
-    }
-    assert!((frames[79].ours - frames[79].oracle).length() < 1e-3);
     // 350 units of root travel plus the run frame before and the roll's first frame at speed 8.
     let travel = frames[79].ours.z - frames[9].ours.z;
     assert!((travel - (350.0 + 8.0)).abs() < 1e-2, "{travel}");
-    // KH1's 12 no-flinch frames reach Re:CoM's roll flag.
+    // KH1's 12 no-flinch frames went on and off.
     assert!(!p.recom.no_flinch);
     assert_eq!(p.recom.act.id, action::STAND);
+}
+
+#[test]
+fn root_delay_hands_each_update_the_last_ones_travel() {
+    let mut d = RootDelay::default();
+    let v = |z| Vec3::new(0.0, 0.0, z);
+    assert_eq!(d.swap(7, 1, v(0.0)), v(0.0));
+    assert_eq!(d.swap(7, 2, v(17.8)), v(0.0));
+    assert_eq!(d.swap(7, 3, v(10.0)), v(17.8));
+    // A new root motion on the next frame gets the old one's last travel (KH1's physics order).
+    assert_eq!(d.swap(7, 4, v(5.0)), v(10.0));
+    // A frame without a root step (a clip without root motion) drops it; so does another controller.
+    assert_eq!(d.swap(7, 6, v(1.0)), v(0.0));
+    assert_eq!(d.swap(8, 7, v(2.0)), v(0.0));
+    assert_eq!(d.swap(8, 8, v(0.0)), v(2.0));
 }
 
 #[test]
@@ -417,9 +474,178 @@ fn variable_step_matches_the_oracle() {
     let mut p = Pair::new(all(), Floor { edge_z: 400.0, low: 500.0 });
     for k in 0..120 {
         let step = [1.0, 2.0, 1.0, 3.0][k % 4];
-        let pad = Pad { jump: (10..30).contains(&k) || k > 70, square: k == 50, stick: [0.3, 1.0] };
+        let pad = Pad { jump: (10..30).contains(&k) || k > 70, square: k == 50, stick: [0.3, 1.0], ..Default::default() };
         let f = p.step_dt(pad, step);
         assert!((f.oracle - f.ours).length() < 1e-3, "frame {k}: {:?} vs {:?}", f.ours, f.oracle);
         assert_eq!((f.state, f.lock), (f.o_state, f.o_lock), "frame {k}");
     }
 }
+
+#[test]
+fn spring_decision_follows_recoms_jump_init() {
+    // The ability bit gates the gimmick query, as in `0x1401F29F0`.
+    let mut asked = false;
+    assert!(!spring::launches(0, || {
+        asked = true;
+        spring::ON_SPRING
+    }));
+    assert!(!asked, "no ability bit: the gimmick is not asked");
+    assert!(spring::launches(spring::ABILITY | 0x10, || spring::ON_SPRING));
+    assert!(!spring::launches(spring::ABILITY, || 0));
+    assert!(!spring::launches(spring::ABILITY, || 0x14), "another gimmick answer is not a spring");
+    // Re:CoM owns the jump action while its spring flag is set; any other action is ours.
+    assert!(spring::recom_owns_jump(action::JUMP, spring::FLAG_418 | 1));
+    assert!(!spring::recom_owns_jump(action::JUMP, 1));
+    assert!(!spring::recom_owns_jump(action::STAND, spring::FLAG_418));
+}
+
+#[test]
+fn jumping_on_a_spring_hands_the_jump_to_recom() {
+    let mut p = Pair::new(Abilities { high_jump: true, ..Default::default() }, Floor::flat());
+    p.recom.on_spring = true;
+    p.step(Pad::default());
+    let f = p.step(Pad { jump: true, ..Default::default() });
+    assert!(f.out.recom_spring);
+    assert!(!f.out.events.iter().any(|e| matches!(e, Event::Jumped { .. })), "no KH1 jump");
+    assert_eq!(p.recom.spring_launches, 1);
+    // Re:CoM's action stands as its init left it; we wrote no velocity and no motion.
+    assert_eq!(p.recom.act, Action { id: action::JUMP, sub: 0, phase: phase::CROUCH });
+    assert_eq!(p.recom.vel, Vec3::ZERO);
+    assert_eq!(p.ours.rec.req, 0xFFFF);
+    // Off the spring, the same press is KH1's (High) Jump again.
+    let mut q = Pair::new(Abilities { high_jump: true, ..Default::default() }, Floor::flat());
+    q.step(Pad::default());
+    let f = q.step(Pad { jump: true, ..Default::default() });
+    assert!(f.out.events.contains(&Event::Jumped { high: true }));
+    assert_eq!(q.recom.spring_launches, 0);
+}
+
+#[test]
+fn a_land_jump_on_a_spring_is_recoms_too() {
+    // Jump, land, then press jump during the land lock while standing on a spring.
+    let mut p = Pair::new(Abilities::default(), Floor::flat());
+    let land = 1 + 4 + 28 + 28;
+    p.run_same(land + 2, |k| Pad { jump: k == 0, ..Default::default() });
+    p.recom.on_spring = true;
+    let f = p.step(Pad { jump: true, ..Default::default() });
+    assert!(f.out.recom_spring);
+    assert_eq!(p.recom.spring_launches, 1);
+}
+
+// ---- KH1's Attack in Re:CoM's attack action (M5) ----
+
+fn attack_rows(events: &[Event]) -> Vec<(usize, u8, bool)> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::AttackStarted { row, counter, finisher, .. } => Some((*row, *counter, *finisher)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn refusals(events: &[Event]) -> Vec<kh1_core::Refused> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::AttackRefused(r) => Some(*r),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Steps both and checks position, facing, state, lock, the rows started and the refusals.
+fn run_attack(p: &mut Pair, n: usize, pad: impl Fn(usize) -> Pad, hits_land: bool) -> Vec<(usize, usize, u8, bool)> {
+    let mut started = Vec::new();
+    for k in 0..n {
+        let f = p.step(pad(k));
+        let o = p.o_out.clone().unwrap();
+        if std::env::var("DBG").is_ok() {
+            eprintln!("{k}: ours {:.3} oracle {:.3} req {} oreq {} ev {:?} oev {:?}", f.ours.z, f.oracle.z, f.head, o.request, f.out.events, o.events);
+        }
+        assert!((f.oracle - f.ours).length() < 1e-3, "frame {k}: pos {:?} vs oracle {:?}", f.ours, f.oracle);
+        assert!(wrap_angle(f.facing - f.o_facing).abs() < 1e-5, "frame {k}: facing {} vs {}", f.facing, f.o_facing);
+        assert_eq!(f.state, f.o_state, "frame {k}: state");
+        assert_eq!(f.lock, f.o_lock, "frame {k}: lock");
+        assert_eq!(attack_rows(&f.out.events), attack_rows(&o.events), "frame {k}: rows");
+        assert_eq!(refusals(&f.out.events), refusals(&o.events), "frame {k}: refusals");
+        for (row, counter, fin) in attack_rows(&f.out.events) {
+            started.push((k, row, counter, fin));
+            if hits_land {
+                // The swing hits: KH1's CB+0x50 and Re:CoM's +0x644.
+                p.oracle.register_hit(1, 1);
+                p.recom.hit = true;
+            } else {
+                p.recom.hit = false;
+            }
+        }
+        if hits_land && attack_rows(&f.out.events).is_empty() && p.oracle.combo.hits != 0 {
+            p.recom.hit = true;
+        }
+    }
+    started
+}
+
+fn mash(k: usize) -> Pad {
+    Pad { attack: k.is_multiple_of(2) && k > 2, ..Default::default() }
+}
+
+#[test]
+fn ground_combo_matches_the_oracle() {
+    let mut p = Pair::new(Abilities { combo_master: true, ..all() }, Floor::flat());
+    let started = run_attack(&mut p, 260, mash, false);
+    let rows: Vec<(usize, u8, bool)> = started.iter().map(|&(_, r, c, f)| (r, c, f)).collect();
+    // Swing 1 (row 13), swing 2 (row 11, the alternation), the finisher (row 8), then a new combo.
+    assert_eq!(&rows[..4], &[(13, 1, false), (11, 2, false), (8, 3, true), (13, 1, false)]);
+    // Each chained swing starts the frame its combo window opens: swing 1's window is 22–40.
+    assert!(started[1].0 - started[0].0 >= 23, "the window opens on the think after frame 22's update");
+    // Re:CoM played the rows' clips (ids 1, 2, 4) with root motion, and ended the attack itself.
+    let ids: Vec<u32> = p.recom.swings.iter().map(|s| s.recom_id).take(3).collect();
+    assert_eq!(ids, vec![1, 2, 4]);
+    assert!(p.recom.swings.iter().all(|s| s.root));
+    assert!(p.recom.swing_ends >= 1);
+}
+
+#[test]
+fn a_missed_swing_ends_the_combo_like_kh1() {
+    // No Combo Master and nothing hit: the press in the window is refused (KH1's rule), and the
+    // next swing only comes once the motion is over (a fresh combo).
+    let mut p = Pair::new(all(), Floor::flat());
+    let started = run_attack(&mut p, 120, mash, false);
+    assert!(started.len() >= 2);
+    assert_eq!(started[1].2, 1, "a fresh combo: {started:?}");
+    // With the hits landing it chains.
+    let mut p = Pair::new(all(), Floor::flat());
+    let started = run_attack(&mut p, 120, mash, true);
+    assert_eq!((started[1].1, started[1].2), (11, 2), "{started:?}");
+}
+
+#[test]
+fn air_combo_matches_the_oracle() {
+    // Jump, then mash Attack in the air: rows 18, 17, 16 with KH1's hops and air speeds.
+    let mut p = Pair::new(Abilities { combo_master: true, ..all() }, Floor::flat());
+    let pad = |k: usize| Pad { jump: k < 3, attack: k > 12 && k.is_multiple_of(2), stick: if k < 12 { [0.0, 1.0] } else { [0.0, 0.0] }, ..Default::default() };
+    let started = run_attack(&mut p, 200, pad, false);
+    let rows: Vec<usize> = started.iter().map(|s| s.1).collect();
+    assert_eq!(&rows[..3], &[18, 17, 16], "{started:?}");
+    assert!(p.recom.swings.iter().take(3).all(|s| !s.root), "the air swings have no root travel");
+}
+
+#[test]
+fn landing_cuts_an_air_swing_like_kh1() {
+    // A short hop and one air swing late in the fall: the landing replaces the swing.
+    let mut p = Pair::new(Abilities { combo_master: true, ..all() }, Floor::flat());
+    let pad = |k: usize| Pad { jump: k < 2, attack: k == 16, ..Default::default() };
+    run_attack(&mut p, 120, pad, false);
+    assert_eq!(p.recom.swings.len(), 1);
+    assert_eq!(p.recom.swing_ends, 1);
+    assert_eq!(p.recom.act.id, action::STAND);
+}
+
+#[test]
+fn attack_and_jump_on_one_frame_jump() {
+    let mut p = Pair::new(all(), Floor::flat());
+    run_attack(&mut p, 10, |k| Pad { jump: k == 3, attack: k == 3, ..Default::default() }, false);
+    assert!(p.recom.swings.is_empty());
+}
+

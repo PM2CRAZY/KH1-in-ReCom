@@ -51,6 +51,10 @@ impl Recorder {
             }
             None => trace::state_into(&mut row, &v, None),
         }
+        if let Ok(mut h) = super::attack::HIT_LOG.lock() {
+            row.hits = h.join(" ");
+            h.clear();
+        }
         row.frame = self.rows;
         if row.write_csv(&mut self.out).is_ok() {
             self.rows += 1;
@@ -70,7 +74,12 @@ impl Recorder {
 
 unsafe fn state_exe(pl: usize, o: &AtomicUsize) {
     let f: PlayerFn = std::mem::transmute_copy(&o.load(Ordering::Acquire));
-    if !RECORDING.load(Ordering::Relaxed) || !mv::is_main_sora(pl) {
+    let sora = mv::is_main_sora(pl);
+    if sora {
+        // Sora's frame count, for the root-motion delay.
+        super::attack::tick();
+    }
+    if !RECORDING.load(Ordering::Relaxed) || !sora {
         return f(pl);
     }
     if let Ok(mut g) = REC.try_lock() {

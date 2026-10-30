@@ -175,8 +175,8 @@ Every hook passes through to Re:CoM unless `combat = kh1` and the player is the 
 | 4 jump, 5 top, 6 / 0xB fall, 7 / 0xC land | 4, 5, 6, 7 |
 | 0x71–0x74 glide | 0x1B–0x1E |
 | 0xDC Dodge Roll | 0x16, root motion |
-| 9 / 0xA High Jump, its top | new rows 0x47 / 0x48 (KH1 entries 12 / 13), else 4 / 5 |
-| 212 Guard | new row 0x49 (KH1 entry 110), else none |
+| 9 / 0xA High Jump, its top | Re:CoM's own higher jump rows 0x14 / 0x15 (decision 17, 0.6.0) |
+| 212 Guard | new row 0x47 (KH1 entry 110), else none |
 
 - New rows: at start, Sora's table is copied with the KH1-only rows appended (names from
   `kh1-motions.json`, checked against the `PL0001.ANN` header), and `0x1407C6300[1]` / `[2]` are
@@ -203,16 +203,66 @@ action / sub / phase / row. With `combat = recom` it records Re:CoM's own moveme
 (state from the action). Only the two state-exe hooks run per frame, and they only test a flag
 while not recording.
 
+## Springs and other gimmick launches (0.6.0, owner's 0.5.0 recording)
+
+> "sora needs to be able to jump as high as he is supposed to on these springs"
+
+**What Re:CoM does. Checked (decomp + exe).**
+
+- A spring is a gimmick object of type `0x2002`. When Sora is near one, the spring calls
+  `0x1401F5370(handle, level)`: `player+0x5FC` = its handle, `player+0x600` = its launch speed from
+  `0x1405A0100[level]` = 39.0, 45.9, 52.2, 57.6, 62.7, 67.3, 71.6, 75.8 (Sora's own jump speed is
+  28.0, `0x1407C5B60+0x1C`).
+- Re:CoM's jump init `0x1401F29F0(player, 0)` first clears `player+0x418` bit `0x1000000`. Then, if
+  `player+0x41C & 0x20000` and `0x1401E80C0(player, 0x2002) == 7` (the gimmick is a spring and the
+  body's contact bit 4 is on), it sets that bit, plays row 0x14 (Re:CoM's higher jump) and takes the
+  spring's speed as the jump speed (`+0x5D0 = +0x600`).
+- Its jump exe `0x1401EDA60` then rises at that speed under Re:CoM's gravity, with no jump cut while
+  the bit is set (row-0x14 branch), switches to row 0x15 at the top, falls and lands (phase 6,
+  `0x1401EE360`).
+- The bit is written only by those two lines of the jump init and read only by the jump exe.
+- With a speed of 39–75.8 against 28, a spring reaches (39/28)² ≈ 1.9× to 7.3× Re:CoM's jump
+  height. At 0.5.0 our jump init ran KH1's jump instead, so the spring gave a KH1-height hop.
+
+**What we do (option: Re:CoM's own spring path runs).** KH1 has no springs, and Re:CoM's spring
+path can run whole, so it does:
+
+- KH1's jump start (`Kh1Sora::jump_start`, reached from every ground jump: the jump init hook, a
+  jump in a KH1 frame, the land-jump) first asks the host `Host::spring_jump`. The host applies
+  Re:CoM's own test (`movement::spring::launches`: the ability bit, then `0x1401E80C0(player,
+  0x2002) == 7`). On a spring it calls Re:CoM's own jump init through the trampoline (no hook
+  runs), and the KH1 frame stops writing (`FrameOut::recom_spring`).
+- The jump exe hook passes every frame through to Re:CoM's own exe while Re:CoM owns the jump
+  (`spring::recom_owns_jump`: action 7 and the bit set): Re:CoM's height, arc, no jump cut and its
+  landing. Re:CoM then returns Sora to stand, and the next KH1 frame takes over from Re:CoM's state
+  (KH1's rules again).
+- Every jump we start ourselves clears the bit, as Re:CoM's jump init does (the jump init hook, and
+  our handlers entering action 7), so a later KH1 jump or fall is never taken for a spring jump.
+- Not chosen: feeding the spring's height into KH1's arc. Re:CoM's own path can run, so nothing
+  of ours copies its numbers.
+- Tests: `spring_decision_follows_recoms_jump_init`, `jumping_on_a_spring_hands_the_jump_to_recom`,
+  `a_land_jump_on_a_spring_is_recoms_too`.
+- During the spring's flight, Re:CoM's jump exe also takes Re:CoM's air commands: the Attack
+  becomes the KH1 Attack (M5 hooks), and its glide init leads into our KH1 glide. Assumption:
+  Glide from a spring jump was not tried in game.
+
+**Other gimmick launches. Checked (decomp).** The move exe's gimmick button (`+0x424 & 0x200`,
+`0x1401E80C0`) starts Re:CoM's own actions 0x11, 0x14, 0x15, 0x1E and footing 0x23
+(`0x1401F3730`, `0x1401F2F40`, `0x1401F39F0`, `0x1401F1670`, `0x1401F3180` / `0x1401F2310`). None of
+them is an action we hook, so they stay Re:CoM's whole. A jump pressed while on a footing goes
+through the jump init (spring test included), and a fall they end in goes through `jump init(player,
+1)` (KH1's fall from rest). Events and scripts move Sora in the Wait / Hide states, which we don't
+hook. No other launch writes the spring speed: the player's `+0x600` is written only by `0x1401F5370`
+(through the main-player pointer), called only by the spring gimmick (`0x1401BC460`, `0x1401BC780`,
+`0x1401BC990`). The one other `+0x600` store in the decomp (`0x14011CB20`) is on a camp-menu object.
+
 ## Where Re:CoM can't match KH1 yet
 
-1. **Root motion lands one frame early.** KH1 applies a motion's root travel in the next frame's
-   physics; Re:CoM applies it in the motion update of the same frame. During the Dodge Roll
-   Re:CoM's Sora is one frame of travel ahead; the total (350 units) and the end position are the
-   same. Checked (tests). Native options:
-   - (a) accept it;
-   - (b) the asset step writes a root-less copy of the roll clip, and the handler moves the body
-     by KH1's root travel as velocity (KH1's timing, Re:CoM's mover);
-   - (c) a wrapper on Re:CoM's root-motion step that delays it by one update for Sora.
+1. **Root motion** (fixed in 0.6.0, decision 17, option (c)). KH1 applies a motion's root travel
+   in the next frame's physics, Re:CoM in the motion update of the same frame. A wrapper on
+   Re:CoM's root step `0x14024DCA0` now hands Sora's controller the last update's travel in our
+   KH1 actions (roll / Guard, attack), so the roll matches KH1 frame for frame. Checked (tests).
+   Details in `recom-kh1-attack.md`.
 2. **A queued motion starts one frame later in Re:CoM** (the idle after a land, roll or Guard; the
    fall after the jump top). KH1 starts it in the same update the last one ends; Re:CoM gets the
    request in the next frame's handler, with the start frame moved on by a step so its clock
@@ -221,9 +271,11 @@ while not recording.
 3. **Re:CoM's clock runs through blends** (KH1 holds the new motion at frame 0). Only the look
    and `motion_frame` of blended motions (idle, walk, run, fall, glide) differ; none of them has a
    window.
-4. **Roll protection.** Re:CoM's bit (`+0x418` bit 0) makes Sora untouchable; KH1's 12 frames are
-   no-flinch, plus untouchable frames from motion events nobody has found yet. The 12-frame timing
-   is KH1's. To revisit with damage (M5).
+4. **Roll protection** (fixed in 0.6.0). KH1's roll has 12 no-flinch frames and **no**
+   untouchable frames: the ops `0x2B` / `0x2A` come only from event scripts. Checked (decomp +
+   files). At KH1, Sora now takes damage during the roll, with no reaction for those 12 frames.
+   This uses Re:CoM's own no-reaction exit in its damage check, and no longer Re:CoM's untouchable
+   bit `+0x418 & 1`. Details in `recom-kh1-attack.md`.
 5. **Height above the floor** (Glide needs more than 50; Superglide slows below 70) is probed with
    Re:CoM's collision segment test only when those checks run. Assumption: the segment test
    returns the first hit.
@@ -239,10 +291,9 @@ while not recording.
 
 ## Open questions for the owner
 
-- High Jump's animation: Re:CoM has its own higher jump (rows 0x14 / 0x15, `p001_028` /
-  `p001_029`). Decision 11 lists High Jump as a move Re:CoM lacks, so KH1's clip is used. Keep
-  that, or use Re:CoM's?
-- The root-motion frame (options above).
+- High Jump's animation: decided (17), Re:CoM's rows 0x14 / 0x15 (0.6.0).
+- The root-motion frame: decided (17), fixed in 0.6.0.
 - Re:CoM's ledge climb and hang (`0x1401E8C00`, `0x1401E96C0`) still work at KH1 setting (KH1's
   own ledge grabs are not built). Keep them?
-- Until M5, cards and the field swing still work from the ground and the air at KH1 setting.
+- From 0.6.0 (M5) the Attack is KH1's (`recom-kh1-attack.md`); cards are no longer played at KH1
+  setting (the deck itself is M6).

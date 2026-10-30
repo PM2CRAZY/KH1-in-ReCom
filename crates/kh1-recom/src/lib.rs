@@ -10,11 +10,14 @@
 //!   with Re:CoM's window panel drawn one row taller (`menu`, `docs/recom-config-menu.md`);
 //! - at `combat = kh1`, runs KH1 Sora's movement as the handlers of Re:CoM's own movement actions
 //!   (`movement`, `rows`, `units`; `docs/recom-kh1-movement.md`);
+//! - at `combat = kh1`, runs KH1's Attack (no cards) through Re:CoM's own attack action, rows,
+//!   collision and damage path (`attack`; `docs/recom-kh1-attack.md`);
 //! - F9 records a Re:CoM trace in kh1-trace's CSV schema (`trace`).
 //!
 //! `motions` (with `json`) reads the asset build step's manifest and `PL0001.ANN` header, for the
 //! KH1-only clips the movement plays (High Jump, Guard).
 
+pub mod attack;
 pub mod hookplan;
 pub mod json;
 pub mod menu;
@@ -102,6 +105,7 @@ pub fn startup_report(
                 settings::switch_str(a.dodge_roll),
                 settings::switch_str(a.guard)
             );
+            let _ = writeln!(r, "settings: KH1 combo: combo_plus = {}, air_combo_plus = {}, combo_master = {}", a.combo_plus, a.air_combo_plus, settings::switch_str(a.combo_master));
             for w in warnings {
                 let _ = writeln!(r, "settings warning: {w}");
             }

@@ -32,6 +32,18 @@ impl Value {
             _ => None,
         }
     }
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Value::Num(n) => Some(*n),
+            _ => None,
+        }
+    }
+    pub fn as_array(&self) -> Option<&[Value]> {
+        match self {
+            Value::Arr(a) => Some(a),
+            _ => None,
+        }
+    }
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::Str(s) => Some(s),

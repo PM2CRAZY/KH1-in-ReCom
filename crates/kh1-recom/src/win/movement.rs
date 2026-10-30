@@ -41,8 +41,9 @@ pub static ORIG_GLIDE_EXE: AtomicUsize = AtomicUsize::new(0);
 /// `combat = kh1`, and the hooks are in.
 static KH1: AtomicBool = AtomicBool::new(false);
 static INSTALLED: AtomicBool = AtomicBool::new(false);
-/// The abilities (`Kh1Abilities::bits`), set from the ini.
+/// The abilities (`Kh1Abilities::bits`), set from the ini, and all of them.
 static ABILITY_BITS: AtomicU32 = AtomicU32::new(0x30);
+static ABILITIES: Mutex<Option<Kh1Abilities>> = Mutex::new(None);
 /// The appended action-table rows (KH1-only clips).
 pub static EXT: OnceLock<Extension> = OnceLock::new();
 /// The player whose move exe is running (its leaves run our frame), and whether it takes over.
@@ -68,7 +69,7 @@ pub struct Slot {
 pub static SORA: Mutex<Option<Slot>> = Mutex::new(None);
 
 // CPlayer fields. Checked (decomp) unless noted; `docs/recom-kh1-movement.md`.
-mod p {
+pub(super) mod p {
     pub const BODY: usize = 0xF0;
     pub const CTRL: usize = 0xD8;
     pub const PAD: usize = 0x230;
@@ -97,7 +98,7 @@ mod p {
 }
 
 // CMovement (`player+0xF0`, ctor `0x1401D4200`).
-mod body {
+pub(super) mod body {
     pub const POS: usize = 0x30;
     pub const YAW: usize = 0x54;
     pub const VEL: usize = 0x80;
@@ -114,44 +115,46 @@ mod ctrl {
     pub const BLEND_LEFT: usize = 0x58;
 }
 
-const MOTION_REQUEST: u32 = 0x001F_7180;
+pub(super) const MOTION_REQUEST: u32 = 0x001F_7180;
 const GROUND_TEST: u32 = 0x001F_3C00;
 const COLLIDE: u32 = 0x0017_0330;
-const HANDLE_OBJ: u32 = 0x002A_D350;
+pub(super) const HANDLE_OBJ: u32 = 0x002A_D350;
 const JUMP_HELD: u32 = 0x001F_F4D0;
 const BUTTONS_HELD: u32 = 0x0029_C1D0;
-const FIELD_SWING: u32 = 0x001F_0F70;
+pub(super) const FIELD_SWING: u32 = 0x001F_0F70;
 const INIT_ATTACK: u32 = 0x001F_0D90;
 const RELOAD_CHECK: u32 = 0x001E_6C40;
+const GIMMICK_CHECK: u32 = 0x001E_80C0;
 
-type PlayerFn = unsafe extern "win64" fn(usize);
+pub(super) type PlayerFn = unsafe extern "win64" fn(usize);
 type ClassFn = unsafe extern "win64" fn(usize) -> u64;
-type InitFn = unsafe extern "win64" fn(usize, i32) -> u64;
-type MotionFn = unsafe extern "win64" fn(usize, i32, i32, u64, i32, i32, i32);
+pub(super) type InitFn = unsafe extern "win64" fn(usize, i32) -> u64;
+pub(super) type MotionFn = unsafe extern "win64" fn(usize, i32, i32, u64, i32, i32, i32);
 type GroundFn = unsafe extern "win64" fn(usize) -> u32;
 type CollideFn = unsafe extern "win64" fn(usize, i32) -> u64;
-type HandleFn = unsafe extern "win64" fn(u32) -> usize;
+pub(super) type HandleFn = unsafe extern "win64" fn(u32) -> usize;
 type PadHeldFn = unsafe extern "win64" fn(usize) -> u32;
 type HeldFn = unsafe extern "win64" fn(u32, u32) -> u8;
+type GimmickFn = unsafe extern "win64" fn(usize, u64, u64, u64) -> u8;
 
-unsafe fn rd<T: Copy>(at: usize) -> T {
+pub(super) unsafe fn rd<T: Copy>(at: usize) -> T {
     std::ptr::read_unaligned(at as *const T)
 }
 
-unsafe fn wr<T: Copy>(at: usize, v: T) {
+pub(super) unsafe fn wr<T: Copy>(at: usize, v: T) {
     std::ptr::write_unaligned(at as *mut T, v)
 }
 
-unsafe fn rd_vec(at: usize) -> Vec3 {
+pub(super) unsafe fn rd_vec(at: usize) -> Vec3 {
     Vec3::new(rd(at), rd(at + 4), rd(at + 8))
 }
 
-unsafe fn func<T: Copy>(rva: u32) -> T {
+pub(super) unsafe fn func<T: Copy>(rva: u32) -> T {
     let f = base() + rva as usize;
     std::mem::transmute_copy(&f)
 }
 
-unsafe fn orig<T: Copy>(a: &AtomicUsize) -> T {
+pub(super) unsafe fn orig<T: Copy>(a: &AtomicUsize) -> T {
     let f = a.load(Ordering::Acquire);
     std::mem::transmute_copy(&f)
 }
@@ -162,15 +165,38 @@ pub fn set_mode(kh1: bool) {
 
 pub fn set_abilities(a: Kh1Abilities) {
     ABILITY_BITS.store(a.bits(), Ordering::Relaxed);
+    if let Ok(mut g) = ABILITIES.lock() {
+        *g = Some(a);
+    }
 }
 
 pub fn ability_bits() -> u32 {
     ABILITY_BITS.load(Ordering::Relaxed)
 }
 
-fn abilities() -> kh1_core::Abilities {
-    let b = ability_bits();
-    Kh1Abilities { high_jump: b & 0x200 != 0, glide: b & 0x80 != 0, superglide: b & 0x100 != 0, guard: b & 0x10 != 0, dodge_roll: b & 0x20 != 0 }.to_core()
+pub(crate) fn abilities() -> kh1_core::Abilities {
+    ABILITIES.lock().ok().and_then(|g| *g).unwrap_or_default().to_core()
+}
+
+pub(super) fn kh1_on() -> bool {
+    KH1.load(Ordering::Acquire)
+}
+
+/// Writes our last frame's velocity and facing again (after a Re:CoM exe that set its own).
+pub(super) unsafe fn reapply(pl: usize) {
+    let Ok(g) = SORA.try_lock() else { return };
+    let Some(slot) = g.as_ref().filter(|s| s.player == pl) else { return };
+    let step = slot.sora.last_step;
+    if step <= 0.0 {
+        return;
+    }
+    let mut h = RecomHost::new(pl);
+    h.set_velocity(slot.sora.last_disp * (1.0 / step));
+    h.set_facing(slot.sora.facing);
+}
+
+pub fn installed() -> bool {
+    INSTALLED.load(Ordering::Acquire)
 }
 
 pub fn mark_installed() {
@@ -183,7 +209,7 @@ pub unsafe fn is_main_sora(pl: usize) -> bool {
     pl != 0 && pl == rd::<usize>(va(b, data::MAIN_PLAYER)) && rd::<usize>(pl) == va(b, data::SORA_VTABLE)
 }
 
-unsafe fn kh1_sora(pl: usize) -> bool {
+pub(super) unsafe fn kh1_sora(pl: usize) -> bool {
     KH1.load(Ordering::Acquire) && is_main_sora(pl)
 }
 
@@ -209,6 +235,7 @@ pub unsafe fn read_pad(pl: usize) -> PadView {
         square: Button { pressed: req & 2 != 0, held: enabled && held(0x80, 0) != 0 },
         confirm: Button { pressed: req & 4 != 0, held: false },
         lock: lock_target(pl),
+        target: if req & 4 != 0 { super::attack::attack_target(pl) } else { None },
     }
 }
 
@@ -234,7 +261,7 @@ unsafe fn lock_target(pl: usize) -> Option<Vec3> {
     (b != 0).then(|| to_kh1(rd_vec(b + body::POS)))
 }
 
-unsafe fn read_sync(pl: usize) -> Sync {
+pub(super) unsafe fn read_sync(pl: usize) -> Sync {
     Sync { action: rd(pl + p::ACTION), prev: rd(pl + p::PREV_ACTION), time: rd(pl + p::ACTION_TIME) }
 }
 
@@ -286,6 +313,12 @@ impl RecomHost {
                 motion_time: t,
                 blend_total: bt,
                 blend_left: bl,
+                weapon_live: {
+                    let w: usize = rd(pl + crate::attack::field::WEAPON);
+                    w != 0 && rd::<i32>(w + 0x23C) != 0
+                },
+                swing_hit: rd::<i32>(pl + crate::attack::field::HIT) != 0,
+                attack_id: rd(pl + crate::attack::field::ATTACK_ID),
             }
         }
     }
@@ -383,6 +416,8 @@ impl Host for RecomHost {
                 wr(pl + p::ACTION_TIME, 0i32);
                 wr(pl + p::ACTION_SUB, a.sub);
                 if a.id == crate::movement::action::JUMP && cur != a.id {
+                    // As every Re:CoM jump init: a jump we start is never a spring jump.
+                    wr(pl + p::FLAGS_418, rd::<u32>(pl + p::FLAGS_418) & !crate::movement::spring::FLAG_418);
                     // Re:CoM's jump init keeps the take-off point and the height gained.
                     let b = self.body();
                     for k in 0..4 {
@@ -424,16 +459,42 @@ impl Host for RecomHost {
         }
     }
 
-    fn set_no_flinch(&mut self, on: bool) {
+    fn start_swing(&mut self, s: &crate::movement::SwingStart) -> bool {
+        unsafe { super::attack::start_swing(self.pl, s) }
+    }
+
+    fn swing_hit(&mut self) -> bool {
+        unsafe { rd::<i32>(self.pl + crate::attack::field::HIT) != 0 }
+    }
+
+    fn end_swing(&mut self, airborne: bool) {
+        unsafe { super::attack::end_swing(self.pl, airborne) }
+    }
+
+    fn spring_jump(&mut self) -> bool {
         unsafe {
-            let f: u32 = rd(self.pl + p::FLAGS_418);
-            wr(self.pl + p::FLAGS_418, if on { f | 1 } else { f & !1 });
+            let pl = self.pl;
+            let ability: u32 = rd(pl + p::ABILITY);
+            if !crate::movement::spring::launches(ability, || func::<GimmickFn>(GIMMICK_CHECK)(pl, crate::movement::spring::GIMMICK as u64, 0, 0)) {
+                return false;
+            }
+            // Re:CoM's own jump init (the trampoline: no hook runs) launches the spring jump.
+            let o: InitFn = orig(&ORIG_JUMP_INIT);
+            o(pl, 0);
+            log_once_spring();
+            true
         }
+    }
+
+    fn set_no_flinch(&mut self, on: bool) {
+        // KH1's no-flinch (damage, no reaction) for the damage-check wrapper; not Re:CoM's
+        // untouchable roll bit `+0x418 & 1` (KH1's roll has no untouchable frames).
+        super::attack::set_no_flinch(self.pl, on);
     }
 }
 
 /// One KH1 frame for the player.
-unsafe fn run_frame(pl: usize, fresh: bool) {
+pub(super) unsafe fn run_frame(pl: usize, fresh: bool) {
     let Ok(mut g) = SORA.try_lock() else { return };
     if g.as_ref().is_none_or(|s| s.player != pl) {
         *g = Some(Slot { player: pl, sora: Kh1Sora::new(Params::kh1_defaults(), abilities()), sync: None, last: FrameOut::default() });
@@ -447,10 +508,20 @@ unsafe fn run_frame(pl: usize, fresh: bool) {
 }
 
 /// Whether our last frame left this player's actions as they are now.
-unsafe fn continues(pl: usize) -> bool {
+pub(super) unsafe fn continues(pl: usize) -> bool {
     match SORA.try_lock() {
         Ok(g) => g.as_ref().is_some_and(|s| sync_ok(pl, s)),
         Err(_) => false,
+    }
+}
+
+/// An attack command dispatched by Re:CoM (its move exe or our jump exe's air commands): continues
+/// our last frame when nothing else ran in between.
+pub(super) unsafe fn dispatch_fresh(pl: usize) -> bool {
+    if IN_MOVE_EXE.load(Ordering::Relaxed) == pl {
+        MOVE_FRESH.swap(false, Ordering::Relaxed)
+    } else {
+        !continues(pl)
     }
 }
 
@@ -500,12 +571,20 @@ pub unsafe extern "win64" fn move_step(pl: usize) {
     run_frame(pl, init_fresh(pl));
 }
 
+fn log_once_spring() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| log("movement: a Re:CoM spring launched Sora; Re:CoM's own jump runs until it lands"));
+}
+
 pub unsafe extern "win64" fn jump_init(pl: usize, falling: i32) {
     let o: InitFn = orig(&ORIG_JUMP_INIT);
     if !kh1_sora(pl) {
         o(pl, falling);
         return;
     }
+    // Re:CoM's jump init clears the spring flag first; ours does the same (a spring launch below
+    // runs Re:CoM's own init, which sets it again).
+    wr(pl + p::FLAGS_418, rd::<u32>(pl + p::FLAGS_418) & !crate::movement::spring::FLAG_418);
     if falling != 0 {
         if let Ok(mut g) = SORA.try_lock() {
             if g.as_ref().is_none_or(|s| s.player != pl) {
@@ -558,7 +637,8 @@ unsafe fn air_command(pl: usize) -> bool {
 
 pub unsafe extern "win64" fn jump_exe(pl: usize) {
     let o: PlayerFn = orig(&ORIG_JUMP_EXE);
-    if !kh1_sora(pl) {
+    if !kh1_sora(pl) || crate::movement::spring::recom_owns_jump(rd(pl + p::ACTION), rd(pl + p::FLAGS_418)) {
+        // Re:CoM's spring jump: its own flight and landing (`docs/recom-kh1-movement.md` § Springs).
         return o(pl);
     }
     let fresh = !continues(pl);
@@ -588,7 +668,7 @@ pub unsafe extern "win64" fn glide_exe(pl: usize) {
     run_frame(pl, !continues(pl));
 }
 
-/// Appends the KH1-only rows (High Jump, its top, Guard) to Sora's action table: a copy of
+/// Appends the KH1-only rows (Guard; High Jump uses Re:CoM's rows 0x14 / 0x15) to Sora's action table: a copy of
 /// Re:CoM's 0x47 rows plus ours, then `0x1407C6300[1]` and `[2]` repointed to it (checked old
 /// values). Re:CoM resolves the names itself at the next player set-up (`0x1401FA6E0`). Data only.
 pub unsafe fn extend_action_table(ext: &Extension, names: &[(u32, String)]) -> bool {
@@ -615,7 +695,7 @@ pub unsafe fn extend_action_table(ext: &Extension, names: &[(u32, String)]) -> b
     let from = (table as u64).to_le_bytes();
     let ok = super::hook::patch(ptrs + 8, &from, &to, "action table [1]") && super::hook::patch(ptrs + 16, &from, &to, "action table [2]");
     if ok {
-        log(&format!("movement: action table extended with {} KH1 rows: {names:?} (High Jump, its top, Guard as available: {:?})", names.len(), ext.rows));
+        log(&format!("movement: action table extended with {} KH1 rows: {names:?} (Guard as available: {:?})", names.len(), ext.rows));
     }
     ok
 }

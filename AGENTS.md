@@ -11,6 +11,55 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 9: KH1 Attack inside Re:CoM (M5), spring fix, version 0.6.0 (2026-10-30)
+
+> M5 per the roadmap, plus the owner's report on 0.5.0: "sora needs to be able to jump as high as
+> he is supposed to on these springs"
+
+- **Springs:**
+  - Re:CoM's jump init launches springs: gimmick `0x2002`, `0x1401E80C0(pl, 0x2002) == 7`,
+    ability `+0x41C & 0x20000`, speed from `0x1405A0100` (39–75.8 against a normal 28),
+    `+0x418 |= 0x1000000`, row 0x14.
+  - Every KH1 ground jump now runs Re:CoM's spring test first. On a spring, Re:CoM's own jump runs
+    until landing, then KH1's rules resume. Checked (decomp); not yet seen in game.
+- **KH1 Attack** at `combat = kh1` (`docs/recom-kh1-attack.md`):
+  - In battle, the confirm press takes Re:CoM's field (cardless) branch, and the use-card button
+    is skipped.
+  - initAttack becomes the field-swing init. kh1-core's picker chooses the row in Sora's vtable
+    slot `+0x128` (`0x1405A9A60`).
+  - Our wrapper on the field swing exe runs KH1's combo window, chain, facing and air arc, then
+    Re:CoM's exe.
+  - Battle jump-table entry `0x1401FA074` points action 0xA at a 13-byte stub in the int3 gap at
+    `0x1401FA6C1` (15 free bytes, lead-checked).
+  - KH1 rows in Re:CoM's layout reuse Re:CoM's clips 1–7, with KH1's hit and combo windows (flag
+    0x80) and no 20-frame lockout.
+  - KH1's two-sphere blade plus sweep (radius 0.40 m), tested with Re:CoM's own primitives.
+  - Card priority: a KH1 hit interrupts the enemy's card through Re:CoM's `0x2000001` path.
+  - Reactions: swings flinch (kind 1), finishers knock away (kind 2).
+  - ini: `combo_plus`, `air_combo_plus`, `combo_master`.
+  - Hooks also on `0x1401F8150`, `0x1401E8FF0`, `0x1401F0D90`, `0x1401F0F70`, `0x1401EAEB0`,
+    `0x14016EAD0`, `0x14017F7E0`, `0x1401E6DE0` and `0x14024DCA0`. 54 sites byte-checked.
+- **M4 follow-ups:**
+  - High Jump plays Re:CoM's rows 0x14/0x15.
+  - Root motion is one update late for Sora (the roll is now exact against kh1-core).
+  - **Finding:** KH1's roll has no untouchable frames. The `0x2B`/`0x2A` ops are only queued by
+    event scripts, so roll protection = 12 no-flinch frames, damage still taken. This corrects
+    KH2-Combat-in-KH1's `kh1-intangible.md`. Checked (decomp).
+- **Damage:**
+  - Still Re:CoM's (logged FALLBACK). KH1 enemy stats come from 0x6C-byte records passed by an AI
+    script call (syscall 45, `0x1402BBDF0` → `0x1402A58E0`). Strength/Defence index a 21-row table
+    at btltbl `0xC8A8`. Checked (decomp + files).
+  - The per-enemy records are in KH1's enemy script files, not read yet.
+- **Not done:** Guard repel / Counterattack (Re:CoM's guard fields at `player+0x690` found, not
+  wired); MP charge (needs the enemy's KH1 level).
+- 1:1, Checked (tests vs kh1-core): ground 13→11→8, missed-swing refusal, air 18→17→16, landing
+  cutting an air swing, jump beating Attack, the roll.
+- Assumptions: hit window one frame earlier (Re:CoM's hit test runs after the animation update);
+  the target aim point stands in for KH1's body part. Nothing seen in game yet; tester thread
+  `testers/recom-attack/thread.md`.
+
+---
+
 ## Stage 8: KH1 movement inside Re:CoM's player actions (M4), version 0.5.0 (2026-10-30)
 
 > "looks good enough for now, lets work on phase 2"

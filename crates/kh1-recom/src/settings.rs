@@ -63,17 +63,31 @@ pub struct Kh1Abilities {
     pub superglide: bool,
     pub dodge_roll: bool,
     pub guard: bool,
+    /// Copies of Combo Plus / Air Combo Plus (each adds a swing to the combo), and Combo Master.
+    pub combo_plus: u8,
+    pub air_combo_plus: u8,
+    pub combo_master: bool,
 }
 
 impl Default for Kh1Abilities {
     fn default() -> Self {
-        Kh1Abilities { high_jump: false, glide: false, superglide: false, dodge_roll: true, guard: true }
+        Kh1Abilities { high_jump: false, glide: false, superglide: false, dodge_roll: true, guard: true, combo_plus: 0, air_combo_plus: 0, combo_master: false }
     }
 }
 
 impl Kh1Abilities {
     pub fn to_core(self) -> kh1_core::Abilities {
-        kh1_core::Abilities { high_jump: self.high_jump, glide: self.glide, superglide: self.superglide, dodge_roll: self.dodge_roll, guard: self.guard, ..Default::default() }
+        kh1_core::Abilities {
+            high_jump: self.high_jump,
+            glide: self.glide,
+            superglide: self.superglide,
+            dodge_roll: self.dodge_roll,
+            guard: self.guard,
+            combo_plus: self.combo_plus,
+            air_combo_plus: self.air_combo_plus,
+            combo_master: self.combo_master,
+            ..Default::default()
+        }
     }
 
     /// KH1's ability bits (`0x142D5EC10`), as the trace writes them.
@@ -108,6 +122,10 @@ glide = off
 superglide = off
 dodge_roll = on
 guard = on
+; Combo Plus / Air Combo Plus: how many are equipped (0-9); combo_master = on | off
+combo_plus = 0
+air_combo_plus = 0
+combo_master = off
 ";
 
 /// Parses the file. Unknown keys and bad values are reported and the default kept.
@@ -148,6 +166,20 @@ pub fn parse(text: &str) -> (Settings, Vec<String>) {
                     } = b;
                 }
                 None => warnings.push(bad(&format!("{k} must be on or off"))),
+            },
+            k @ ("combo_plus" | "air_combo_plus") => match v.trim().parse::<u8>() {
+                Ok(n) if n <= 9 => {
+                    if k == "combo_plus" {
+                        s.abilities.combo_plus = n;
+                    } else {
+                        s.abilities.air_combo_plus = n;
+                    }
+                }
+                _ => warnings.push(bad(&format!("{k} must be a number from 0 to 9"))),
+            },
+            "combo_master" => match parse_switch(v) {
+                Some(b) => s.abilities.combo_master = b,
+                None => warnings.push(bad("combo_master must be on or off")),
             },
             other => warnings.push(bad(&format!("unknown key `{other}`"))),
         }
@@ -201,7 +233,9 @@ pub fn store(text: &str, s: &Settings) -> String {
     for (k, v) in [("high_jump", a.high_jump), ("glide", a.glide), ("superglide", a.superglide), ("dodge_roll", a.dodge_roll), ("guard", a.guard)] {
         t = set_key(&t, k, switch_str(v));
     }
-    t
+    let t = set_key(&t, "combo_plus", &a.combo_plus.to_string());
+    let t = set_key(&t, "air_combo_plus", &a.air_combo_plus.to_string());
+    set_key(&t, "combo_master", switch_str(a.combo_master))
 }
 
 #[cfg(test)]
@@ -241,7 +275,7 @@ mod tests {
     fn abilities_read_and_map_to_kh1_bits() {
         let (s, w) = parse("high_jump = on\nglide = yes\nsuperglide = 1\ndodge_roll = off\nguard = no\nglide = maybe\n");
         assert_eq!(w.len(), 1, "{w:?}");
-        assert_eq!(s.abilities, Kh1Abilities { high_jump: true, glide: true, superglide: true, dodge_roll: false, guard: false });
+        assert_eq!(s.abilities, Kh1Abilities { high_jump: true, glide: true, superglide: true, dodge_roll: false, guard: false, ..Default::default() });
         assert_eq!(s.abilities.bits(), 0x200 | 0x80 | 0x100);
         assert_eq!(Kh1Abilities::default().bits(), 0x10 | 0x20);
         let c = s.abilities.to_core();
@@ -268,5 +302,21 @@ mod tests {
         assert!(t.contains("; combat = kh1 | recom"), "comments survive");
         // An empty file gets every key.
         assert_eq!(parse(&store("", &s)).0, s);
+    }
+}
+
+#[cfg(test)]
+mod combo_tests {
+    use super::*;
+
+    #[test]
+    fn combo_abilities_read_and_reach_kh1() {
+        let (s, w) = parse("combo_plus = 2\nair_combo_plus = 1\ncombo_master = on\ncombo_plus = 12\n");
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert_eq!((s.abilities.combo_plus, s.abilities.air_combo_plus, s.abilities.combo_master), (2, 1, true));
+        let c = s.abilities.to_core();
+        assert_eq!((c.combo_plus, c.air_combo_plus, c.combo_master), (2, 1, true));
+        let back = parse(&store(DEFAULT_FILE, &s)).0;
+        assert_eq!(back.abilities, s.abilities);
     }
 }

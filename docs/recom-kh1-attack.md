@@ -1,0 +1,309 @@
+# KH1's Attack inside Re:CoM's attack action (roadmap M5)
+
+Steam addresses (Re:CoM image base `0x140000000`). Tags: Checked (decomp / exe / files / tests) or
+Assumption. Code: `crates/kh1-recom` (`attack.rs`, `movement.rs`, `win/attack.rs`). Design:
+`recom-attack-design.md`. Oracle: `crates/kh1-core` (`combo.rs`, `controller.rs`, `shape.rs`,
+`damage.rs`).
+
+## Status
+
+- Built, `combat = kh1`, main `CPlayerSora` only (Riku and `combat = recom` pass through):
+  - KH1's ground and air combo through Re:CoM's own attack action `0xA`, in the field and in
+    battle;
+  - KH1's rows, hit windows and combo windows; KH1's picker, counter and last-swing-missed rule;
+    Combo Plus, Air Combo Plus and Combo Master from `kh1-recom.ini`;
+  - KH1's Keyblade sphere chain, tested with Re:CoM's own collision primitives;
+  - KH1's card-priority rule (hits land during enemy card plays);
+  - KH1's reactions mapped to Re:CoM's kinds;
+  - the M4 follow-ups: High Jump on Re:CoM's rows 0x14 / 0x15, the roll's root motion one update
+    late, KH1's no-flinch roll protection;
+  - Re:CoM's springs keep their own jump (`recom-kh1-movement.md` § Springs);
+  - the F9 trace's attack columns.
+- Stopped, with the reason below: KH1 damage numbers (KH1's per-enemy stat records aren't in the
+  files read so far), Guard's repel and Counterattack, MP charge.
+- Checked (tests): on a fake Re:CoM that does what Re:CoM does around the handlers (the motion
+  clock, root motion one update late, the mover), the handlers match kh1-core frame for frame
+  (position, facing, state, lock, rows started, refusals) for:
+  - the ground combo 13 → 11 → 8 and a new combo;
+  - the last-swing-missed refusal, and the chain when the swing hits;
+  - the air combo 18 → 17 → 16;
+  - a landing cutting an air swing;
+  - Attack and jump on one frame (the jump wins);
+  - the Dodge Roll (now exact, root motion included).
+- Not checked in game. Tester thread `testers/recom-attack/thread.md`.
+
+## How it sits in Re:CoM
+
+### The path of one swing
+
+1. **Input.** The request-bits builder `0x1401F8150` runs its field branch in battle too (our
+   wrapper sets `+0x390 = 0` for the call; Re:CoM's battle-branch early returns are kept). So the
+   confirm press sets `+0x424 & 4` (with Re:CoM's own ability bit `0x41C & 0x40` and lockout
+   `+0x654` tests), and there's no card scroll, reload, stock or sleight input. The use-card button
+   `0x1401E8FF0` is skipped. A jump on the same frame clears the Attack bit (KH1:
+   `if !jump { attack } else { refused }`). Checked (decomp).
+2. **Dispatch.** Re:CoM's own command dispatch starts it:
+   - the move exe `0x1401EEDA0` calls the field-swing init `0x1401F0F70`, or in battle initAttack
+     `0x1401F0D90`, which our wrapper turns into the field-swing init;
+   - in the air, M4's jump-exe hook runs Re:CoM's air commands.
+3. **KH1's frame decides.** Our field-swing-init wrapper runs KH1's frame (`Kh1Sora::frame`) with
+   the press. KH1's command `0x1402A7510` applies the counter rules and the picker
+   (`kh1_core::combo`). The row exec `0x1402A68F0` does the hop, the air speed and the facing.
+4. **Re:CoM starts it.** `Host::start_swing` runs Re:CoM's own field-swing init, whose row pick
+   (Sora's vtable `+0x128`, our slot) takes the chosen KH1 row:
+   - `+0x3C8` → the KH1 row, `+0x638` / `+0x630` → the Re:CoM id of the clip;
+   - the clip via `0x1401F7180` (root motion as KH1's request map has it);
+   - AP, kind and attribute;
+   - `+0x63C` / `+0x640` = KH1's counter / length;
+   - `+0x654 = 0` (KH1 has no 20-frame lockout);
+   - `+0x4E0 = 0` (a swing starts from standing: KH1 sets speed 0, root travel only);
+   - `+0x648 = 0` (Re:CoM's own chain gate never fires).
+5. **Each frame (action `0xA`).** Our wrapper on the field-swing exe `0x1401EAEB0`:
+   - (a) runs KH1's frame first: the combo window, the next press (it chains through steps 3–4 on
+     the same frame, as KH1 does), the facing turn π/16, the air arc;
+   - (b) runs Re:CoM's own exe: the hit window and `procAttackCollision` → `onAttack`, its end at
+     the clip's end;
+   - (c) writes KH1's velocity and facing again.
+6. **Battle.** The Battle exe had no case for action `0xA` (its table `0x1401FA050` sends ids
+   without a case to `0x1401F9CC9`). Its entry for `0xA` now points at a 13-byte stub in the int3
+   cave `0x1401FA6C1` (after a `ret`, before `0x1401FA6D0`): `mov rcx,rdi; call 0x1401EAEB0; jmp
+   0x1401F9CC9`. That is what the table's own cases do. Checked (disasm `0x1401F9959..0x1401F998A`):
+   `rdi` is the player, `esi` and `xmm6` are callee-saved.
+7. **The end.** When KH1's swing motion ends into its queued idle / fall, a landing cuts it, or a
+   walk-off replaces it, `Kh1Sora::leave_swing` calls Re:CoM's `0x1401F6660`, which ends its attack
+   (the weapon's volume, effects, fields), and KH1's next motion plays. If Re:CoM ends it first, the
+   next KH1 frame takes over from Re:CoM's state. An air swing Re:CoM ends keeps KH1's arc into the
+   fall.
+
+### KH1 rows (`attack::kh1_row_bytes`). Checked (exe + files + tests)
+
+Each KH1 row is a copy of the Re:CoM row (rows 1–7, `0x1407C6C80`, checked at start against the
+Steam bytes) that plays the same KH1 motion, with:
+
+| byte | KH1 row value |
+|---|---|
+| `+1` / `+3` | KH1 combo window start / end (0 / 0 = none) |
+| `+4` / `+5` | KH1 hit window, one frame earlier (below) |
+| `+6`..`+0xA` | 0: no homing, no stop distance, no speed, no card column |
+| `+0xB` | Re:CoM kind: KH1 kind 3 (flinch) → 1, 5 (launch) → 2 |
+| `+0xC` / `+0xD` | 0: no push, no Re:CoM hop (KH1's arc runs in the handler) |
+| `+0xF` | `0x80` only ("KH1 row"; no Re:CoM chain, early cancel or push) |
+
+| KH1 row | motion | Re:CoM id (clip) | KH1 hit | row `+4/+5` | combo window | kind |
+|---|---|---|---|---|---|---|
+| 13 | 200 | 1 (`0x30`) | 14–24 | 13–23 | 22–40 | 1 |
+| 11 | 201 | 2 (`0x31`) | 18–32 | 17–31 | 26–42 | 1 |
+| 14 | 202 | 3 (`0x32`) | 18–30 | 17–29 | 26–54 | 1 |
+| 8 | 203 | 4 (`0x33`) | 26–38 | 25–37 | none | 2 |
+| 17 | 205 | 5 (`0x34`) | 10–20 | 9–19 | 18–32 | 1 |
+| 18 | 204 | 6 (`0x35`) | 6–20 | 5–19 | 18–34 | 1 |
+| 16 | 206 | 7 (`0x36`) | 12–38 | 11–37 | none | 2 |
+| 1 jump-up | 205 | 5 | 10–20 | 9–19 | 18–32 | 1 |
+| 2 hop | 204 | 6 | 6–20 | 5–19 | 18–34 | 1 |
+
+- **The hit window one frame earlier.** Re:CoM tests a row's window in its exe against the clock
+  of the last motion update. The weapon's collision runs later in the frame on the new pose
+  (`0x140225840` calls the test itself). KH1 tests its flags after this frame's update. So KH1's
+  `start ≤ clock(N) < end` is Re:CoM's `start − 1 ≤ clock(N − 1) < end − 1`. Assumption: the
+  weapon's task runs after Sora's motion update in the same frame. The trace's `hit_active` column
+  (the weapon's `+0x23C`) shows it in game.
+- The combo-window test is our own frame's (KH1's flags on Re:CoM's clock after the last update),
+  as KH1's think reads them. The row's `+1` / `+3` record the same window for Re:CoM-side readers.
+  Nothing of Re:CoM reads them.
+- Not the design's gate patch at `0x1401EAF95`. Re:CoM's chain (`+0x650`) starts the next swing on
+  the frame *after* the press, KH1's on the press frame. Our frame starts it through Re:CoM's own
+  init on the press frame instead.
+- Hop row 2 needs KH1's obstacle probe `0x1402C6E70`. Not built yet: the probe returns "no wall"
+  (Assumption, as kh1-core's default `World`).
+
+### Targets. Assumption
+
+KH1's picker gets Re:CoM's attack target `player+0x84C` as a body part. Its point is Re:CoM's own
+aim point (vtable `+0x50`, as Re:CoM's row pick reads it), with radius 0 (Re:CoM measures centre
+to centre). It counts as KH1's lock-on when Re:CoM's lock-on is on (M4's lock-on fields). Without
+a lock, KH1 scans every enemy part in its cones; here the scan sees only that target. M12
+(lock-on) owns the rest.
+
+## The Keyblade volume
+
+### Re:CoM's. Checked (decomp)
+
+- The weapon's `CCollAttack` (`weapon+0x240`, shape `+0x258`) is a type 7 thick triangle.
+- `0x140225840` moves it each frame while `weapon+0x23C ≠ 0` and calls its test (vtable `+0x30`
+  = `0x14016F110` → pair dispatch `0x14016EAD0(coll, body list)`). Bodies of type 2 / 4 / 5 are
+  tested with `0x140177480` / `0x140176BE0`, then `coll` vtable `+0x38` = `0x14016F1C0` applies the
+  hit (serial check: one hit per body per swing).
+- Sphere primitive `0x1401777E0(ctx, body, attack)` and column primitive `0x140176FA0(ctx, body,
+  attack, 0)` read the attack sphere's `+0x10` / `+0x20` (swept centres), `+0x70` radius, `+0x74`
+  height. With `+0x10 = +0x20`, `0x1401782A0` is the plain test `|body − centre| < r₁ + r₂`
+  (strict), the same as KH1's sphere test.
+
+### KH1's on it (`attack::blade_points`, `blade_shapes`; our pair-dispatch wrapper)
+
+- For the main Sora's weapon on a KH1 row, our wrapper tests KH1's spheres instead, with those two
+  primitives, on the same body list and with the same skip rules. A hit runs Re:CoM's own apply on
+  that body (its serial, back bonus, weak parts, effects).
+- **Blade.** KH1's line runs from bone 282 (t = 0) to bone 283 (t = 1). Re:CoM's Keyblade bones
+  `wep0` (2) and `k9` (3) are those bones × 0.01 (Checked (files) ≤ 0.012 mm,
+  `kh1-recom-assets.md`); their world origins are read with `0x1402ABB20(weapon, i) + 0xD0`.
+  Kingdom Key: A at t = −2.96 (0.625 m along the blade), B at t = 0. Radius 0 + 1.0 × 40 = 0.40 m.
+  So the blade chain is 2 spheres, plus the swept chain from last frame's A.
+- The first tested frame sweeps from Sora's centre. Assumption: `player+0x4B0`, the point
+  `onAttack` copies as the attack origin.
+- Not a new type id `0xD`: the shape stays type 7. Re:CoM's hilt and radius setters
+  (`0x14016F760`, `0x140172690`) only write type 7, and the triangle's own tips feed Re:CoM's hit
+  effects. The KH1 test is chosen by the row's `0x80` flag in the dispatch.
+- Targets stay Re:CoM's own hurt shapes (M10/M11).
+
+## Damage and reactions
+
+- **KH1 enemy stats.** Partly found, so KH1 damage is not on. This is the logged fallback.
+  - Checked (decomp + files). KH1 fills an enemy's stats block in `0x1402A58E0`. It is reached
+    only from AI-script syscall 45 (`0x1402BBDF0`, entry 45 of the table at `0x140529180`), with a
+    0x6C-byte record from the script's data:
+    - `+0` HP;
+    - `+4` / `+8` Strength / Defence **level indices**;
+    - `+0xC` / `+0x10` damage floor / cap;
+    - `+0x14` level;
+    - `+0x18` launch weight;
+    - `+0x24` damage scale;
+    - `+0x28..` 16 resistances (%).
+  - The indices select btltbl file `0xC8A8`: 21 rows of {Strength, Defence} (`0x14028F990`;
+    btltbl is loaded at `0x142D22D40`, `0x14028F9D0`). The rows are (2,2), (5,5), (6,6), (8,8),
+    (9,9), (11,10), (12,11), (15,13), (17,14), (17,15), (20,17), (21,18), (22,19), (24,20), (27,21),
+    (29,23), (31,24), (35,27), (40,30), (42,34), (46,46). `attack::ENEMY_STR_DEF`.
+  - **Missing:** the per-enemy records themselves. They live in each enemy's AI script data,
+    which is not in `btltbl.bin` or Sora's files, the only KH1 files in this session. Assumption:
+    the scripts are in each world's or enemy's files in KH1's package (`.ard` room archives or the
+    enemies' own files).
+  - Ready for when they're found:
+    - `attack::kh1_damage` (KH1's formula through kh1-core, with a twin's Defence from the table);
+    - `attack::parse_enemies` for `kh1-enemies.json` next to the manifest:
+      `{"enemies": [{"recom_id", "name", "hp", "strength_level", "defence_level", "min_damage",
+      "max_damage", "level"}]}`.
+  - Until then, Sora deals Re:CoM's own cardless damage (AP = attack stat `+0x43C`). The log says
+    so.
+- **Decision 13 (keep Re:CoM's extras).** Re:CoM's damage path is untouched. Once the KH1 numbers
+  are on, they replace the AP, and the back bonus, weak parts and boss falloff still apply.
+- **Reactions.** The KH1 row's kind: swings (KH1 kind 3) → Re:CoM 1 (flinch), finishers (kind 5)
+  → Re:CoM 2 (blow-away when the enemy's `@ENP+0xC > 0`). Re:CoM's enemies use their own flinch and
+  blow-away states. KH1's launch speed (20 + 15 × weight, hop × 1.35) can't be passed to them:
+  Re:CoM's blow-away speeds are in each enemy's state code (not read). It comes with the KH1
+  enemies (M10/M11).
+- **Card priority (decision 14).** Re:CoM's enemy hit handler `0x14017F7E0` returns before damage
+  while `enemy+0x260` bit 0 (card playing) is set. With bits `0x2000001` both set, it first ends the
+  card (`0x14017E1D0`), then takes the hit.
+  - For a KH1 swing's hit, our wrapper sets `0x2000000` for that call (and takes it off after),
+    so Re:CoM's own path ends the card and the hit lands.
+  - A KH1 hit is recognised by the body part our dispatch hit: the enemy's parts are
+    `*(enemy+0xF8)+0x40`, `0x120` bytes each, count `+0x38`, the same objects the dispatch hands
+    to the apply (Checked (decomp `0x140154EB0`, `0x14016F1C0`)). Other attackers keep Re:CoM's
+    rule.
+  - The trace's `hits` column logs each KH1 hit: the HP before and after, and `:card` when it
+    broke into a card play.
+
+## Guard's repel and Counterattack (stopped)
+
+- KH1: the Guard row `0x3D` (record `0x4DA8`, clash type 2: a pure guard with no hit) blocks
+  attacks from the front within ±100° during motion 212's hit track (10–36). A press in its combo
+  window (22–54) after a block is row `0x3E` (Counterattack, motion 213).
+- Re:CoM has native guard fields on a body. The apply `0x14016F1C0` returns 2 (guarded) when
+  `body+0x9C & 1`, the attribute bit in `body+0x8C` is set, and the attacker is within `body+0xB0`
+  radians of the body's facing. The player's body is at `player+0x690`, so `+0x72C` is its `+0x9C`.
+- **Not built.** The player's side of a guarded hit isn't read yet: what `0x1401E6DE0` and the
+  hit handlers do with flag `0x20`. Its only visible use is `+0x72C & 8` (reflect, effect 2).
+  KH1's clash rules aren't either: guard against priority, the attacker's recoil motion `+0x40`.
+  KH1's Counterattack clip (entry 111) is KH1-only, so it needs a new row from the asset step.
+- Native option: set Sora's body guard fields for KH1's guard window, from the Guard handler,
+  using KH1's ±100° (1.745 rad in `+0xB0`). Then read Re:CoM's guarded-hit result to start the
+  Counterattack window. Next version, after the read.
+
+## MP charge (skipped, noted)
+
+- KH1 charges `record +0x2C` × (1 + (enemy level − Sora's level) × 0.2): 3 / 6 / 24 per hit, at
+  most 250 %, at least 1. 30 units = 1 MP (`0x1402BF330`, `0x1402A4AE0`). An enemy of level 0
+  charges nothing.
+- It needs the KH1 twin's level (the missing records above) and Sora's KH1 level. Not stored.
+  M7 builds the gauge.
+
+## The M4 follow-ups (decision 17)
+
+- **High Jump** plays Re:CoM's own higher jump: rows 0x14 / 0x15 (`p001_028` / `p001_029`). Only
+  Guard is appended to Sora's action table now (row 0x47). Checked (tests).
+- **Root motion one update late.** Our wrapper on `0x14024DCA0(ctrl, out travel, out yaw)` (the
+  entity task's root step, `0x1401A59A0`) hands Sora's controller the last update's local travel,
+  only in our KH1 actions (avoid 6: roll / Guard; attack `0xA`). Re:CoM's own actions are left
+  alone.
+  - KH1 applies an update's travel in the next physics step, also on the frame a new motion
+    starts, so the travel carries across a chain (`RootDelay`, keyed by Sora's frame count from
+    the state exes).
+  - The roll and the swings now match kh1-core exactly. Checked (tests).
+  - Assumption: Re:CoM's clip-start update leaves `ctrl+0xA0` at zero.
+- **Roll protection.** KH1's roll sets only the no-flinch timer: `0x1402C9E60` → `0x140297F30(12.0)`
+  sets flag `0x80`. Its untouchable frames don't exist:
+  - the hit pass needs `flags & 0x8048 == 0x8000` (`0x140292070`);
+  - flag `0x40` is set and cleared only by actor-command ops `0x2B` / `0x2A` (`0x14028E6E0`'s queue);
+  - those ops are queued only by event-script opcodes (`0x1401C8820`, `0x1401C88C0`,
+    `0x1401C8B00`, `0x1401C8B60`, `0x1401C8C00`, `0x1401C8C60`), always next to `0x24` / `0x23`;
+  - the roll motion's tracks hold only types 0 (free from 30), 4 and 6, and the mset's third
+    section is a 48-byte stub.
+  - Checked (decomp + files). This corrects KH2-Combat-in-KH1's `kh1-intangible.md`, which calls
+    them "motion events".
+  - So at KH1, Sora takes damage during the roll, with no hit reaction for 12 frames.
+  - Re:CoM's untouchable bit `+0x418 & 1` is no longer set. Our wrapper on the damage check
+    `0x1401E6DE0` sets `+0x420 & 2` for that call only. The check reads `+0x420` once at its start,
+    and after applying the damage takes its own no-reaction exit (`(+0x420 & 0x8010002) ≠ 0` →
+    return 0). Death still goes through.
+  - Checked (decomp): the bit's only other readers are the room-card regen ticks (`0x1401600D0`,
+    `0x1401601C0`), which don't run inside the call.
+
+## Hooks and patches (`sites::ATTACK_HOOKS`, `ATTACK_CALLEES`, `ATTACK_DATA`)
+
+All bytes were compared with the Steam exe (54 sites, script check). Hooks are all or nothing,
+after the data patches, which are also all or nothing.
+
+| address | what | first bytes (moved) |
+|---|---|---|
+| `0x1401F8150` | request bits | `48 89 5C 24 10 57 48 83 EC 20` |
+| `0x1401E8FF0` | use-card button | `40 53 48 83 EC 20` |
+| `0x1401F0D90` | initAttack | `48 89 5C 24 08 48 89 6C 24 10` |
+| `0x1401F0F70` | field swing init | `48 89 5C 24 08 48 89 74 24 10` |
+| `0x1401EAEB0` | field swing exe | `48 89 5C 24 08 48 89 74 24 10` |
+| `0x14016EAD0` | attack pair dispatch | `48 89 5C 24 18 48 89 6C 24 20` |
+| `0x14017F7E0` | enemy hit handler | `48 89 5C 24 20 55 56 41 56` |
+| `0x1401E6DE0` | player damage check | `40 55 57 48 8D 6C 24 B1` |
+| `0x14024DCA0` | root motion step | `0F 28 81 A0 00 00 00` |
+
+Data (checked old values):
+
+- `0x1405A9A60` (`CPlayerSora` vtable `+0x128`): `0x1401F7520` → our row pick. Compared after
+  relocation.
+- `0x1401FA074` (Battle jump table, id `0xA`): RVA `0x1F9CC9` → `0x1FA6C1`.
+- `0x1401FA6C1`: 13 × `CC` → the stub.
+- Re:CoM's rows 1–7 must equal `attack::RECOM_ROWS_1_7`.
+
+Called: `0x1401F6660` (end attack), `0x140224FB0` (weapon attack end), `0x1402ABB20` (bone),
+`0x1401777E0`, `0x140176FA0`, `0x1401F7180`, `0x1402AD350`; `0x1401E80C0` (springs).
+
+Per frame, our code runs only as cheap tests outside a KH1 swing: the request bits, the damage
+check and the root step (a pointer compare), and the pair dispatch only while a weapon volume is
+live.
+
+## Trace (F9)
+
+New cells in the existing schema:
+
+- `row` (KH1 row), `combo_counter`, `combo_max` / `air_combo_max`, `combo_master`;
+- `hit_active` (Re:CoM's weapon volume live), `swing_hits` (Re:CoM's `+0x644`);
+- `hits` (each KH1 hit: enemy, damage, HP after, `:card`);
+- `events`: `AttackStarted { row, request, counter, finisher }`, `AttackRefused(…)`, and Re:CoM's
+  `attack_id` while in action `0xA`.
+
+## Assumptions to check in game
+
+- The weapon's collision runs after Sora's motion update in the frame (the hit-window lead).
+- `player+0x4B0` is Sora's centre (the first sweep).
+- Re:CoM's target aim point stands for KH1's body-part centre, radius 0.
+- The KH1 swing's Re:CoM clips have KH1's root travel (they are bakes of KH1's motions).
+- An enemy's hit-handler parts are the dispatch's body nodes.
+- `ctrl+0xA0` is zero on a clip's first update.

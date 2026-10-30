@@ -14,8 +14,9 @@
 //! | 7 jump (`0x1401EDA60`) | 1 crouch, 2 rise, 3 fall, 6 land | 1, 2, 2, 0 locked by the land |
 //! | 8 glide (`CPlayerSora` exe `0x140217B50`) | 4 | 0x15 |
 //!
-//! [`Kh1Sora::frame`] is kh1-core's `Controller::step` (the oracle) for these states, minus the
-//! Attack (M5), with KH1's numbers. What it reads and writes goes through [`Host`]: Re:CoM's body
+//! [`Kh1Sora::frame`] is kh1-core's `Controller::step` (the oracle) for these states, with KH1's
+//! numbers. Its control step also runs KH1's Attack command (M5, `crate::attack`): Re:CoM's attack
+//! action `0xA` plays the swing. What it reads and writes goes through [`Host`]: Re:CoM's body
 //! position, its ground test (`0x1401F3C00`), its facing (`body+0x54`), its velocity (`body+0x80`,
 //! which Re:CoM's mover then integrates and collides), its action fields, and Re:CoM's motion
 //! request (`0x1401F7180`, rows from [`crate::rows`]) and motion clock (`actor+0xD8`).
@@ -46,6 +47,8 @@ pub mod action {
     pub const AVOID: u32 = 6;
     pub const JUMP: u32 = 7;
     pub const GLIDE: u32 = 8;
+    /// The field swing, KH1's Attack in the field and in battle (M5, `crate::attack`).
+    pub const ATTACK: u32 = 0xA;
     /// `player+0x414` within action 6.
     pub const SUB_ROLL: u32 = 0;
     pub const SUB_GUARD: u32 = 1;
@@ -60,6 +63,67 @@ pub mod phase {
     pub const FALL: u32 = 3;
     pub const GLIDE: u32 = 4;
     pub const LAND: u32 = 6;
+}
+
+/// KH1 applies a motion's root travel in the next frame's physics; Re:CoM applies it in the motion
+/// update of the same frame (`0x1401A59A0` → `0x14024DCA0`). A wrapper on `0x14024DCA0` (which
+/// hands the update's local root travel `ctrl+0xA0` to the entity task) gives Sora's controller the
+/// previous update's travel instead (decision 17).
+///
+/// KH1 applies the last update's travel even on the frame a new motion starts (its physics runs
+/// before the update that starts the new motion; kh1-core `MotionPlayer::update`), so the travel
+/// carries across a motion change. It is dropped when an update passed without a root step (Re:CoM
+/// calls `0x14024DCA0` only for root-motion clips): `tick` counts Sora's frames.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RootDelay {
+    ctrl: usize,
+    tick: u64,
+    pending: Vec3,
+}
+
+impl RootDelay {
+    pub const fn new() -> RootDelay {
+        RootDelay { ctrl: 0, tick: 0, pending: Vec3::ZERO }
+    }
+
+    /// This update's travel in, the travel to apply now out.
+    pub fn swap(&mut self, ctrl: usize, tick: u64, now: Vec3) -> Vec3 {
+        if self.ctrl != ctrl || tick != self.tick.wrapping_add(1) {
+            self.pending = Vec3::ZERO;
+        }
+        self.ctrl = ctrl;
+        self.tick = tick;
+        std::mem::replace(&mut self.pending, now)
+    }
+}
+
+/// Re:CoM's springs (jump pads, gimmick object type `0x2002`; `docs/recom-kh1-movement.md`
+/// § Springs). KH1 has no such gimmick, so Re:CoM's own spring jump runs whole: its jump init
+/// `0x1401F29F0` launches Sora at the spring's speed (`player+0x600`, from `0x1405A0100[level]`,
+/// set by the spring through `0x1401F5370`), with row 0x14 and `player+0x418 |= 0x1000000`, and its
+/// jump exe `0x1401EDA60` flies (no jump cut) and lands. Checked (decomp).
+pub mod spring {
+    /// `player+0x41C`: the ability bit Re:CoM's jump init tests before it looks for a spring.
+    pub const ABILITY: u32 = 0x2_0000;
+    /// The gimmick type `0x1401E80C0` is asked for, and its answer when Sora stands on one (the
+    /// body's contact bit 4, `body+0x120 & 4`).
+    pub const GIMMICK: u32 = 0x2002;
+    pub const ON_SPRING: u8 = 7;
+    /// `player+0x418`: set by Re:CoM's jump init for a spring jump, cleared by every jump init,
+    /// read only by the jump exe (its row-0x14 branch: no jump cut). Checked (decomp: the only
+    /// writers are `0x1401F29F0`'s two lines; the only reader is `0x1401EDA60`).
+    pub const FLAG_418: u32 = 0x100_0000;
+
+    /// Re:CoM's own test in its jump init (`0x1401F29F0`): `gimmick` runs `0x1401E80C0(player,
+    /// 0x2002)` and is only asked when the ability bit is on, as Re:CoM does.
+    pub fn launches(ability_41c: u32, gimmick: impl FnOnce() -> u8) -> bool {
+        ability_41c & ABILITY != 0 && gimmick() == ON_SPRING
+    }
+
+    /// Re:CoM owns this jump-action frame: a spring jump is flying or landing.
+    pub fn recom_owns_jump(action: u32, flags_418: u32) -> bool {
+        action == super::action::JUMP && flags_418 & FLAG_418 != 0
+    }
 }
 
 /// The Re:CoM action that stands for a KH1 state.
@@ -82,6 +146,27 @@ pub struct FrameInput {
     pub square: Button,
     /// The lock-on target's position, KH1 units.
     pub lock_target: Option<Vec3>,
+    /// The Attack command (Re:CoM's confirm press, `player+0x424 & 4`).
+    pub attack: Button,
+    /// Re:CoM's attack target (`player+0x84C`) as a KH1 body part, and whether it is the lock-on.
+    pub target: Option<kh1_core::TargetPart>,
+    pub locked: bool,
+}
+
+/// A KH1 swing for Re:CoM to start (`crate::attack`): Re:CoM's field-swing init with the KH1 row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SwingStart {
+    /// KH1's row (btltbl Sora rows) and the Re:CoM attack id whose clip is the same motion.
+    pub kh1_row: usize,
+    pub recom_id: u32,
+    /// KH1's motion request (200..=206).
+    pub request: u16,
+    /// Played with root motion.
+    pub root: bool,
+    /// KH1's combo counter after this press, and the combo length.
+    pub counter: u8,
+    pub length: u8,
+    pub finisher: bool,
 }
 
 /// What the handlers use of Re:CoM. KH1 units and yaw (see [`crate::units`]).
@@ -110,6 +195,24 @@ pub trait Host {
     fn motion_ended(&mut self) -> bool;
     /// Re:CoM's own roll protection (`player+0x418` bit 0) carries KH1's no-flinch window.
     fn set_no_flinch(&mut self, on: bool);
+    /// Re:CoM's spring (jump-pad gimmick, object type `0x2002`): when Re:CoM's own jump init
+    /// would launch Sora from a spring here (`player+0x41C & 0x20000` and `0x1401E80C0(player,
+    /// 0x2002) == 7`), the host runs Re:CoM's own jump init and returns true; Re:CoM then owns
+    /// the whole jump until it lands (`docs/recom-kh1-movement.md` § Springs).
+    fn spring_jump(&mut self) -> bool {
+        false
+    }
+    /// Re:CoM starts the swing: its field-swing init `0x1401F0F70`, whose row pick (Sora's vtable
+    /// `+0x128`) takes this KH1 row. True when Re:CoM plays its clip.
+    fn start_swing(&mut self, _s: &SwingStart) -> bool {
+        false
+    }
+    /// The current swing has hit (`player+0x644`, set by `procAttackCollision`).
+    fn swing_hit(&mut self) -> bool {
+        false
+    }
+    /// Re:CoM ends its attack action (`0x1401F6660`): the weapon's volume, its effects, its fields.
+    fn end_swing(&mut self, _airborne: bool) {}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -134,8 +237,8 @@ pub struct MotionRec {
     start_now: bool,
     queue: Vec<Queued>,
     /// The pending head has been sent to Re:CoM, and whether a Re:CoM row plays it.
-    issued: bool,
-    issued_ok: bool,
+    pub(crate) issued: bool,
+    pub(crate) issued_ok: bool,
     /// No Re:CoM clip plays the current request: its KH1 frame is counted here instead.
     own_clock: bool,
 }
@@ -166,6 +269,9 @@ pub struct FrameOut {
     pub events: Vec<Event>,
     /// The height probed this frame, if any.
     pub height: Option<f32>,
+    /// A jump press launched Re:CoM's own spring jump: Re:CoM owns Sora until it lands, and this
+    /// frame wrote nothing to Re:CoM after the launch.
+    pub recom_spring: bool,
 }
 
 /// KH1 Sora's fields Re:CoM has no place for, and the KH1 data the handlers use.
@@ -203,6 +309,14 @@ pub struct Kh1Sora {
     last_start: Vec3,
     /// The last height probe (KH1 +0x3D4), when one ran.
     pub height: f32,
+    /// Sora's rows and attack records (the Attack, M5).
+    pub moveset: Moveset,
+    /// KH1's combo counter (CB+0x41).
+    pub combo_counter: u8,
+    /// The swing Re:CoM is playing for us (its attack action `0xA`), if any.
+    pub swing: Option<SwingStart>,
+    /// KH1's random float (the finisher choice).
+    pub(crate) rng: kh1_core::Kh1Rand,
 }
 
 /// The facing Re:CoM holds may differ from ours by rounding; more than this means Re:CoM turned
@@ -242,6 +356,10 @@ impl Kh1Sora {
             last_step: 0.0,
             last_start: Vec3::ZERO,
             height: f32::NAN,
+            moveset: Moveset::kh1_defaults(),
+            combo_counter: 1,
+            swing: None,
+            rng: kh1_core::Kh1Rand::default(),
         }
     }
 
@@ -277,11 +395,22 @@ impl Kh1Sora {
         self.last_disp = Vec3::ZERO;
         self.last_step = 0.0;
         self.last_start = pos;
+        // Whatever Re:CoM ran in between ended any swing of ours.
+        self.swing = None;
     }
 
     /// Re:CoM started a fall on its own (`0x1401F29F0(player, 1)`, e.g. the end of a knock-back in
     /// the air): KH1 falls from here. The Re:CoM action becomes 7 / falling.
     pub fn enter_fall(&mut self, h: &mut dyn Host) {
+        if self.swing.take().is_some() && self.state == state::AIR {
+            // Re:CoM ended an air swing before KH1's motion did: KH1's arc goes on into the
+            // swing's queued fall.
+            self.lock = false;
+            self.rec = MotionRec::unknown();
+            self.rec.req = request::FALL;
+            h.set_action(self.recom_action());
+            return;
+        }
         self.resync(h, true);
         self.rec.req = request::FALL;
         h.set_action(self.recom_action());
@@ -290,6 +419,9 @@ impl Kh1Sora {
     /// KH1's state as a Re:CoM action.
     pub fn recom_action(&self) -> Action {
         use action::*;
+        if let Some(a) = self.swing_action() {
+            return a;
+        }
         let a = |id, sub, phase| Action { id, sub, phase };
         match self.state {
             state::TAKE_OFF => a(JUMP, 0, phase::CROUCH),
@@ -316,7 +448,7 @@ impl Kh1Sora {
     // ---- KH1's motion requests, issued to Re:CoM at the end of the frame ----
 
     /// `0x14029F980`.
-    fn play(&mut self, r: u32, blend: f32) {
+    pub(crate) fn play(&mut self, r: u32, blend: f32) {
         self.rec.queue.clear();
         self.rec.queue.push(Queued { request: r & !req::ACTION, start: 0.0, blend });
         self.rec.start_now = true;
@@ -327,7 +459,7 @@ impl Kh1Sora {
     }
 
     /// `0x14029FA30`.
-    fn append(&mut self, r: u32, blend: f32) {
+    pub(crate) fn append(&mut self, r: u32, blend: f32) {
         self.rec.queue.push(Queued { request: r & !req::ACTION, start: 0.0, blend });
         if r & req::ACTION != 0 {
             self.lock = true;
@@ -404,6 +536,8 @@ impl Kh1Sora {
                 let over = len.map_or(0.0, |l| (self.rec.frame - l).max(0.0));
                 self.rec.queue[0].start += over;
                 release = self.start_head(dt);
+                // A swing's motion ended into its queued idle / fall: Re:CoM ends its attack.
+                self.leave_swing(h);
                 // KH1 started it in that update; Re:CoM starts it now, one step on.
                 let (r, b, s) = (self.rec.req, self.rec.blend, self.rec.frame);
                 self.rec.own_clock = !h.play(r, b, s + step);
@@ -454,7 +588,7 @@ impl Kh1Sora {
         self.params.reach(&self.abilities)
     }
 
-    fn hop(&mut self, h: f32, y: f32) {
+    pub(crate) fn hop(&mut self, h: f32, y: f32) {
         self.arc = Arc::hop(h, y, self.params.gravity);
         self.set_state(state::AIR);
     }
@@ -504,6 +638,11 @@ impl Kh1Sora {
             self.motion_update(h, dt, step);
         }
         let ev = &mut out.events;
+        // Command accept (KH1's menu task, before Sora's think).
+        let attack_cmd = input.attack.pressed && self.accepts_attack();
+        if input.attack.pressed && !attack_cmd {
+            ev.push(Event::AttackRefused(kh1_core::Refused::NotAccepted));
+        }
 
         // ---- think: pre-step ----
         self.speed = 0.0;
@@ -529,18 +668,34 @@ impl Kh1Sora {
         if !self.lock {
             dir = input.move_dir;
             w = input.tilt;
-            self.pad_handler(h, input, &mut dir, &mut w, pos, step, ev, &mut out.height);
+            self.pad_handler(h, input, &mut dir, &mut w, pos, step, ev, &mut out.height, &mut out.recom_spring);
         }
-        if input.jump.pressed {
+        if !input.jump.pressed {
+            if attack_cmd {
+                self.command_attack(h, &mut dir, &mut w, input.target, input.locked, pos, ev);
+            }
+        } else {
+            if attack_cmd {
+                ev.push(Event::AttackRefused(kh1_core::Refused::Jump));
+            }
             let r = self.rec.req;
             if (r == request::LAND || r == request::HIGH_LAND) && self.state == state::GROUND && self.lock {
                 // `0x1402A6220`: a jump during the land lock: unlock and jump at t = 2.
                 self.lock = false;
                 self.jump_offset = 0;
-                self.jump_start(ev);
-                self.set_last_start(self.params.land_jump_t);
-                self.arc.t = self.params.land_jump_t;
+                if self.jump_start(h, ev) {
+                    self.set_last_start(self.params.land_jump_t);
+                    self.arc.t = self.params.land_jump_t;
+                } else {
+                    out.recom_spring = true;
+                }
             }
+        }
+
+        if out.recom_spring {
+            // Re:CoM's spring jump took over (its init set the action, motion and launch speed).
+            self.rec = MotionRec::unknown();
+            return out;
         }
 
         // ---- state input on the flattened move vector ----
@@ -593,6 +748,10 @@ impl Kh1Sora {
         out.displacement = disp;
 
         // ---- Re:CoM's action for the new state; the motion KH1 asked for ----
+        if self.swing.is_some_and(|s| self.rec.head() != s.request) {
+            // A landing or walk-off replaced the swing's motion.
+            self.leave_swing(h);
+        }
         h.set_action(self.recom_action());
         self.issue(h);
         out
@@ -677,7 +836,7 @@ impl Kh1Sora {
 
     /// `0x1402A7B30` (Guard / Dodge Roll / Glide / Superglide / jump cut).
     #[allow(clippy::too_many_arguments)]
-    fn pad_handler(&mut self, h: &mut dyn Host, input: &FrameInput, dir: &mut Vec3, w: &mut f32, pos: Vec3, step: f32, ev: &mut Vec<Event>, probed: &mut Option<f32>) {
+    fn pad_handler(&mut self, h: &mut dyn Host, input: &FrameInput, dir: &mut Vec3, w: &mut f32, pos: Vec3, step: f32, ev: &mut Vec<Event>, probed: &mut Option<f32>, spring: &mut bool) {
         match self.state {
             state::AIR => {
                 self.speed_map(dir, w);
@@ -695,8 +854,8 @@ impl Kh1Sora {
             match self.state {
                 state::GROUND => {
                     // Attack's combo window also allows it (M5).
-                    if !self.lock {
-                        self.jump_start(ev);
+                    if !self.lock && !self.jump_start(h, ev) {
+                        *spring = true;
                     }
                 }
                 state::AIR if self.abilities.glide => {
@@ -755,8 +914,12 @@ impl Kh1Sora {
         }
     }
 
-    /// `0x1402AF9F0`.
-    fn jump_start(&mut self, ev: &mut Vec<Event>) {
+    /// `0x1402AF9F0`. False when Re:CoM's own spring jump launched instead (KH1 has no springs:
+    /// Re:CoM's gimmick keeps its own height and arc).
+    fn jump_start(&mut self, h: &mut dyn Host, ev: &mut Vec<Event>) -> bool {
+        if h.spring_jump() {
+            return false;
+        }
         let high = self.abilities.high_jump;
         let (off, r) = if high { (5, request::HIGH_JUMP) } else { (0, request::JUMP) };
         self.jump_offset = off;
@@ -765,6 +928,7 @@ impl Kh1Sora {
         self.arc.t = 0.0;
         self.glide_timer = 0.0;
         ev.push(Event::Jumped { high });
+        true
     }
 
     /// `0x1402CC1A0`.
