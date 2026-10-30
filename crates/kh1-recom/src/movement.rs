@@ -74,6 +74,10 @@ pub mod phase {
 /// before the update that starts the new motion; kh1-core `MotionPlayer::update`), so the travel
 /// carries across a motion change. It is dropped when an update passed without a root step (Re:CoM
 /// calls `0x14024DCA0` only for root-motion clips): `tick` counts Sora's frames.
+/// [`RootDelay::position`]'s safety net in Re:CoM metres (KH1's fastest root travel is 0.18 m a
+/// frame).
+pub const ROOT_DELAY_MAX_GAP: f32 = 0.5;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RootDelay {
     ctrl: usize,
@@ -84,6 +88,23 @@ pub struct RootDelay {
 impl RootDelay {
     pub const fn new() -> RootDelay {
         RootDelay { ctrl: 0, tick: 0, pending: Vec3::ZERO }
+    }
+
+    /// Re:CoM's root step hands the entity task an **absolute** position: `ctrl+0xA0` = the
+    /// model's position `ctrl+0xF0` (the anchor) + this update's rotated root travel
+    /// (`0x14024C960`), and the task sets the body to `P + mask∘(out − P)` (`0x1401A59A0`:
+    /// `0x14023E6E0` a − b, `0x14023E630` a ∘ b, `0x14023E0D0` a + b). Checked (decomp). The
+    /// delayed position is the anchor plus the last update's travel: with nothing pending it is
+    /// the anchor itself (no travel), never a jump to the world origin.
+    pub fn position(&mut self, ctrl: usize, tick: u64, anchor: Vec3, root: Vec3, max_gap: f32) -> Vec3 {
+        let out = anchor + self.swap(ctrl, tick, root - anchor);
+        // Safety net: the delayed position never differs from Re:CoM's own by more than
+        // `max_gap` (more than any frame's root travel); otherwise Re:CoM's own stands.
+        if (out - root).length() > max_gap {
+            root
+        } else {
+            out
+        }
     }
 
     /// This update's travel in, the travel to apply now out.

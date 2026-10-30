@@ -230,10 +230,26 @@ a lock, KH1 scans every enemy part in its cones; here the scan sees only that ta
 
 - **High Jump** plays Re:CoM's own higher jump: rows 0x14 / 0x15 (`p001_028` / `p001_029`). Only
   Guard is appended to Sora's action table now (row 0x47). Checked (tests).
-- **Root motion one update late.** Our wrapper on `0x14024DCA0(ctrl, out travel, out yaw)` (the
-  entity task's root step, `0x1401A59A0`) hands Sora's controller the last update's local travel,
-  only in our KH1 actions (avoid 6: roll / Guard; attack `0xA`). Re:CoM's own actions are left
-  alone.
+- **Root motion one update late.** Our wrapper on `0x14024DCA0(ctrl, out, out yaw)` (the entity
+  task's root step, `0x1401A59A0`) delays Sora's root travel by one update, only in our KH1 actions
+  (avoid 6: roll / Guard; attack `0xA`). Re:CoM's own actions are left alone.
+  - **`out` is an absolute position, not a travel** (fixed after 0.6.0's in-game bug):
+    - `ctrl+0xA0` = the model's position `ctrl+0xF0` + this update's rotated root travel
+      (`0x14024C960`, the anchor copied in `0x14024CCC0`);
+    - the entity task sets the body to `P + mask∘(out − P)` (`0x14023E6E0` a − b, `0x14023E630`
+      a ∘ b, `0x14023E0D0` a + b, mask at actor `+0x140`). Checked (decomp).
+  - 0.6.0 stored and returned it as a travel, so on a swing's or roll's first update (nothing
+    pending) it returned (0, 0, 0) and Sora was moved to near the room's origin. The owner's traces
+    show it: idle at (−416.35, −750.35, 1363.55), then (10.6, −597.0, −34.7) on the Attack press,
+    then walk-off and a fall.
+  - Now: travel = `out − anchor` is delayed, and the hook returns `anchor + last travel`. That is
+    Re:CoM's own position with only the travel term changed, never more than 0.5 m from Re:CoM's
+    own result (a safety net: otherwise Re:CoM's stands).
+  - The hook passes through when the state exes aren't counting frames (trace hooks missing).
+  - Test `swing_and_roll_away_from_the_origin_keep_soras_position` uses a non-origin start, a
+    model offset and Re:CoM's absolute root step: it fails with 0.6.0's logic (the same jump to
+    near the origin) and passes now, for the swing and the roll.
+  - `debug_attack = on` in the ini logs the anchor / root / output for the first 200 lines.
   - KH1 applies an update's travel in the next physics step, also on the frame a new motion
     starts, so the travel carries across a chain (`RootDelay`, keyed by Sora's frame count from
     the state exes).
@@ -298,6 +314,13 @@ New cells in the existing schema:
 - `hits` (each KH1 hit: enemy, damage, HP after, `:card`);
 - `events`: `AttackStarted { row, request, counter, finisher }`, `AttackRefused(…)`, and Re:CoM's
   `attack_id` while in action `0xA`.
+
+## Debug log
+
+`debug_attack = on` in `kh1-recom.ini` writes one line per decision to `kh1-recom.log` (the first
+200 lines): `dispatch` (Re:CoM's dispatch reached the field-swing init), `start` (row, Re:CoM id,
+counter, Sora's position, the target, lock-on), `exe` (action, motion frame, body velocity,
+contact, hit) and `root` (anchor, Re:CoM's root position, our output).
 
 ## Assumptions to check in game
 

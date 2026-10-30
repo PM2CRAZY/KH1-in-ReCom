@@ -168,6 +168,10 @@ fn install_attack(base: usize, s: &Settings) {
         log("attack: movement not hooked; KH1 Attack not installed");
         return;
     }
+    attack::set_debug(s.debug_attack);
+    if s.debug_attack {
+        log("attack: debug_attack = on (first 200 lines)");
+    }
     // SAFETY: reads of the mapped exe; data patches with checked old values.
     if !unsafe { attack::build_table(base) && attack::patch_data(base) } {
         return;

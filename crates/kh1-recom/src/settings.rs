@@ -53,6 +53,8 @@ pub struct Settings {
     /// KH1 abilities Sora has at `combat = kh1`, until abilities are built into Re:CoM's
     /// progression (roadmap M9).
     pub abilities: Kh1Abilities,
+    /// One-line logs of the Attack's decisions in `kh1-recom.log` (first 200 lines).
+    pub debug_attack: bool,
 }
 
 /// The movement abilities the KH1 handlers read (`kh1_core::Abilities`).
@@ -98,7 +100,7 @@ impl Kh1Abilities {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { combat: Mode::Kh1, config_menu: true, abilities: Kh1Abilities::default() }
+        Settings { combat: Mode::Kh1, config_menu: true, abilities: Kh1Abilities::default(), debug_attack: false }
     }
 }
 
@@ -126,6 +128,9 @@ guard = on
 combo_plus = 0
 air_combo_plus = 0
 combo_master = off
+;
+; debug_attack = on | off: log the Attack's decisions (first 200 lines) in kh1-recom.log
+debug_attack = off
 ";
 
 /// Parses the file. Unknown keys and bad values are reported and the default kept.
@@ -176,6 +181,10 @@ pub fn parse(text: &str) -> (Settings, Vec<String>) {
                     }
                 }
                 _ => warnings.push(bad(&format!("{k} must be a number from 0 to 9"))),
+            },
+            "debug_attack" => match parse_switch(v) {
+                Some(b) => s.debug_attack = b,
+                None => warnings.push(bad("debug_attack must be on or off")),
             },
             "combo_master" => match parse_switch(v) {
                 Some(b) => s.abilities.combo_master = b,
@@ -235,7 +244,8 @@ pub fn store(text: &str, s: &Settings) -> String {
     }
     let t = set_key(&t, "combo_plus", &a.combo_plus.to_string());
     let t = set_key(&t, "air_combo_plus", &a.air_combo_plus.to_string());
-    set_key(&t, "combo_master", switch_str(a.combo_master))
+    let t = set_key(&t, "combo_master", switch_str(a.combo_master));
+    set_key(&t, "debug_attack", switch_str(s.debug_attack))
 }
 
 #[cfg(test)]
@@ -294,7 +304,7 @@ mod tests {
 
     #[test]
     fn store_round_trips() {
-        let s = Settings { combat: Mode::Recom, config_menu: false, abilities: Kh1Abilities { high_jump: true, glide: true, ..Default::default() } };
+        let s = Settings { combat: Mode::Recom, config_menu: false, abilities: Kh1Abilities { high_jump: true, glide: true, ..Default::default() }, debug_attack: true };
         let t = store(DEFAULT_FILE, &s);
         let (back, w) = parse(&t);
         assert_eq!(back, s);

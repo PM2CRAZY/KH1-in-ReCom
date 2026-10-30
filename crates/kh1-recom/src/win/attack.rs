@@ -53,6 +53,24 @@ static ROOT: Mutex<crate::movement::RootDelay> = Mutex::new(crate::movement::Roo
 static BLADE: Mutex<atk::BladeTrack> = Mutex::new(atk::BladeTrack { serial: 0, cur_a: None, prev_a: None });
 /// Enemy body parts a KH1 swing hit, until their owner's hit handler takes the hit.
 static KH1_HITS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+/// `debug_attack = on`: one-line logs of the attack's decisions, at most [`DEBUG_LINES`].
+static DEBUG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static DEBUG_LEFT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(DEBUG_LINES);
+const DEBUG_LINES: u32 = 200;
+
+pub fn set_debug(on: bool) {
+    DEBUG.store(on, Ordering::Relaxed);
+}
+
+fn debug(line: impl FnOnce() -> String) {
+    if !DEBUG.load(Ordering::Relaxed) {
+        return;
+    }
+    if DEBUG_LEFT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1)).is_ok() {
+        log(&format!("debug_attack: {}", line()));
+    }
+}
+
 /// The trace's hit log for the frame.
 pub static HIT_LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -111,7 +129,12 @@ pub(super) fn set_no_flinch(pl: usize, on: bool) {
 /// A state exe ran for the main Sora (one per frame).
 pub(super) fn tick() {
     TICK.fetch_add(1, Ordering::Relaxed);
+    TICK_LIVE.store(true, Ordering::Relaxed);
 }
+
+/// The state exes count Sora's frames (the trace hooks are in): without that count the delay
+/// can't tell consecutive updates, and Re:CoM's own same-frame root motion stays.
+static TICK_LIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Re:CoM's attack target (`player+0x84C`) as a KH1 body part: its aim point (vtable `+0x50`, as
 /// Re:CoM's own row pick reads it). Assumption: radius 0 (Re:CoM's distances are centre to centre).
@@ -146,6 +169,17 @@ pub(super) unsafe fn start_swing(pl: usize, s: &SwingStart) -> bool {
         func::<PlFn>(WEAPON_END)(w);
     }
     set_pending(Some(*s));
+    debug(|| {
+        let b: usize = rd(pl + p::BODY);
+        let pos = if b != 0 { to_kh1(rd_vec(b + 0x30)) } else { Vec3::ZERO };
+        let t = attack_target(pl);
+        format!(
+            "start row={} id={} req={} root={} n={}/{} fin={} action={:#x} pos=({:.1},{:.1},{:.1}) target={:?} lock={}",
+            s.kh1_row, s.recom_id, s.request, s.root, s.counter, s.length, s.finisher, rd::<u32>(pl + p::ACTION), pos.x, pos.y, pos.z,
+            t.map(|t| (t.centre.x.round(), t.centre.y.round(), t.centre.z.round())),
+            rd::<i32>(pl + p::BATTLE) != 0 && rd::<usize>(pl + p::TARGET_CURSOR) != 0 && rd::<i32>(rd::<usize>(pl + p::TARGET_CURSOR) + 0xE0) != 0
+        )
+    });
     let o: PlIntFn = orig(&ORIG_FIELD_INIT);
     o(pl, s.counter.saturating_sub(1) as i32);
     // The row pick took it, unless something replaced Sora's vtable slot.
@@ -234,7 +268,9 @@ pub unsafe extern "win64" fn field_init(pl: usize, counter: i32) -> u64 {
     }
     // Re:CoM's dispatch saw the Attack: KH1's frame decides (its command, its picker) and starts
     // the swing through `start_swing`.
-    mv::run_frame(pl, mv::dispatch_fresh(pl));
+    let fresh = mv::dispatch_fresh(pl);
+    debug(|| format!("dispatch action={:#x} fresh={fresh} req={:#x}", rd::<u32>(pl + p::ACTION), rd::<u32>(pl + p::REQUEST)));
+    mv::run_frame(pl, fresh);
     0
 }
 
@@ -248,6 +284,21 @@ pub unsafe extern "win64" fn swing_exe(pl: usize) {
         return o(pl);
     }
     mv::run_frame(pl, false);
+    debug(|| {
+        let c: usize = rd(pl + p::CTRL);
+        let b: usize = rd(pl + p::BODY);
+        let v = if b != 0 { rd_vec(b + 0x80) } else { Vec3::ZERO };
+        format!(
+            "exe action={:#x} frame={:.1} vel=({:.3},{:.3},{:.3}) contact={:#x} hit={}",
+            rd::<u32>(pl + p::ACTION),
+            if c != 0 { rd::<i32>(c + 0x3C) as f32 / 50.0 } else { -1.0 },
+            v.x,
+            v.y,
+            v.z,
+            if b != 0 { rd::<u32>(b + 0x120) } else { 0 },
+            rd::<i32>(pl + field::HIT)
+        )
+    });
     if rd::<u32>(pl + p::ACTION) == crate::movement::action::ATTACK {
         o(pl);
         if rd::<u32>(pl + p::ACTION) == crate::movement::action::ATTACK {
@@ -429,7 +480,7 @@ pub unsafe extern "win64" fn damage_check(pl: usize) -> u64 {
 pub unsafe extern "win64" fn root_step(ctrl: usize, out: *mut [f32; 4], yaw: *mut f32) {
     let o: RootFn = orig(&ORIG_ROOT_STEP);
     o(ctrl, out, yaw);
-    if !mv::kh1_on() || out.is_null() {
+    if !mv::kh1_on() || out.is_null() || !TICK_LIVE.load(Ordering::Relaxed) {
         return;
     }
     let pl: usize = rd(va(base(), data::MAIN_PLAYER));
@@ -440,10 +491,14 @@ pub unsafe extern "win64" fn root_step(ctrl: usize, out: *mut [f32; 4], yaw: *mu
     if a != crate::movement::action::AVOID && a != crate::movement::action::ATTACK {
         return;
     }
+    // `out` is an absolute position (the model's position `ctrl+0xF0` + this update's travel,
+    // `0x14024C960`), not a travel: delay the travel, keep the anchor.
     let v = &mut *out;
-    let now = Vec3::new(v[0], v[1], v[2]);
+    let root = Vec3::new(v[0], v[1], v[2]);
+    let anchor = rd_vec(ctrl + 0xF0);
     if let Ok(mut d) = ROOT.lock() {
-        let t = d.swap(ctrl, TICK.load(Ordering::Relaxed), now);
+        let t = d.position(ctrl, TICK.load(Ordering::Relaxed), anchor, root, crate::movement::ROOT_DELAY_MAX_GAP);
+        debug(|| format!("root a={a} id={id} anchor=({:.3},{:.3},{:.3}) root=({:.3},{:.3},{:.3}) out=({:.3},{:.3},{:.3})", anchor.x, anchor.y, anchor.z, root.x, root.y, root.z, t.x, t.y, t.z, id = rd::<u32>(pl + field::ATTACK_ID)));
         v[0] = t.x;
         v[1] = t.y;
         v[2] = t.z;

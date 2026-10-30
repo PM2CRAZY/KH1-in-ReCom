@@ -262,7 +262,9 @@ hook. No other launch writes the spring speed: the player's `+0x600` is written 
    in the next frame's physics, Re:CoM in the motion update of the same frame. A wrapper on
    Re:CoM's root step `0x14024DCA0` now hands Sora's controller the last update's travel in our
    KH1 actions (roll / Guard, attack), so the roll matches KH1 frame for frame. Checked (tests).
-   Details in `recom-kh1-attack.md`.
+   The step hands out an absolute position (model position + travel), not a travel. 0.6.0 got
+   that wrong and moved Sora to near the origin on a roll or swing; that is fixed. Details in
+   `recom-kh1-attack.md`.
 2. **A queued motion starts one frame later in Re:CoM** (the idle after a land, roll or Guard; the
    fall after the jump top). KH1 starts it in the same update the last one ends; Re:CoM gets the
    request in the next frame's handler, with the start frame moved on by a step so its clock

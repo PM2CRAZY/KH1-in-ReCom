@@ -11,6 +11,29 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 10: fix the swing / roll position jump, version 0.6.1 (2026-10-30)
+
+> "sora cant do his ground combo, it either makes him jump or teleport or just jitter
+> uncontrollably. this also happens in the field" / "something similar happens with dodge roll as
+> well"
+
+- Owner's traces (`testers/recom-attack/owner-0.6.0-attack-*.csv`): on the Attack press, Sora's
+  position jumped from the floor at (−416, −750, 1364) to (10.6, −597, −34.7), 153 units below
+  the floor. He then free-fell until Re:CoM's out-of-bounds handler respawned him; a press while
+  falling gave air row 18. Checked (trace).
+- Root cause: the root-motion hook at `0x14024DCA0`. That function returns an absolute position
+  (`ctrl+0xF0` + this update's rotated travel, via `0x14024C960`), and the entity task sets
+  `P + mask∘(out − P)`. Our one-update delay treated the return value as a travel, so the first
+  update of a swing or roll returned (0, 0, 0). Checked (decomp + trace).
+- Fix: the hook delays only `out − anchor` and returns `anchor + last travel`. If ours differs
+  from Re:CoM's by more than 0.5 m, Re:CoM's stands. It passes through when the frame counter isn't
+  running.
+- Regression test: swing and roll away from the origin keep Sora's position; travel = KH1's 100.
+- New ini key `debug_attack = on` logs the first 200 attack decisions.
+- Not yet seen in game.
+
+---
+
 ## Stage 9: KH1 Attack inside Re:CoM (M5), spring fix, version 0.6.0 (2026-10-30)
 
 > M5 per the roadmap, plus the owner's report on 0.5.0: "sora needs to be able to jump as high as

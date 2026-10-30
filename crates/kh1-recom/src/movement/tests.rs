@@ -70,6 +70,8 @@ struct FakeRecom {
     /// Re:CoM's `player+0x644` for the swing playing, and the swings started.
     hit: bool,
     tick: u64,
+    /// The model's position relative to the body (the root step's anchor, `ctrl+0xF0`).
+    model_offset: Vec3,
     swings: Vec<SwingStart>,
     swing_ends: usize,
 }
@@ -94,23 +96,34 @@ impl FakeRecom {
             root_delay: RootDelay::default(),
             hit: false,
             tick: 0,
+            model_offset: Vec3::ZERO,
             swings: Vec::new(),
             swing_ends: 0,
         }
+    }
+
+    /// Re:CoM's root step as it is: the motion update makes an absolute position (the model's
+    /// position + the rotated travel, `0x14024C960`), our wrapper on `0x14024DCA0` delays it, and
+    /// the entity task moves the body to it (`P + mask∘(out − P)`, mask (1, 1, 1) here).
+    fn root_step(&mut self, local: Vec3) {
+        let anchor = self.pos + self.model_offset;
+        let root = anchor + local.rotate_yaw(self.facing);
+        let out = self.root_delay.position(1, self.tick, anchor, root, 50.0);
+        self.pos += out - (self.pos + self.model_offset);
     }
 
     /// Re:CoM after the state exe: motion advance (+ root motion), then the mover.
     fn after_exe(&mut self) {
         self.tick += 1;
         let step = self.step;
+        let mut travel = None;
         if let Some(c) = &mut self.clip {
             if c.just {
                 c.just = false;
                 // Re:CoM's root step still runs on a clip's first update (no travel of its own):
                 // the delay hands out the last motion's pending travel.
                 if c.root {
-                    let applied = self.root_delay.swap(1, self.tick, Vec3::ZERO);
-                    self.pos += applied.rotate_yaw(self.facing);
+                    travel = Some(Vec3::ZERO);
                 }
             } else {
                 let old = c.time;
@@ -122,13 +135,14 @@ impl FakeRecom {
                 }
                 if c.root {
                     if let Some(m) = self.motions.info(c.req) {
-                        let local = m.root_at(new) - m.root_at(old);
-                        let applied = self.root_delay.swap(1, self.tick, local);
-                        self.pos += applied.rotate_yaw(self.facing);
+                        travel = Some(m.root_at(new) - m.root_at(old));
                     }
                 }
                 c.time = new;
             }
+        }
+        if let Some(local) = travel {
+            self.root_step(local);
         }
         let mut p = self.pos + self.vel * step;
         let f = self.floor.y(p);
@@ -247,12 +261,19 @@ struct Frame {
 
 impl Pair {
     fn new(ab: Abilities, floor: Floor) -> Pair {
+        Pair::new_at(ab, floor, Vec3::ZERO)
+    }
+
+    /// Both start at `pos` (the fake Re:CoM's body too).
+    fn new_at(ab: Abilities, floor: Floor, pos: Vec3) -> Pair {
         let params = Params::kh1_defaults();
+        let mut recom = FakeRecom::new(floor);
+        recom.pos = pos;
         Pair {
-            oracle: Controller::new(params.clone(), ab.clone(), Moveset::kh1_defaults(), Vec3::ZERO),
+            oracle: Controller::new(params.clone(), ab.clone(), Moveset::kh1_defaults(), pos),
             world: floor,
             ours: Kh1Sora::new(params, ab),
-            recom: FakeRecom::new(floor),
+            recom,
             prev: Pad::default(),
             first: true,
             o_out: None,
@@ -424,6 +445,23 @@ fn dodge_roll_root_motion_matches_kh1_frame_for_frame() {
     // KH1's 12 no-flinch frames went on and off.
     assert!(!p.recom.no_flinch);
     assert_eq!(p.recom.act.id, action::STAND);
+}
+
+#[test]
+fn root_delay_never_moves_sora_to_the_anchors_origin() {
+    // 0.6.0's in-game bug: the hook took Re:CoM's absolute root position for a travel and, with
+    // nothing pending, handed out (0, 0, 0): the body jumped to the room's origin and back.
+    let mut d = RootDelay::default();
+    let p = Vec3::new(3.0, 1.0, -7.0);
+    let step = Vec3::new(0.0, 0.0, 0.2);
+    // First update of a swing after a frame without a root step: no travel, at the anchor.
+    assert_eq!(d.position(9, 10, p, p + step, 0.5), p);
+    // Next update: the anchor moved by the travel the body took; the last travel arrives now.
+    let p2 = p;
+    let out = d.position(9, 11, p2, p2 + step * 2.0, 0.5);
+    assert!((out - (p2 + step)).length() < 1e-6, "{out:?}");
+    // A gap drops what was pending (no root step ran in between).
+    assert_eq!(d.position(9, 13, p2, p2 + step, 0.5), p2);
 }
 
 #[test]
@@ -649,3 +687,36 @@ fn attack_and_jump_on_one_frame_jump() {
     assert!(p.recom.swings.is_empty());
 }
 
+
+#[test]
+fn swing_and_roll_away_from_the_origin_keep_soras_position() {
+    // 0.6.0's in-game traces: Sora idle at (−416.35, −750.35, 1363.55) (KH1 units); the first
+    // Attack press put him at (10.6, −597.0, −34.7) and he fell through the floor. The same
+    // happened on the Dodge Roll. Here: a non-origin start, a model position offset from the body
+    // (Re:CoM's anchor), and Re:CoM's absolute root step through the delay.
+    let start = Vec3::new(-416.35, 0.0, 1363.55);
+    for roll in [false, true] {
+        let mut p = Pair::new_at(Abilities { combo_master: true, ..all() }, Floor::flat(), start);
+        p.recom.model_offset = Vec3::new(0.3, -12.0, 0.7);
+        let pad = |k: usize| {
+            if roll {
+                Pad { square: k == 10, stick: if k <= 10 { [0.0, 1.0] } else { [0.0, 0.0] }, ..Default::default() }
+            } else {
+                Pad { attack: k == 10, ..Default::default() }
+            }
+        };
+        let mut last = start;
+        for k in 0..70 {
+            let f = p.step(pad(k));
+            assert!((f.oracle - f.ours).length() < 1e-3, "roll {roll} frame {k}: {:?} vs {:?}", f.ours, f.oracle);
+            // Never more than a frame's travel (run 8, the roll's 17.8 root travel) per frame.
+            assert!((f.ours - last).length() < 20.0, "roll {roll} frame {k}: jumped from {last:?} to {:?}", f.ours);
+            assert_eq!(f.ours.y, 0.0, "roll {roll} frame {k}: left the floor");
+            last = f.ours;
+        }
+        if !roll {
+            // The swing's root travel only: KH1's 100 units of motion 200 (to frame 34 and still).
+            assert!(((last - start).length() - 100.0).abs() < 1e-2, "{:?}", last - start);
+        }
+    }
+}

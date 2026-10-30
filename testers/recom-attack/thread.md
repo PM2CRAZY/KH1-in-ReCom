@@ -70,3 +70,22 @@
 >     reasoned guess; the trace will show it);
 >   - Re:CoM's enemy shapes against KH1's blade;
 >   - damage (not KH1's yet).
+
+> [!tip] Assistant
+> **Fix for the 0.6.0 combo / roll bug** (owner's video and traces 1–2): at the first swing or
+> roll, Sora was moved to near the room's centre and below the floor, then fell. That's why he
+> seemed to jump, teleport or jitter.
+>
+> The cause was my root-motion change, which applies a move's travel one frame later, as KH1
+> does. Re:CoM's root step hands over a position, and I treated it as a distance. With nothing
+> pending it gave "zero", which Re:CoM read as "move to the origin".
+>
+> It now delays only the distance, and it can never put Sora more than 0.5 m from where Re:CoM
+> itself would. A test now starts Sora away from the origin with Re:CoM's real formula. It fails
+> the way your trace did with the old code, and passes now, for the swing and for the roll.
+>
+> If anything still looks wrong, set `debug_attack = on` in `kh1-recom.ini`. The log then shows
+> each attack decision and every root step (first 200 lines).
+>
+> 1:1 check: checked against Re:CoM's decomp (how the root position is built and applied) and
+> against the KH1 rewrite in tests (combo, roll). I couldn't check it in game yet.
