@@ -40,7 +40,9 @@ Step 0 still to do:
 
 1. Plan the trace tool with the tester: the same fields from both games (tick, state, motion,
    frame, position, velocity, hit events).
-2. Map KH1's side in the Steam decomp: attack combo, motion request, hit windows. Carry the
-   KH2-Combat-in-KH1 notes over as Steam addresses.
+2. KH1's side mapped in `docs/kh1-sora.md` (states, movement, jump, glide, roll, guard, motion
+   requests, the Attack combo). Still needed: the numbers in KH1's data files (`btltbl.bin`,
+   `xa_ex_0010.mset`) and Re:CoM's (`stockskilllist.bin`, `PL0001.ANN`), from the player's
+   extracted files.
 3. Open, not read yet: the damage veto `0x140180920`, the AP rewrite `0x14015D5F0`, the
    double-hit spawn `0x140158DD0`, and which hit kind the field swing produces on map enemies.
