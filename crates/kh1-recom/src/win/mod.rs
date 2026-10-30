@@ -1,9 +1,8 @@
 //! Windows side: start-up (from Panacea's `OnInit`, or a fallback thread), hooks, and the glue
-//! between our Config rows, `kh1-recom.ini` and the motion switch.
+//! between our Config row and `kh1-recom.ini`.
 
 mod hook;
 mod menu;
-mod motion;
 mod sys;
 
 use crate::settings::{self, Settings};
@@ -45,18 +44,13 @@ pub(crate) fn settings() -> Settings {
     SETTINGS.lock().ok().and_then(|g| g.clone()).unwrap_or_default()
 }
 
-/// Our Config row `k` was flipped: change the setting, rewrite the ini, apply.
-pub(crate) fn toggle(k: usize) {
+/// Our Config row `k` was flipped: change the setting, rewrite the ini.
+pub(crate) fn toggle(_k: usize) {
     let mut s = settings();
-    match k {
-        0 => {
-            s.combat = match s.combat {
-                settings::Mode::Kh1 => settings::Mode::Recom,
-                settings::Mode::Recom => settings::Mode::Kh1,
-            }
-        }
-        _ => s.kh1_motions = !s.kh1_motions,
-    }
+    s.combat = match s.combat {
+        settings::Mode::Kh1 => settings::Mode::Recom,
+        settings::Mode::Recom => settings::Mode::Kh1,
+    };
     if let Ok(mut g) = SETTINGS.lock() {
         *g = Some(s.clone());
     }
@@ -66,10 +60,7 @@ pub(crate) fn toggle(k: usize) {
             log(&format!("config menu: could not write {}: {e}", p.display()));
         }
     }
-    log(&format!("config menu: combat = {}, kh1_motions = {}", s.combat.as_str(), settings::switch_str(s.kh1_motions)));
-    if k == 1 && !motion::apply(s.kh1_motions) {
-        log("kh1 motions: not applied (see above)");
-    }
+    log(&format!("config menu: combat = {}", s.combat.as_str()));
 }
 
 fn module_path(m: *mut c_void) -> PathBuf {
@@ -148,14 +139,6 @@ fn run(mod_dir: Option<PathBuf>) {
     let base = base_ptr as usize;
     BASE.store(base, Ordering::Relaxed);
 
-    // Motion switch: plan at start, apply now if on (before the first room is set up).
-    // SAFETY: the build and every site were checked above; the table addresses are the Steam
-    // build's (`motions::SORA_TABLE`).
-    unsafe { motion::prepare(base, size as usize, &mod_dir, &game_dir) };
-    if s.kh1_motions && !motion::apply(true) {
-        log("kh1 motions: on in the ini but not applied");
-    }
-
     // Config menu rows.
     if s.config_menu {
         let hooks = [
@@ -164,7 +147,7 @@ fn run(mod_dir: Option<PathBuf>) {
         ];
         // SAFETY: the targets' bytes are checked again inside, before anything is written.
         if unsafe { hook::install_all(base, &hooks) } {
-            log("config menu: rows added (camp menu > Config, below Re:CoM's rows)");
+            log("config menu: row added (camp menu > Config, below Re:CoM's rows)");
         } else {
             log("config menu: not hooked; use kh1-recom.ini");
         }

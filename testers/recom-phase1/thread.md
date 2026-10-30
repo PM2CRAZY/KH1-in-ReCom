@@ -30,3 +30,15 @@
 >   tests).
 > - Not checked in game: how the rows look and behave, the clips playing in Re:CoM, and the
 >   Keyblade following them.
+
+> [!tip] Assistant
+> **Update (0.4.1), after your Config screenshot and the animation decision:**
+> - The Config screen now has one new row, **Combat: Re:CoM / KH1**. The motions-test row is gone:
+>   Sora uses Re:CoM's own animations, plus KH1's for the 69 motions Re:CoM doesn't have.
+> - Re:CoM's window panel should now reach below **Combat**. Please send a Config screenshot, and
+>   check the help line at the bottom with the cursor on **Combat**.
+> - Your screenshot showed the rows drawing correctly with Re:CoM's own buttons and highlights.
+>   The panel being one row short is what this update fixes.
+>
+> **1:1 check status:** the matching of KH1 motions to Re:CoM's clips was checked against both
+> games' files. The panel fix hasn't been seen in game yet.

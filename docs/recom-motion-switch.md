@@ -1,7 +1,19 @@
-# The "KH1 motions test" switch (M2, runtime half)
+# The "KH1 motions test" switch (M2, runtime half): removed
 
-Steam addresses. Tags: Checked (decomp / disasm / exe / files) or Assumption. Built in
-`crates/kh1-recom` (`src/motions.rs`, `src/win/motion.rs`).
+Steam addresses. Tags: Checked (decomp / disasm / exe / files) or Assumption.
+
+> **Removed by owner decision (2026-10-30):** "i wouldn't bother having an option to switch
+> between KH1 and RECOM animations ... just use RECOM's default animations, and KH1 animations
+> for anything that isnt included in ReCOM".
+>
+> - Gone from `crates/kh1-recom`: the Config row, the `kh1_motions` ini key (an old line is
+>   ignored without a warning), the row plan and the action-table patching (`src/win/motion.rs`).
+> - Kept (`src/motions.rs` + `src/json.rs`, tested, not used at run time yet): the manifest and
+>   `.ANN` header readers, and `clip_for_entry` (a KH1 entry → its checked slot). Later stages
+>   that add KH1-only moves need exactly that.
+> - The findings below (action table, name resolution, no 161-slot limit, play path, row
+>   choice) stay true and are what those stages build on. The sections "What the switch does"
+>   and "Needs in-game testing" describe the removed switch, kept for the record.
 
 ## How Re:CoM names and plays Sora's motions
 

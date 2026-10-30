@@ -45,11 +45,6 @@ pub unsafe fn patch(at: usize, expect: &[u8], new: &[u8], what: &str) -> bool {
     true
 }
 
-/// Writes a pointer-sized value in `.data` / `.rdata` if the old value is `expect`.
-pub unsafe fn patch_u64(at: usize, expect: u64, new: u64, what: &str) -> bool {
-    patch(at, &expect.to_le_bytes(), &new.to_le_bytes(), what)
-}
-
 /// One hook to install: the site (target RVA and the bytes to move), our function, and where
 /// the trampoline (the original) is stored.
 pub struct Hook {

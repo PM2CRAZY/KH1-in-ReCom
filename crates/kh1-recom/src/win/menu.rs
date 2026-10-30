@@ -1,4 +1,4 @@
-//! Our two rows in Re:CoM's Config screen, run by Re:CoM's own menu code.
+//! Our row in Re:CoM's Config screen, run by Re:CoM's own menu code.
 //!
 //! - `cfg_input` wraps the screen's input handler `0x1400D3EB0`. Re:CoM's rows go to the
 //!   original unchanged; at the two edges and on our rows it does what the original does for a
@@ -7,7 +7,9 @@
 //!   it adds our label and value items in the camp's free item slots, built by the same
 //!   `CButton` code with positions from the same layout, and moves Re:CoM's cursor sprite and
 //!   help line when the cursor is on our row. Re:CoM deletes those items itself (modes 6 / 9 and
-//!   the camp teardown clear all 21 slots).
+//!   the camp teardown clear all 21 slots). After the modes that give the window panel a new
+//!   animation (0, 1, 4) it sets the bottom edge offset of the panel's 9-slice sprites, so
+//!   Re:CoM's own sprite code draws the panel one row taller (`menu::panel`).
 //!
 //! Offsets and calls: `docs/recom-config-menu.md`. Checked (decomp + disasm) unless noted.
 
@@ -20,6 +22,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 pub static ORIG_INPUT: AtomicUsize = AtomicUsize::new(0);
 pub static ORIG_DRAW: AtomicUsize = AtomicUsize::new(0);
 static LAYOUT_WARNED: AtomicBool = AtomicBool::new(false);
+static PANEL_LOGGED: AtomicBool = AtomicBool::new(false);
 
 // CCamp fields used by the Config screen.
 const STATE: usize = 0xA8;
@@ -64,6 +67,7 @@ type LayoutFn = unsafe extern "win64" fn(*const u8, u32, u64, *mut f32, i32) -> 
 type SetTextFn = unsafe extern "win64" fn(*mut u8, *const u8);
 type SetPosFn = unsafe extern "win64" fn(*mut u8, *const f32);
 type AnimFn = unsafe extern "win64" fn(*mut u8, u32, *const u8, u32, f32, u32) -> u64;
+type SeqByHandleFn = unsafe extern "win64" fn(u32) -> *mut u8;
 
 const DIR_FN: u32 = 0x0011_1A70;
 const CONFIRM_FN: u32 = 0x0011_1B90;
@@ -75,6 +79,7 @@ const LAYOUT_FN: u32 = 0x0024_6100;
 const SET_TEXT_FN: u32 = 0x0025_9000;
 const SET_POS_FN: u32 = 0x0024_85B0;
 const DRAW_RVA: u32 = 0x000D_F1B0;
+const SEQ_BY_HANDLE_FN: u32 = 0x0024_6210;
 
 unsafe fn f<T: Copy>(rva: u32) -> T {
     let p = base() + rva as usize;
@@ -89,13 +94,9 @@ unsafe fn rd<T: Copy>(p: *mut u8, off: usize) -> T {
 #[derive(Clone, Copy, Default)]
 struct Vec4([f32; 4]);
 
-/// Settings value our row `k` shows (option 1 = KH1 / On).
-fn row_value(k: usize) -> bool {
-    let s = super::settings();
-    match k {
-        0 => s.combat == crate::settings::Mode::Kh1,
-        _ => s.kh1_motions,
-    }
+/// Settings value our row `k` shows (option 1 = KH1).
+fn row_value(_k: usize) -> bool {
+    super::settings().combat == crate::settings::Mode::Kh1
 }
 
 /// Hook on `0x1400D3EB0` (the Config screen's input/state function).
@@ -137,10 +138,91 @@ pub unsafe extern "win64" fn cfg_input(camp: *mut u8) -> u64 {
 pub unsafe extern "win64" fn cfg_draw(camp: *mut u8, mode: u32) -> u64 {
     let orig: DrawFn = std::mem::transmute(ORIG_DRAW.load(Ordering::Acquire));
     let r = orig(camp, mode);
-    if mode == 9 && !camp.is_null() {
-        build_rows(camp);
+    if !camp.is_null() {
+        if mode == 9 {
+            build_rows(camp);
+        } else if menu::panel::restretch_after(mode) {
+            stretch_panel(camp);
+        }
     }
     r
+}
+
+/// Re:CoM's Config window panel, one row taller: sets the bottom edge offset of each fresh
+/// 9-slice sprite of the panel's current sequence (`menu::panel`). Re:CoM's sprite code does the
+/// drawing; nothing runs per frame once the screen is open (mode 3 is not touched).
+unsafe fn stretch_panel(camp: *mut u8) {
+    use menu::panel::{self, Sprite};
+    let ctrl: *mut u8 = rd(camp, PANEL);
+    if ctrl.is_null() || rd::<u8>(ctrl, panel::CTRL_COUNT) == 0 {
+        return;
+    }
+    let seq_by_handle: SeqByHandleFn = f(SEQ_BY_HANDLE_FN);
+    let seq = seq_by_handle(rd::<u32>(ctrl, panel::CTRL_HANDLES));
+    if seq.is_null() {
+        return;
+    }
+    let list: *mut u8 = rd(seq, panel::SEQ_LIST);
+    if list.is_null() {
+        return;
+    }
+    let spr_vt = va(base(), sites::data::SPR_OBJ_VTABLE);
+    let mut grow: Option<f32> = None;
+    let mut seen: Vec<(u8, bool)> = Vec::new();
+    let mut stretched = 0;
+    let mut obj: *mut u8 = rd(list, 8);
+    // The list is Re:CoM's; a bound guards against a broken one.
+    for _ in 0..64 {
+        if obj.is_null() {
+            break;
+        }
+        let is_spr = rd::<usize>(obj, 0) == spr_vt;
+        let parts = if is_spr { rd::<u8>(obj, panel::PART_COUNT) } else { 0 };
+        let has_parts = is_spr && !rd::<*const u8>(obj, panel::PARTS).is_null();
+        let flags = if is_spr { rd::<u8>(obj, panel::FLAGS) } else { 0 };
+        seen.push((parts, is_spr));
+        // Only work out the row step when a fresh 9-slice needs it.
+        let g = if is_spr && parts == panel::NINE && flags & panel::FLAG_NINE_SLICE == 0 {
+            if grow.is_none() {
+                grow = row_step(camp).map(|(y3, y4)| panel::grow(y3, y4));
+            }
+            grow
+        } else {
+            Some(0.0)
+        };
+        let Some(g) = g else {
+            return; // layout not readable: leave the panel as Re:CoM drew it
+        };
+        if let Sprite::Stretch(off) = panel::plan(is_spr, parts, has_parts, flags, g) {
+            std::ptr::write_unaligned(obj.add(panel::OFFSETS) as *mut [f32; 4], off);
+            *obj.add(panel::FLAGS) |= panel::FLAG_NINE_SLICE;
+            stretched += 1;
+        }
+        obj = rd(obj, 8);
+    }
+    if !PANEL_LOGGED.swap(true, Ordering::Relaxed) {
+        let parts: Vec<String> = seen.iter().map(|&(n, spr)| if spr { n.to_string() } else { "other".into() }).collect();
+        if stretched > 0 {
+            log(&format!(
+                "config menu: window panel: {stretched} nine-part sprite(s) drawn {:.1} units taller (sprites' parts: {})",
+                grow.unwrap_or(0.0),
+                parts.join(", ")
+            ));
+        } else {
+            log(&format!("config menu: window panel has no nine-part sprite to stretch (sprites' parts: {}); left as drawn", parts.join(", ")));
+        }
+    }
+}
+
+/// Re:CoM's value-row step (layout y of row 4 minus row 3), as `build_rows` uses it.
+unsafe fn row_step(camp: *mut u8) -> Option<(f32, f32)> {
+    let lay: *const u8 = rd(camp, LAYOUT);
+    if lay.is_null() {
+        return None;
+    }
+    let y3 = pos(lay, layout::VALUE_Y[3])?;
+    let y4 = pos(lay, layout::VALUE_Y[4])?;
+    Some((y3.0[1], y4.0[1]))
 }
 
 unsafe fn pos(lay: *const u8, elem: u64) -> Option<Vec4> {

@@ -1,9 +1,17 @@
 # The asset build step: KH1 motions in Re:CoM's motion pack (M2)
 
 Crate `crates/kh1-recom-assets` (lib + bin `kh1-recom-build`). It reads the player's own KH 1.5+2.5
-folder and writes an extended `PLAYER/0001/PL0001.ANN` into Panacea's Re:CoM mod folder. Re:CoM's
-161 slots stay byte-identical, and one 60 fps clip per KH1 motion is added after them. Re:CoM's
-engine then plays KH1's motions as its own. Nothing from either game is in the repo.
+folder and writes a map from every KH1 Sora motion to the Re:CoM slot that plays it, plus an
+extended `PLAYER/0001/PL0001.ANN` into Panacea's Re:CoM mod folder. Re:CoM's engine then plays
+KH1's motions as its own. Nothing from either game is in the repo.
+
+Owner decision (2026-10-30): "just use RECOM's default animations, and KH1 animations for anything
+that isnt included in ReCOM". So:
+- a KH1 motion that Re:CoM already has (Square Enix baked it into Re:CoM) plays Re:CoM's own clip
+  at Re:CoM's own slot;
+- only the KH1 motions Re:CoM lacks get a new 60 fps clip, appended after Re:CoM's 161 slots;
+- Re:CoM's 161 slots stay byte-identical. If no KH1 motion needs a new slot, no pack is written,
+  and Panacea serves Re:CoM's own.
 
 Tags: Checked (decomp / exe / files / source) or Assumption.
 
@@ -17,37 +25,117 @@ kh1-recom-build [--game <KH 1.5+2.5 folder>] [--mod-dir <mod_path>] [--out <file
   - `Image/dt/Recom.hed/.pkg`: `PLAYER/0001/PL0001.ANN` and `.MDL`;
   - `Image/dt/kh1_*.hed/.pkg`: `xa_ex_0010.mset` and `.mdls`;
   - the key table from `KINGDOM HEARTS Re_Chain of Memories.exe` (or the KH1 exe).
-- It writes `<mod_path>/recom/PLAYER/0001/PL0001.ANN`, `<mod_path>/recom/PLAYER/0002/PL0002.ANN`
-  (the Keyblade, when PL0002 is in the archive) and `<mod_path>/recom/kh1-motions.json`
-  (where the runtime, `crates/kh1-recom` `win/motion.rs`, looks first). With `--out`, the manifest
-  goes next to the pack.
-- Manifest shape (read by `crates/kh1-recom` `motions.rs` `parse_manifest`; unknown keys are
-  ignored): `{"format", "pack", "base_slots": 161, "slot_count": 279, "fps": 60, "sources": {sha256
-  of the 4 inputs}, "slots": [{"slot", "name", "kh1_entry", "kh1_request", "requests", "kh1_frames",
-  "frames", "loop", "loop_overridden", "cycle_error_m", "root_motion", "bytes", "keys"}, …]}`.
+- It always writes `<mod_path>/recom/kh1-motions.json` (where the runtime, `crates/kh1-recom`
+  `win/motion.rs`, looks first). When some KH1 motion needs a new slot, it also writes
+  `<mod_path>/recom/PLAYER/0001/PL0001.ANN` and `<mod_path>/recom/PLAYER/0002/PL0002.ANN` (the
+  Keyblade, when PL0002 is in the archive). When none does, it writes no pack and removes a pack
+  an earlier run left (only a file with more than 161 slots, i.e. one it wrote). With `--out`, the
+  manifest goes next to the pack.
+- Manifest (format `kh1-recom-assets motions 2`; read by `crates/kh1-recom` `motions.rs`
+  `parse_manifest`, which ignores unknown keys). Top level: `format`, `pack`, `base_slots` (161),
+  `slot_count`, `pack_changed`, `fps` (60, the new clips), `kh1_entries` (118), `recom_entries`,
+  `new_slots`, the weapon fields, `sources` (sha256 of the inputs) and `slots`.
+- `slots` is the **full map: one object per KH1 entry (118), in entry order**. Later runtime
+  stages request motions by KH1 entry through it. Fields:
+  - `kh1_entry`, `kh1_request`, `requests`, `kh1_frames`;
+  - `slot` / `name`: the Re:CoM slot to play: Re:CoM's own clip when it has the motion, else the
+    new slot;
+  - `source`: `"recom"` or `"kh1"`;
+  - for `recom`: `match_kind` (`"bake"` or `"edited"`), `match_error` (degrees), `edited_bones`,
+    `root_split_mm`, `ambiguous` (other passing slots; empty for all 118);
+  - `frames`, `fps` (30 for Re:CoM's clips, 60 for new ones), `loop` (the clip's own flag),
+    `loop_overridden`, `cycle_error_m`, `root_motion` (KH1's request-map bit 15), `bytes` and `keys`
+    (new clips; 0 for Re:CoM's);
+  - `weapon_name` (the Keyblade clip at that slot, or `null` when Re:CoM has none there, as for
+    its own play) and `weapon_match_error` (Re:CoM's Keyblade clip vs KH1's blade, degrees).
   - `kh1_request` is the lowest request whose map word names the entry as its base entry, else the
     lowest that reaches it as a type-3/4 variant. For example, 0 → 0, 2 → 1, 5 → 2, 98–101 →
     200–203.
   - `requests` lists every request that plays the entry.
-  - Checked: the runtime's own `parse_manifest` + `plan` (compiled against this output) resolve
-    all 12 row swaps (entries 0, 1, 2, 3, 5, 6, 98–101 → slots 161–167, 259–262).
+  - **Runtime impact (for `crates/kh1-recom`, not changed here):** its `plan` refuses a swap whose
+    slot is below 161 ("would be one of Re:CoM's own"). With this map, entries 0, 1 and 98–101 are
+    on Re:CoM's slots 1, 31, 55–58, so `plan` as it stands fails all-or-nothing. Those swaps are
+    now no-ops (or point the row at Re:CoM's own baked clip); entries 2, 3, 5, 6 are on new slots
+    161–164.
   - `mod_path` comes from `<game>/panacea_settings.txt`. If an existing folder named `recom` in
     another letter case is there, it is reused.
   - Panacea adds `/recom` for Re:CoM (`OpenKH.cpp`) and serves `<mod_path>/recom/<archive path>`
     in place of the archive file (`Panacea.cpp` `TransformFilePath`). Checked (source).
 - Library: `build::build(&Inputs{mset, mdls, ann, mdl, weapon: Option<(ann, mdl)>}, &BuildOptions) -> Built`. `Built` holds
-  `ann`, `bytes`, `entries`, `weapon` (the extended PL0002) and `manifest_json()`. The building blocks are:
+  `ann`, `bytes`, `changed`, `entries` (one per KH1 entry), `weapon` (the extended PL0002) and
+  `manifest_json()`. `BuildOptions::reuse_recom` (default true) is the owner's rule; false converts
+  every entry. The building blocks are:
+  - `matching::{match_all, score, DecodedClip}`: which KH1 motions Re:CoM has;
   - `ann::{Ann, Clip, Curve, Channel}`: read, write and sample;
   - `mdl::RecomSkeleton`;
   - `convert::{Converter, ClipSpec, bone_map}`.
-- Run on a fake game folder (sparse pkgs, the six entries only; `--mod-dir scratch/modout`, Sora +
-  Keyblade): 0.87 s in total, PL0002.ANN 1,331,488 bytes, a 33,349-byte manifest. Earlier run
-  without the Keyblade:
-  - 0.85 s in total: 0.08 s reading, 0.70 s converting all 118 motions (release, Linux);
-  - output: `PL0001.ANN` 15,644,304 bytes (Re:CoM's own is 1,740,528), and a 29,878-byte manifest.
+- Run on a fake game folder (`scratch/fakegame2`, `--mod-dir scratch/modout`, Sora + Keyblade,
+  release, Linux): 1.45 s in total (0.49 s reading, 0.91 s matching + converting). 49 KH1 entries
+  play Re:CoM's clips (39 bakes, 10 with Re:CoM edits), 69 get new slots 161–229. Output:
+  `PL0001.ANN` 10,045,360 bytes (230 slots; Re:CoM's own is 1,740,528), `PL0002.ANN` 839,536
+  bytes (230 slots), a 52,721-byte manifest. (Before the owner decision, all 118 were converted:
+  15,644,304 bytes.)
 - Windows build:
   `RUSTC_BOOTSTRAP=1 CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc cargo build --release --target x86_64-pc-windows-gnu -p kh1-recom-assets -Zbuild-std=std,panic_abort`
-  gives `kh1-recom-build.exe` (688 KB). Not run on Windows yet.
+  gives `kh1-recom-build.exe` (744 KB). Not run on Windows yet.
+
+## Which KH1 motions Re:CoM already has (`matching.rs`). Checked (files)
+
+The rule, run at build time on the player's own files, deterministic:
+- Each KH1 entry is posed with `kh1-anim` at t = 2f (Re:CoM frame f at 30 fps = KH1 frame 2f at
+  60 Hz) and collapsed onto Re:CoM's bones exactly as the converter does (with the entry's own
+  root flag).
+- It is compared with every Re:CoM clip of fitting length (|2F − N| ≤ 4) on all 135 bones, **only
+  at the clip's key frames** (Re:CoM's clips are key-reduced; at a key the bake is exact up to
+  u16 rounding): local rotation (geodesic angle) and local translation.
+- A bone agrees when its worst error is ≤ 0.9° and ≤ 1 mm. The translations of `Root` and
+  `ex_0010_sk` are left out: where Re:CoM keeps the travel is its own per-clip choice (reported as
+  `root_split_mm`).
+- **Bake:** every bone agrees. `match_error` = the worst bone rotation.
+- **KH1 motion with Re:CoM-only edits** (counts as present): at most 20 bones disagree, the entry
+  has no bake, and the clip is not another entry's bake. This covers `kh1-posing.md` §8's "bones
+  KH1 leaves unkeyed are animated in Re:CoM".
+- This is a different metric from `clip_origin.py`'s (max matrix element on 8 FK-only bones;
+  true ~0.003 vs next ≥ 0.5). Its separation, all 118 entries × all fitting clips:
+
+| | value |
+|---|---|
+| bakes (39): worst bone rotation | ≤ 0.74° (entry 74; the spine-aim residuals of `kh1-posing.md` §8); 98: 0.019°, 117: 0.009°, 4: 0.005°, 8: 0.010° |
+| edited (10): disagreeing bones | 4–16 |
+| closest other pair | 17 bones: KH1 76/77/78 against each other's bakes 155–157 (variants of one motion; excluded because each clip is another entry's bake) |
+| closest clip for an entry Re:CoM lacks | 26 bones: KH1 86/87 against 84's bake (slot 150) |
+| every other pair on a clip that is no bake | ≥ 74 bones |
+
+- Found: the 46 pairs of `clip_origin.py`'s table (test `BAKES`), plus 0 → p001_001, 65 →
+  p001_043 and 78 → p001_157. No entry passes with two clips, no clip serves two entries (test
+  `f_…`).
+- Edited, with the bones Re:CoM changed:
+  - 0 → p001_001 (idle): keychain `chain1/2/4`, `neckla1`;
+  - 18, 20–23 → p001_008, 010–013 (requests 0x11, 0x13–0x16, the ladder set): legs, collars,
+    arms, and the hips 22 cm higher;
+  - 26 → p001_014 (0x19): waist and arms, 1–5°;
+  - 57 → p001_063 (0x3D ground cast): legs;
+  - 65, 66 → p001_043/044 (0x4C/0x4D flinch): jacket tails.
+- Root split differs (Re:CoM keeps the travel elsewhere than KH1's request bit says): 14, 15, 16,
+  74 (bakes; 0.5–1.7 m) and 18–23, 26, 57 (edited). **Open for the runtime:** play these with the
+  root flag Re:CoM's own call sites use for those clips, not KH1's bit.
+- The Keyblade plays the same slot. Re:CoM has a Keyblade clip at 41 of the 49 slots; their
+  `weapon_match_error` is ≤ 0.18° except entry 4 (1.58°, the known `k9` residual below). The
+  ladder set (18–23, 26) has no Keyblade clip in Re:CoM, as in Re:CoM's own play.
+- What the 69 new slots are (`requests`, from `kh1-movement-motion.md` / `kh1-data-values.md`;
+  names for ids not in those notes are not known yet):
+  - walk 2, 3 and run 5, 6, 7 (requests 1, 2: KH1's own walk/run; Re:CoM's run is not a KH1 bake);
+  - jump apex 9 (5), fall loop 10 (6/0xB), High Jump 12, 13 (9, 0xA);
+  - 17 (0x10), 19 (0x12, ladder), 24, 25 (0x17, 0x18), 27–53 (0x1B–0x35, among them the long
+    loops 27, 36, 50 of 320–330 frames), 59, 60 (0x3F, 0x40), 62, 63 (0x49, 0x4A), 68 (0x4F);
+  - knock-back 69, 70 (0x50, 0x51), 71 (0x6A), recoil bounce 73 (0x6F);
+  - 83 (0xA6), 86, 87 (0xB7, 0xB8), 89 (0xBA), push 91–93 (0xBC–0xBE), 94–97 (0xC0–0xC3);
+  - combo/abilities: 105 (207, row 12), Hurricane Blast 107 (209), Blitz 108 (210), Vortex 109
+    (211), **Guard** 110 (212), Counterattack 111 (213), Aerial Sweep 112 (214), Ripple Drive 113
+    (215), Gravity Break 115 (217).
+  - Re:CoM already has: idle 0/1, walk loop 4, jump 8, land 11, the glide set 75–78 (0x71–0x74),
+    the ground and air combos 98–104, Sliding Dash 106, Stun Impact 114, Zantetsuken 116, Dodge
+    Roll 117, among the 49.
 
 ## Re:CoM `.ANN` details found while writing the encoder. Checked (files)
 
@@ -105,8 +193,9 @@ the scale to `+0x90`.
     as KH1 does).
   - Loop: N frames with loop start 1 (wraps N → 0).
   - u16 key indices at 256+ frames (entries 27, 36, 50).
-  - All 118 entries are referenced by the request map. They go to slots 161 + entry, named
-    `p001_161` … `p001_278`.
+  - All 118 entries are referenced by the request map. The 69 that Re:CoM lacks go to slots
+    161 + i (i = rank among them, in entry order), named `p001_161` … `p001_229`.
+  - `--loop/--once` apply to new clips only; Re:CoM's clips keep their own flag.
 - **Keys.** A key on every frame, all linear. The only keys left out are those inside runs of
   equal quantised values; that is exact, because a linear segment between equal values returns
   that value.
@@ -158,8 +247,11 @@ bones): local rotation (geodesic angle), translation and scale.
   `kh1-anim`'s, not the encoder's.
 - The last column decodes the new clip, composes it by `FUN_14023EB00`'s rule and compares it
   with KH1's pose at every 60 Hz frame. That is the encoder's own loss (u16 steps).
-- (c) The extended pack parses with the Re:CoM-format reader: 279 = 161 + 118 slots, Re:CoM's
-  161 unchanged, and names agree with slots. `recom_ann.py` reads it too: 279 slots, 187 clips.
+- (c) The map has 118 entries (49 Re:CoM + 69 new). The pack parses with the Re:CoM-format
+  reader: 230 = 161 + 69 slots, Re:CoM's 161 unchanged, names agree with slots; Re:CoM entries
+  point at Re:CoM clips with the same frames / fps / loop. A build whose entries are all on
+  Re:CoM's clips returns Re:CoM's bytes unchanged.
+- (f) The matching (above).
 - Square Enix's bakes have N/2 frames, except three play-once ones with N/2 + 1 (slots 10, 11,
   14). Checked (files).
 
@@ -196,13 +288,14 @@ bones): local rotation (geodesic angle), translation and scale.
    - `FUN_1401F7180` reads `idx` with no bounds check.
 
    So the runtime should:
-   - allocate a table of 71 + 118 rows + a null row;
+   - allocate a table of 71 + (new slots, 69) rows + a null row;
    - copy Re:CoM's 71 rows;
    - append `{"p001_161", −1}` … from the manifest;
    - repoint `DAT_1407C6300[1]` (and `[2]`) before the fill runs, or fill `idx` itself.
 
    New action ids 71… map to slots 161…, so the manifest's slot and name are all the runtime
-   needs. Re:CoM's own ids 0–70 are unchanged.
+   needs. Re:CoM's own ids 0–70 are unchanged. KH1 entries on Re:CoM's slots need no new row
+   when an existing row already names that clip (e.g. 98 → `p001_055`).
 2. **Play** through `FUN_1401F7180(player, actionId, blend, rootFlag, …)`:
    - rootFlag = the manifest's `root_motion` (Re:CoM samples `Root` only then:
      `FUN_14024CCC0`, `FUN_14024C960`);
@@ -259,9 +352,9 @@ bones): local rotation (geodesic angle), translation and scale.
   - Bone 1 is the KH1 child of the hand on the way to `wep0` (280). Bone 0 is the hand (101).
   - Targets come from KH1's posed worlds. Locals use `FUN_14023EB00`'s rule, with bone 0's parent
     = `WeaponR`, so bone 0's local is the identity.
-  - Frames and loop are the same as Sora's clip at that slot. Clips go to slots 161–278 as
-    `w001_NNN`; slots 158–160 are left empty; Re:CoM's 158 slots are byte-identical.
-  - The pack is 1,331,488 bytes (Re:CoM's own is 124,160).
+  - Frames and loop are the same as Sora's clip at that slot. Clips go to the new slots 161–229
+    as `w001_NNN`; slots 158–160 are left empty; Re:CoM's 158 slots are byte-identical.
+  - The pack is 839,536 bytes (Re:CoM's own is 124,160).
 - **Validation** (test `e_…`, every bake where PL0002 has a clip at a slot whose Sora clip is a
   KH1 bake: 36 clips, at their key frames, all 12 bones):
   - KH1 98 vs w001_055: 0.0069° and 0.0005 mm. KH1 117 vs w001_070: 0.0053°. KH1 8 vs
@@ -286,6 +379,11 @@ bones): local rotation (geodesic angle), translation and scale.
 
 - The loop rule is an Assumption. One KH1 entry played both looping and held would need two
   slots.
+- The runtime's `plan` refuses Re:CoM slots (see "Use"), and the root split of 14–16, 18–23,
+  26, 57, 74 (see the matching section): both are for `crates/kh1-recom`.
+- Owner question: KH1's walk/run (2, 3, 5–7) are not in Re:CoM as bakes, so they get KH1 clips,
+  while Re:CoM has its own (non-KH1) walk/run. The rule follows "included" = a bake of the same
+  KH1 motion; using Re:CoM's own different-looking motions for them would need a mapping by role.
 - PL0011 / PL0012: Sora's second model and its Keyblade (see above). Not extended.
 - Keyblade entry 4's `k9` residual (1.58°): an oracle question for `kh1-anim`.
 - Assumption: OpenKH Mods Manager rebuilds the mod folder on "Build" and may delete files it did

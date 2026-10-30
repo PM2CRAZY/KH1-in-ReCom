@@ -21,6 +21,7 @@ pub mod ann;
 pub mod build;
 pub mod convert;
 pub mod install;
+pub mod matching;
 pub mod math;
 pub mod mdl;
 

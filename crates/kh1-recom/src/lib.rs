@@ -6,10 +6,11 @@
 //! `kh1-recom.ini`, and writes `kh1-recom.log` next to the game. Then, only when every check
 //! passed:
 //!
-//! - adds two rows to Re:CoM's Config menu ("Combat", "KH1 motions test"), drawn and driven by
-//!   Re:CoM's own menu code (`menu`, `docs/recom-config-menu.md`);
-//! - with "KH1 motions test" on, re-points Sora's action-table rows to the KH1 clips the asset
-//!   build step appended to `PL0001.ANN` (`motions`, `docs/recom-motion-switch.md`).
+//! - adds a "Combat" row to Re:CoM's Config menu, drawn and driven by Re:CoM's own menu code,
+//!   with Re:CoM's window panel drawn one row taller (`menu`, `docs/recom-config-menu.md`).
+//!
+//! `motions` (with `json`) reads the asset build step's manifest and `PL0001.ANN` header; nothing
+//! uses it at run time yet (the "KH1 motions test" switch was removed, owner 2026-10-30).
 
 pub mod hookplan;
 pub mod json;
@@ -80,9 +81,8 @@ pub fn startup_report(
             let (s, warnings) = settings::parse(&text);
             let _ = writeln!(
                 r,
-                "settings: combat = {}, kh1_motions = {}, config_menu = {}",
+                "settings: combat = {}, config_menu = {}",
                 s.combat.as_str(),
-                settings::switch_str(s.kh1_motions),
                 settings::switch_str(s.config_menu)
             );
             for w in warnings {
@@ -115,7 +115,7 @@ mod tests {
         let path = format!("D:\\Steam\\x\\{}", sites::EXE_NAME);
         let (r, ok) = startup_report(&path, pe, &read, Ok(settings::DEFAULT_FILE.into()));
         assert!(ok, "{r}");
-        assert!(r.contains("combat = kh1, kh1_motions = off, config_menu = on"), "{r}");
+        assert!(r.contains("combat = kh1, config_menu = on"), "{r}");
         assert!(r.contains("Config screen draw"));
     }
 

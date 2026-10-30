@@ -1,4 +1,4 @@
-# Re:CoM's Config menu, and our rows in it
+# Re:CoM's Config menu, and our row in it
 
 Steam addresses. Tags: Checked (decomp / disasm / exe) means read; Assumption means inferred.
 Built in `crates/kh1-recom` (`src/menu.rs`, `src/win/menu.rs`).
@@ -50,39 +50,96 @@ Built in `crates/kh1-recom` (`src/menu.rs`, `src/win/menu.rs`).
 - Row 4 (id `0x61`, 4 values, never changed here) is probably the difficulty. Assumption. The
   meaning of rows 0..3 isn't known without the message files. Not needed.
 
-## Our rows (native)
+## The window panel
 
-Two rows after row 4, drawn and run by the code above:
+- `camp+0xB30` is a `D2::C2DSeqCtrl` (ctor `0x140247260`, base vtable `0x140607340`), made in
+  draw mode 0 with `vtable+8` (`0x140247850`) playing animation **`0xF7`** (open) from the
+  camp's sprite set `camp+0x80`. Mode 1 switches it to **`0xF8`** (idle) once `0xF7` ends
+  (`0x1402480C0`), mode 4 to **`0xF9`** (close), both with `vtable+0x20` (`0x1402482F0`,
+  slot 0); mode 6 deletes it. Every Config item and the cursor are its children (`CButton`
+  setup `0x140112F10` parents the item's sprite with `0x140248650` and gives it the raw layout
+  position with `0x1402485B0`; the panel itself sits at (-256, -h/2), `0x140248660`, h =
+  `DAT_140821ADC`, 384 in the exe image). So layout units are the panel's local units.
+  Checked (decomp + disasm).
+- Each animation change makes a new `D2::C2DSeqObj` whose list (`+0x20`; first at list `+8`,
+  next at object `+8`) holds `D2::C2DSprObj`s (vtable **`0x1406077D8`**, ctor `0x140249FC0`),
+  one per layer, each with `+0x142` parts. The ctrl keeps a handle per sequence at `+0x144`
+  (count `+0x16D`); **`0x140246210(handle)`** returns the `C2DSeqObj`. Checked (decomp + exe).
+- **Re:CoM has a native 9-slice.** A `C2DSprObj` with exactly 9 parts and flag 8 in `+0x144`
+  is drawn by its update `0x14024BB10` (called from its vtable slots `0x14024A3F0` /
+  `0x14024A7E0`) through **`0x14024AD40`**, which moves the 3×3 parts' corners by four edge
+  offsets: left `+0xA0`, top `+0xA4`, right `+0xA8`, bottom `+0xAC` (top row moves by top,
+  bottom row by bottom, the middle row stretches between). Checked (decomp + disasm).
+  - Re:CoM's own resize, `C2DSprObj` vtable `+0x38` = **`0x14024C270(obj, w, h)`**, sets
+    those four offsets so the centre part spans (-w/2, -h/2)..(w/2, h/2) and sets flag 8;
+    `0x1402493B0(seqObj, w, h)` calls it on every sprite of a sequence. Its only user is the
+    message window `0x1402B3040` (`message.sqd`, after each animation change). Checked
+    (disasm: w, h in xmm1, xmm2).
+  - The fresh object has flag 8 clear (`+0x142` is set to `00 00 00 FF` as a dword by the
+    ctor). Checked (disasm `0x14024A00C`).
+- The Config panel's own art (how many sprites, how many parts) lives in the camp sprite set,
+  not in the exe; it was not read (no camp files in this session). **Assumption:** the panel
+  window is a 9-part sprite. The DLL logs what it finds (below).
+
+## Our row (native)
+
+One row after row 4, drawn and run by the code above (the "KH1 motions test" row was removed by
+owner decision, 2026-10-30; see `recom-motion-switch.md`):
 
 | row | label | options | ini key |
 |---|---|---|---|
 | 5 | Combat | Re:CoM / KH1 | `combat` (default kh1) |
-| 6 | KH1 motions test | Off / On | `kh1_motions` (default off) |
 
 - **Hook `0x1400D3EB0`** (bytes `48 89 5C 24 08 57 48 83 EC 20`). Re:CoM's rows go to the
-  original. Changed only: up on row 0 → row 6 (was 4), down on row 4 → row 5 (was 0). On our
-  rows: up/down move, left/right flip, each followed by Re:CoM's cursor sound and a mode-9
+  original. Changed only: up on row 0 → row 5 (was 4), down on row 4 → row 5 (was 0). On our
+  row: up → 4, down → 0, left/right flip, each followed by Re:CoM's cursor sound and a mode-9
   redraw, as the original does. Confirm/cancel always goes to the original.
-- **Hook `0x1400DF1B0`** (bytes `48 8B C4 55 41 54 41 55 41 56`). After mode 9, builds our 2
-  labels and 4 values in slots 14..19 with the same calls and arguments the original uses for
-  row 3 (same fonts, sequence tables `0x1407C1230` / `0x1407C1240[6..7]`), at row 3's x and one
-  row step (row 4 − row 3) further down per row. When the cursor is on our row, moves the cursor
-  sprite and sets our help line exactly as the original does for its rows. Re:CoM deletes our
-  items with its own.
-- A flip updates the setting, rewrites `kh1-recom.ini` at once (other lines and comments kept),
-  and for "KH1 motions test" re-points the action rows (`recom-motion-switch.md`).
-- Text: our labels, options and help are NUL-terminated ASCII handed to the same text items
-  (the message table is bypassed, not changed). **Assumption:** ASCII renders as itself in the
-  menu font. Not seen in game.
-- **Assumption:** the window art has room for two more rows below row 4. The positions are
-  computed at runtime from the layout; whether the panel graphic covers them is only visible in
-  game.
-- `config_menu = off` in the ini leaves the menu untouched (a safety switch while untested).
+- **Hook `0x1400DF1B0`** (bytes `48 8B C4 55 41 54 41 55 41 56`).
+  - After mode 9, builds our label and 2 values in slots 14..16 with the same calls and
+    arguments the original uses for row 3 (same fonts, sequence tables `0x1407C1230` /
+    `0x1407C1240[6..7]`), at row 3's x and one row step (row 4 − row 3) below row 4. When the
+    cursor is on our row, moves the cursor sprite and sets our help line exactly as the
+    original does for its rows. Re:CoM deletes our items with its own.
+  - **Panel one row taller.** After modes 0, 1 and 4 (the ones that can give the panel a new
+    animation), for each `C2DSprObj` of the panel's current sequence that has the
+    `C2DSprObj` vtable, 9 parts, a part array and flag 8 still clear: writes the edge offsets
+    (0, 0, 0, **one value-row step**: layout group `0xB` element `0x11` y − element `0xF` y)
+    and sets flag 8. Re:CoM's own 9-slice code then draws the panel's bottom edge one row
+    lower, the top where it was. Not Re:CoM's resize call, because that recentres the window
+    on its origin (which is the screen's top-left here). Mode 1 runs each frame only while
+    the screen opens; mode 3 (every frame while open) is not touched, so nothing of ours runs
+    per frame once open. Flag 8 set means done, so repeats change nothing.
+  - The first time, the log says either `window panel: N nine-part sprite(s) drawn X units
+    taller (sprites' parts: …)` or `window panel has no nine-part sprite to stretch (sprites'
+    parts: …); left as drawn`.
+  - **Assumption:** the panel's animation has scale 1 at rest (`0xF8`), so one layout row step
+    is one row on screen. The open/close animations scale the offset with the panel.
+- New checked sites (bytes from the Steam exe): `0x140246210` (called:
+  `48 83 EC 28 48 83 3D 1C 6C 63 00 00 8B D1`), `0x14024AD40`
+  (`48 83 B9 20 01 00 00 00 0F 84 0B 06 00 00`) and `0x14024C270`
+  (`40 53 48 81 EC 90 00 00 00 0F 29 B4 24 80 00 00`), checked only, since their meaning of
+  the fields we write is what we rely on. The `C2DSprObj` vtable `0x1406077D8` is compared
+  with each object's vtable before anything is written.
+- A flip updates the setting and rewrites `kh1-recom.ini` at once (other lines and comments
+  kept; an old `kh1_motions` line is left and ignored).
+- Text: our label, options and help are NUL-terminated ASCII handed to the same text items
+  (the message table is bypassed, not changed). Seen in game (owner's screenshot,
+  2026-10-30): the rows render with Re:CoM's buttons, text and highlights. Checked (in game).
+- **Help line:** with the cursor on our row the help line shows our text
+  ("Re:CoM: card battles as in the original. KH1: Kingdom Hearts combat."). On Re:CoM's rows it
+  is Re:CoM's own help (the screenshot shows the camera help with the cursor on row 0, which is
+  correct). Our row's help was not seen in game yet.
+- `config_menu = off` in the ini installs neither hook: the menu, the panel and its size stay
+  exactly Re:CoM's.
 - Every hooked and called function's first bytes are checked against the Steam exe before
   anything is written; the two hooks go in together or not at all.
 
 ## Needs in-game testing
 
-- The rows show, are readable, sit inside the window, and the cursor and help line follow.
-- Up/down wrap through rows 0..6; left/right flip; the ini changes on each flip.
+- The panel now ends just below "Combat" with the same margin it has below "Game Mode", its
+  corners and border intact, and grows/shrinks with the open and close animations. The log
+  line "window panel: …" says what was stretched.
+- If the log says "no nine-part sprite", the panel art is not a 9-slice; send the log line.
+- The cursor and help line on the Combat row; up/down wrap through rows 0..5; left/right flip;
+  the ini changes on each flip.
 - Opening and closing the camp and the Config screen repeatedly (item ownership and deletion).

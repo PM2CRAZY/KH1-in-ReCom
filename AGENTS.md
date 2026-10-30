@@ -11,6 +11,33 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 6: owner's animation rule, Config panel fit, version 0.4.1 (2026-10-30)
+
+> "i wouldn't bother having an option to switch between KH1 and RECOM animations because for all
+> intents and purposes they're the same, just use RECOM's default animations, and KH1 animations
+> for anything that isnt included in ReCOM"
+
+- Asset step (`kh1-recom-assets`, new `matching.rs`): each KH1 entry is matched against Re:CoM's
+  clips at their key frames on all 135 bones.
+  - 39 are bakes: every bone ≤0.9° and ≤1 mm; worst 0.74°, the four known pairs <0.02°.
+  - 10 are Re:CoM edits: ≤20 bones differ, no other owner.
+  - The closest wrong pair is 17 bones; the closest clip for a KH1-only entry is 26 bones.
+  - Matches all 46 of `clip_origin`'s pairs, plus 0→p001_001, 65→p001_043, 78→p001_157.
+    Checked (files, tests).
+  - Only the 69 KH1-only entries get new slots (161–229). `PL0001.ANN` is 10.0 MB and `PL0002.ANN`
+    0.84 MB. `kh1-motions.json` maps all 118 KH1 entries to the Re:CoM slot that plays them.
+- DLL:
+  - The "KH1 motions test" row, its ini key and the action-table row swap are removed. An old ini
+    line is ignored.
+  - Config panel: in the existing draw hook, Re:CoM's own 9-slice (`C2DSprObj`, vtable
+    `0x1406077D8`, corner offsets `+0xA0..+0xAC`, flag 8 at `+0x144`, applied in `0x14024AD40`) is
+    given one extra row of bottom offset. Checked (decomp); that the panel art is a 9-part sprite is
+    an Assumption, and the log reports it.
+- In game (owner's screenshot of 0.4.0): our rows render with Re:CoM's own buttons, font and value
+  highlights. The panel was one frame short, which is what this stage fixes. Not yet seen in game.
+
+---
+
 ## Stage 5: Phase 1 in Re:CoM: KH1 motions asset step, motion switch, Config rows, version 0.4.0 (2026-10-30)
 
 > "lets finish phase 1" (ROADMAP M2 + M3)

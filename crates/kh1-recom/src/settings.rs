@@ -47,8 +47,6 @@ pub fn switch_str(on: bool) -> &'static str {
 pub struct Settings {
     /// Sora's combat: Re:CoM's cards, or KH1's. Nothing reads it yet (M4 onwards).
     pub combat: Mode,
-    /// Debug: Sora plays KH1's converted idle / walk / run / ground combo clips.
-    pub kh1_motions: bool,
     /// Our rows in Re:CoM's Config menu. `off` leaves the menu untouched (a safety switch while
     /// the rows are untested in game; the settings then come from this file only).
     pub config_menu: bool,
@@ -56,7 +54,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { combat: Mode::Kh1, kh1_motions: false, config_menu: true }
+        Settings { combat: Mode::Kh1, config_menu: true }
     }
 }
 
@@ -69,11 +67,6 @@ pub const DEFAULT_FILE: &str = "\
 ;   recom: Sora fights with Re:CoM's cards, as in the original game.
 ;   Nothing reads this yet: it is the switch later versions use.
 combat = kh1
-;
-; kh1_motions = off | on
-;   Debug: Sora plays KH1's idle, walk, run and ground combo clips made by the asset build
-;   step. Applies from the next room load.
-kh1_motions = off
 ;
 ; config_menu = on | off
 ;   off: don't add our rows to Re:CoM's Config menu (use this file instead).
@@ -99,10 +92,9 @@ pub fn parse(text: &str) -> (Settings, Vec<String>) {
                 Some(m) => s.combat = m,
                 None => warnings.push(bad("combat must be kh1 or recom")),
             },
-            "kh1_motions" => match parse_switch(v) {
-                Some(b) => s.kh1_motions = b,
-                None => warnings.push(bad("kh1_motions must be on or off")),
-            },
+            // The "KH1 motions test" switch was removed (owner, 2026-10-30): an old line is
+            // ignored without a warning.
+            "kh1_motions" => {}
             "config_menu" => match parse_switch(v) {
                 Some(b) => s.config_menu = b,
                 None => warnings.push(bad("config_menu must be on or off")),
@@ -154,7 +146,6 @@ pub fn set_key(text: &str, key: &str, value: &str) -> String {
 /// Writes every setting into the file text.
 pub fn store(text: &str, s: &Settings) -> String {
     let t = set_key(text, "combat", s.combat.as_str());
-    let t = set_key(&t, "kh1_motions", switch_str(s.kh1_motions));
     set_key(&t, "config_menu", switch_str(s.config_menu))
 }
 
@@ -171,31 +162,44 @@ mod tests {
 
     #[test]
     fn reads_values_and_reports_bad_lines() {
-        let (s, w) = parse("combat = ReCoM ; comment\nfoo = 1\nnonsense\ncombat=kh2\nkh1_motions = ON\nconfig_menu=maybe\n");
+        let (s, w) = parse("combat = ReCoM ; comment\nfoo = 1\nnonsense\ncombat=kh2\nconfig_menu=maybe\n");
         assert_eq!(s.combat, Mode::Recom);
-        assert!(s.kh1_motions);
         assert!(s.config_menu);
         assert_eq!(w.len(), 4);
+    }
+
+    #[test]
+    fn old_motions_line_is_ignored_silently() {
+        let old = "combat = recom\n;\n; kh1_motions = off | on\nkh1_motions = on\nKH1_Motions = nonsense\nconfig_menu = off\n";
+        let (s, w) = parse(old);
+        assert_eq!(s, Settings { combat: Mode::Recom, config_menu: false });
+        assert!(w.is_empty(), "{w:?}");
+        // Rewriting keeps the old line (harmless) and still reads back clean.
+        let t = store(old, &Settings { combat: Mode::Kh1, config_menu: false });
+        assert!(t.contains("kh1_motions = on"));
+        let (back, w) = parse(&t);
+        assert_eq!(back.combat, Mode::Kh1);
+        assert!(w.is_empty(), "{w:?}");
     }
 
     #[test]
     fn set_key_keeps_the_rest() {
         let t = set_key("; head\ncombat = kh1 ; why\nother = 1\n", "combat", "recom");
         assert_eq!(t, "; head\ncombat = recom ; why\nother = 1\n");
-        let t = set_key("combat=kh1\n", "kh1_motions", "on");
-        assert_eq!(t, "combat=kh1\nkh1_motions = on\n");
+        let t = set_key("combat=kh1\n", "config_menu", "on");
+        assert_eq!(t, "combat=kh1\nconfig_menu = on\n");
         let t = set_key("combat = kh1\ncombat = recom\n", "combat", "kh1");
         assert_eq!(parse(&t).0.combat, Mode::Kh1);
     }
 
     #[test]
     fn store_round_trips() {
-        let s = Settings { combat: Mode::Recom, kh1_motions: true, config_menu: false };
+        let s = Settings { combat: Mode::Recom, config_menu: false };
         let t = store(DEFAULT_FILE, &s);
         let (back, w) = parse(&t);
         assert_eq!(back, s);
         assert!(w.is_empty(), "{w:?}");
-        assert!(t.contains("; kh1_motions = off | on"), "comments survive");
+        assert!(t.contains("; combat = kh1 | recom"), "comments survive");
         // An empty file gets every key.
         assert_eq!(parse(&store("", &s)).0, s);
     }

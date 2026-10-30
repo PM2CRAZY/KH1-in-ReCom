@@ -1,15 +1,14 @@
-//! The "KH1 motions test" switch (milestone M2, runtime half).
+//! The asset build step's KH1 motions in Re:CoM's `PL0001.ANN`: its manifest
+//! (`kh1-motions.json`) and the pack's header. Nothing uses this at run time yet.
 //!
-//! Re:CoM plays Sora's motions through his action table (`0x1407C5E80`, reached through
-//! `0x1407C6300[charIndex]`): 16-byte rows `{const char* name; int index; int pad}`. The player's
-//! `stateInitial` (`0x1401FA6E0`) resolves every row's name to a motion-pack slot with
-//! `0x1402A42B0` (an exact-name scan of the loaded `PL0001.ANN`, no slot limit), and the motion
-//! request `0x1401F7180` plays `row.index`. So the switch only re-points the name of the rows
-//! for idle, walk, run and the ground combo to the KH1 clips the asset build step appended to
-//! `PL0001.ANN`; Re:CoM resolves and plays them itself. Checked (decomp + exe), see
-//! `docs/recom-motion-switch.md`.
-//!
-//! This module is the testable part: the manifest, the `.ANN` header and the row plan.
+//! The "KH1 motions test" switch that re-pointed Sora's action-table rows to these clips was
+//! removed by owner decision (2026-10-30: Re:CoM's own animations stay; KH1 clips only for what
+//! Re:CoM lacks). The findings it relied on stay true and are kept for that later work
+//! (`docs/recom-motion-switch.md`): Sora's action table (`0x1407C5E80`, through
+//! `0x1407C6300[charIndex]`) holds 16-byte rows `{const char* name; int index; int pad}`; the
+//! player's `stateInitial` (`0x1401FA6E0`) resolves every row's name to a pack slot with
+//! `0x1402A42B0` (exact-name scan, no slot limit), and the motion request `0x1401F7180` plays
+//! `row.index`. Checked (decomp + exe).
 
 use crate::json::{self, Value};
 
@@ -21,41 +20,6 @@ pub const CHAR_TABLES: u64 = 0x1_407C_6300;
 pub const SORA_ROWS: usize = 0x47;
 /// Re:CoM's own slots in `PL0001.ANN`. Checked (files).
 pub const RECOM_SLOTS: u32 = 161;
-
-/// One row we re-point, and the KH1 motion it gets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Swap {
-    /// Row (= action id) in Sora's table.
-    pub row: u8,
-    /// Re:CoM's own clip name in that row (checked against the exe before patching).
-    pub recom_name: &'static str,
-    /// What it is, for the log.
-    pub what: &'static str,
-    /// KH1 mset entries to look for, in order of preference.
-    pub kh1_entries: &'static [u16],
-    /// The KH1 request, used only if no entry matches and exactly one manifest slot has it.
-    pub kh1_request: u16,
-}
-
-/// The rows the switch covers. Row → motion: Checked (decomp: `0x1401F9380` picks 1/2/0x12/3/0x13
-/// in the field and 0x2A/0x2B/0x2C in battle stance; attack rows 1–4 of `0x1407C6C70` play
-/// actions 0x30–0x33). KH1 entries: field 0/2/5 and battle 1/3/6 for idle/walk/run, swings
-/// 98–101 (`docs/kh1-sora-data.md`, `motion-conversion.md`). Which KH1 stance variant matches
-/// Re:CoM's field and battle rows is an Assumption; a field row falls back to the battle entry.
-pub const SWAPS: &[Swap] = &[
-    Swap { row: 0x01, recom_name: "p001_001", what: "field idle", kh1_entries: &[0, 1], kh1_request: 0 },
-    Swap { row: 0x02, recom_name: "p001_002", what: "field walk", kh1_entries: &[2, 3], kh1_request: 1 },
-    Swap { row: 0x12, recom_name: "p001_002", what: "field walk (alt row)", kh1_entries: &[2, 3], kh1_request: 1 },
-    Swap { row: 0x03, recom_name: "p001_003", what: "field run", kh1_entries: &[5, 6], kh1_request: 2 },
-    Swap { row: 0x13, recom_name: "p001_023", what: "field run (alt row)", kh1_entries: &[5, 6], kh1_request: 2 },
-    Swap { row: 0x2A, recom_name: "p001_031", what: "battle idle", kh1_entries: &[1], kh1_request: 0 },
-    Swap { row: 0x2B, recom_name: "p001_020", what: "battle walk", kh1_entries: &[3], kh1_request: 1 },
-    Swap { row: 0x2C, recom_name: "p001_024", what: "battle run", kh1_entries: &[6], kh1_request: 2 },
-    Swap { row: 0x30, recom_name: "p001_055", what: "ground swing 1", kh1_entries: &[98], kh1_request: 200 },
-    Swap { row: 0x31, recom_name: "p001_056", what: "ground swing 2", kh1_entries: &[99], kh1_request: 201 },
-    Swap { row: 0x32, recom_name: "p001_057", what: "ground lunge", kh1_entries: &[100], kh1_request: 202 },
-    Swap { row: 0x33, recom_name: "p001_058", what: "ground finisher", kh1_entries: &[101], kh1_request: 203 },
-];
 
 /// One clip of the manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,65 +94,23 @@ pub fn ann_header_len(count: u32) -> usize {
     4 + count as usize * 20
 }
 
-/// One planned row change.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RowPatch {
-    pub row: u8,
-    pub what: &'static str,
-    pub recom_name: &'static str,
-    pub kh1_name: String,
-    pub slot: u32,
-    pub entry: Option<u32>,
-}
-
-/// Plans the row changes. `table_names` is Sora's table as read from the game (row → name);
-/// `ann` the header of the `PL0001.ANN` Panacea will serve. Every swap must be found, or nothing
-/// is planned (all or nothing).
-pub fn plan(manifest: &[Clip], table_names: &[Option<String>], ann: &[(u32, String)]) -> Result<Vec<RowPatch>, String> {
-    let mut out = Vec::new();
-    for s in SWAPS {
-        let have = table_names.get(s.row as usize).cloned().flatten();
-        if have.as_deref() != Some(s.recom_name) {
-            return Err(format!("row {:#04x} ({}) is `{}`, expected `{}`", s.row, s.what, have.unwrap_or_default(), s.recom_name));
-        }
-        let by_entry = s.kh1_entries.iter().find_map(|&e| manifest.iter().find(|c| c.entry == Some(e as u32)));
-        let clip = match by_entry {
-            Some(c) => c,
-            None => {
-                let m: Vec<&Clip> = manifest.iter().filter(|c| c.request == Some(s.kh1_request as u32)).collect();
-                match m.as_slice() {
-                    &[c] => c,
-                    [] => return Err(format!("manifest has no KH1 entry {:?} / request {} for {}", s.kh1_entries, s.kh1_request, s.what)),
-                    _ => return Err(format!("manifest has several clips for KH1 request {} ({}) and no entry", s.kh1_request, s.what)),
-                }
-            }
-        };
-        if clip.slot < RECOM_SLOTS {
-            return Err(format!("{}: slot {} would be one of Re:CoM's own", s.what, clip.slot));
-        }
-        match ann.get(clip.slot as usize) {
-            Some((size, name)) if *size > 0 && *name == clip.name => {}
-            Some((size, name)) => {
-                return Err(format!("PL0001.ANN slot {} is `{name}` ({size} bytes), manifest says `{}`", clip.slot, clip.name))
-            }
-            None => return Err(format!("PL0001.ANN has {} slots, no slot {} for {}", ann.len(), clip.slot, s.what)),
-        }
-        out.push(RowPatch { row: s.row, what: s.what, recom_name: s.recom_name, kh1_name: clip.name.clone(), slot: clip.slot, entry: clip.entry });
+/// The manifest clip holding KH1 mset `entry`, if it lies past Re:CoM's own slots and the
+/// pack's header has it under the same name (what later stages need before using a clip).
+pub fn clip_for_entry<'a>(manifest: &'a [Clip], ann: &[(u32, String)], entry: u32) -> Result<&'a Clip, String> {
+    let c = manifest.iter().find(|c| c.entry == Some(entry)).ok_or_else(|| format!("manifest has no KH1 entry {entry}"))?;
+    if c.slot < RECOM_SLOTS {
+        return Err(format!("entry {entry}: slot {} would be one of Re:CoM's own", c.slot));
     }
-    Ok(out)
+    match ann.get(c.slot as usize) {
+        Some((size, name)) if *size > 0 && *name == c.name => Ok(c),
+        Some((size, name)) => Err(format!("PL0001.ANN slot {} is `{name}` ({size} bytes), manifest says `{}`", c.slot, c.name)),
+        None => Err(format!("PL0001.ANN has {} slots, no slot {} for entry {entry}", ann.len(), c.slot)),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn table() -> Vec<Option<String>> {
-        let mut t = vec![Some("p001_xxx".to_string()); SORA_ROWS];
-        for s in SWAPS {
-            t[s.row as usize] = Some(s.recom_name.to_string());
-        }
-        t
-    }
 
     fn ann(n: u32) -> Vec<(u32, String)> {
         (0..n).map(|i| (100, format!("p001_{i:03}"))).collect()
@@ -244,59 +166,22 @@ mod tests {
     }
 
     #[test]
-    fn plans_every_row() {
+    fn finds_clips_by_kh1_entry() {
         let m = parse_manifest(MANIFEST).unwrap();
-        let p = plan(&m, &table(), &ann(171)).unwrap();
-        assert_eq!(p.len(), SWAPS.len());
-        let row = |r: u8| p.iter().find(|x| x.row == r).unwrap();
-        assert_eq!(row(0x01).kh1_name, "p001_161");
-        assert_eq!(row(0x2A).kh1_name, "p001_162");
-        assert_eq!(row(0x12).kh1_name, "p001_163");
-        assert_eq!(row(0x13).kh1_name, "p001_165");
-        assert_eq!(row(0x30).kh1_name, "p001_167");
-        assert_eq!(row(0x33).slot, 170);
-    }
-
-    #[test]
-    fn field_rows_fall_back_to_battle_entries() {
-        let m: Vec<Clip> = parse_manifest(MANIFEST).unwrap().into_iter().filter(|c| ![Some(0), Some(2), Some(5)].contains(&c.entry)).collect();
-        let p = plan(&m, &table(), &ann(171)).unwrap();
-        assert_eq!(p.iter().find(|x| x.row == 0x01).unwrap().kh1_name, "p001_162");
-    }
-
-    #[test]
-    fn refuses_incomplete_or_mismatched_data() {
-        let m = parse_manifest(MANIFEST).unwrap();
-        // ANN too short (assets not built or not delivered).
-        assert!(plan(&m, &table(), &ann(161)).is_err());
-        // ANN slot named differently.
+        assert_eq!(clip_for_entry(&m, &ann(171), 98).unwrap().name, "p001_167");
+        assert_eq!(clip_for_entry(&m, &ann(171), 101).unwrap().slot, 170);
+        // Not in the manifest; pack too short; slot renamed or empty; inside Re:CoM's range.
+        assert!(clip_for_entry(&m, &ann(171), 4).is_err());
+        assert!(clip_for_entry(&m, &ann(161), 98).is_err());
         let mut a = ann(171);
         a[167].1 = "other".into();
-        assert!(plan(&m, &table(), &a).is_err());
-        // Empty slot.
+        assert!(clip_for_entry(&m, &a, 98).is_err());
         let mut a = ann(171);
         a[170].0 = 0;
-        assert!(plan(&m, &table(), &a).is_err());
-        // A table row that isn't Re:CoM's (another mod, or another build).
-        let mut t = table();
-        t[0x30] = Some("p001_999".into());
-        assert!(plan(&m, &t, &ann(171)).is_err());
-        // Missing swing.
-        let m2: Vec<Clip> = m.iter().filter(|c| c.entry != Some(101)).cloned().collect();
-        assert!(plan(&m2, &table(), &ann(171)).is_err());
-        // A manifest slot inside Re:CoM's range.
+        assert!(clip_for_entry(&m, &a, 101).is_err());
         let mut m3 = m.clone();
         m3[9].slot = 58;
         m3[9].name = "p001_058".into();
-        assert!(plan(&m3, &table(), &ann(171)).is_err());
-    }
-
-    #[test]
-    fn swaps_are_unique_rows_inside_the_table() {
-        let mut rows: Vec<u8> = SWAPS.iter().map(|s| s.row).collect();
-        rows.sort();
-        rows.dedup();
-        assert_eq!(rows.len(), SWAPS.len());
-        assert!(rows.iter().all(|&r| (r as usize) < SORA_ROWS));
+        assert!(clip_for_entry(&m3, &ann(171), 101).is_err());
     }
 }

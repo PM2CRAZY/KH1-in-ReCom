@@ -6,8 +6,11 @@
 //!     frames, match Square Enix's 30 fps bakes p001_055 / 070 / 020 / 004 at their key frames
 //!     on every bone (Root and the 134 mapped bones); and the new clip reproduces KH1's pose
 //!     at every 60 Hz frame through Re:CoM's composition rule;
-//! (c) the extended pack parses, has 161 + 118 slots, Re:CoM's clips are untouched;
-//! (d) the loop rule agrees with every Re:CoM bake of a KH1 motion.
+//! (c) the map covers all 118 KH1 entries; the pack has 161 + (KH1-only entries) slots,
+//!     Re:CoM's clips are untouched; nothing changes when every entry is on Re:CoM's clips;
+//! (d) the loop rule agrees with every Re:CoM bake of a KH1 motion;
+//! (e) the Keyblade conversion matches Re:CoM's Keyblade bakes;
+//! (f) the matching finds Re:CoM's bakes of KH1 motions, with no ambiguity.
 
 #![allow(clippy::needless_range_loop)]
 
@@ -15,7 +18,8 @@ use std::path::PathBuf;
 
 use kh1_formats::mset::MotionSet;
 use kh1_recom_assets::ann::{Ann, Clip};
-use kh1_recom_assets::build::{build, cycle_error, BuildOptions, Inputs, LOOP_TOLERANCE_M, RECOM_SORA_SLOTS};
+use kh1_recom_assets::build::{build, cycle_error, referenced_entries, BuildOptions, Inputs, Source, LOOP_TOLERANCE_M, RECOM_SORA_SLOTS};
+use kh1_recom_assets::matching::{decode_pack, frames_fit, kh1_locals, match_all, score, MatchKind, Query, MAX_EDITED_BONES};
 use kh1_recom_assets::convert::{ClipSpec, Converter, Target};
 use kh1_recom_assets::math::{angle_deg, dist, m3, rot_xyz, tr, vm, I3};
 use kh1_recom_assets::mdl::RecomSkeleton;
@@ -178,8 +182,12 @@ fn c_extended_pack() {
     let el = t0.elapsed();
     let orig = Ann::parse(&d.ann).unwrap();
     let ext = Ann::parse(&built.bytes).unwrap();
-    assert_eq!(ext.slots.len(), RECOM_SORA_SLOTS + 118);
+    // The full map: every KH1 entry, each either on Re:CoM's own slot or on a new one.
     assert_eq!(built.entries.len(), 118);
+    let new = built.new_slots();
+    assert_eq!(built.recom_entries() + new, 118);
+    assert!(built.changed && new > 0);
+    assert_eq!(ext.slots.len(), RECOM_SORA_SLOTS + new);
     assert_eq!(built.bytes.len() % 16, 0);
     for i in 0..RECOM_SORA_SLOTS {
         assert_eq!(ext.slots[i], orig.slots[i], "slot {i}");
@@ -187,56 +195,83 @@ fn c_extended_pack() {
             assert_eq!(c.to_bytes(), orig.slots[i].clip.as_ref().unwrap().to_bytes());
         }
     }
+    let mut rank = 0;
     for e in &built.entries {
         let c = ext.slots[e.slot].clip.as_ref().unwrap();
         assert_eq!(c.name_str(), e.name);
         assert_eq!(ext.find(&e.name), Some(e.slot));
-        assert_eq!(e.slot, RECOM_SORA_SLOTS + e.kh1_entry);
-        assert_eq!((c.fps(), c.bones, c.looped()), (60, 135, e.looped));
-        assert_eq!(c.frames as usize, e.frames);
+        assert_eq!((c.frames as usize, c.looped(), c.fps()), (e.frames, e.looped, e.fps));
+        match e.source {
+            Source::Recom => {
+                assert!(e.slot < RECOM_SORA_SLOTS);
+                assert_eq!(c.fps(), 30);
+                assert!(e.match_kind.is_some() && e.match_error.is_some());
+            }
+            Source::Kh1 => {
+                assert_eq!(e.slot, RECOM_SORA_SLOTS + rank, "entry {}", e.kh1_entry);
+                rank += 1;
+                assert_eq!((c.fps(), c.bones), (60, 135));
+            }
+        }
     }
     if let (Some((wann, _)), Some(w)) = (&d.wep, &built.weapon) {
         let orig = Ann::parse(wann).unwrap();
         let ext = Ann::parse(&w.bytes).unwrap();
-        assert_eq!((orig.slots.len(), ext.slots.len()), (158, 279));
+        assert_eq!((orig.slots.len(), ext.slots.len()), (158, RECOM_SORA_SLOTS + new));
         assert_eq!(&ext.slots[..158], &orig.slots[..]);
         assert!(ext.slots[158..161].iter().all(|s| s.clip.is_none()));
         for e in &built.entries {
-            let c = ext.slots[e.slot].clip.as_ref().unwrap();
-            assert_eq!((c.name_str(), c.bones, c.frames as usize, c.looped(), c.fps()), (format!("w001_{}", e.slot), 12, e.frames, e.looped, 60));
-            assert_eq!(e.weapon_name.as_deref(), Some(c.name_str().as_str()));
+            match e.source {
+                Source::Kh1 => {
+                    let c = ext.slots[e.slot].clip.as_ref().unwrap();
+                    assert_eq!((c.name_str(), c.bones, c.frames as usize, c.looped(), c.fps()), (format!("w001_{}", e.slot), 12, e.frames, e.looped, 60));
+                    assert_eq!(e.weapon_name.as_deref(), Some(c.name_str().as_str()));
+                }
+                Source::Recom => assert_eq!(e.weapon_name, orig.slots.get(e.slot).and_then(|s| s.clip.as_ref()).map(|c| c.name_str())),
+            }
         }
         let json = built.manifest_json(&[]);
-        assert!(json.contains("\"weapon_name\": \"w001_259\"") && json.contains("\"weapon_base_slots\": 158"));
+        assert!(json.contains("\"weapon_base_slots\": 158"));
         eprintln!("(c) Keyblade pack {} bytes ({} → {} slots, Re:CoM's 158 identical, 158..160 empty)", w.bytes.len(), orig.slots.len(), ext.slots.len());
     }
-    let big = built.entries.iter().filter(|e| e.frames >= 256).count();
-    let loops = built.entries.iter().filter(|e| e.looped).count();
-    let roots = built.entries.iter().filter(|e| e.root_motion).count();
     let json = built.manifest_json(&[("test", "x".into())]);
-    assert!(json.contains("\"slot\": 161") && json.contains("\"slot\": 278"));
     // The runtime's shape (crates/kh1-recom motions.rs): a `slots` array of {slot, name,
-    // kh1_entry, kh1_request}; the swaps it needs.
+    // kh1_entry, kh1_request}.
     assert!(json.contains("\"slots\": [") && !json.contains("\"slots\": 2"));
+    assert_eq!(json.matches("\"kh1_entry\": ").count(), 118);
     for (entry, req) in [(0usize, Some(0u16)), (2, Some(1)), (5, Some(2)), (98, Some(200)), (99, Some(201)), (100, Some(202)), (101, Some(203))] {
         let e = built.entries.iter().find(|e| e.kh1_entry == entry).unwrap();
         assert_eq!(e.kh1_request, req, "entry {entry}: requests {:?}", e.requests);
     }
-    for entry in [0usize, 1, 2, 3, 5, 6, 98, 99, 100, 101] {
-        assert!(json.contains(&format!("\"name\": \"p001_{}\", \"kh1_entry\": {entry},", 161 + entry)), "entry {entry}");
+    for (entry, slot) in [(98usize, 55usize), (99, 56), (100, 57), (101, 58), (117, 70), (4, 20), (8, 4)] {
+        assert!(json.contains(&format!("{{\"kh1_entry\": {entry}, ")), "entry {entry}");
+        let e = built.entries.iter().find(|e| e.kh1_entry == entry).unwrap();
+        assert_eq!((e.slot, e.source, e.name.as_str()), (slot, Source::Recom, format!("p001_{slot:03}").as_str()));
     }
+    let loops = built.entries.iter().filter(|e| e.source == Source::Kh1 && e.looped).count();
+    let roots = built.entries.iter().filter(|e| e.source == Source::Kh1 && e.root_motion).count();
     eprintln!(
-        "(c) extended pack {} bytes ({} → {} slots), {} new clips ({} bytes, {} u16-key clips, {} loops, {} root), built in {:.2}s",
+        "(c) {} KH1 entries: {} on Re:CoM's clips, {} new slots; pack {} bytes ({} → {} slots), new clips {} bytes ({} loops, {} root), built in {:.2}s",
+        built.entries.len(),
+        built.recom_entries(),
+        new,
         built.bytes.len(),
         RECOM_SORA_SLOTS,
         ext.slots.len(),
-        built.entries.len(),
         built.entries.iter().map(|e| e.bytes).sum::<usize>(),
-        big,
         loops,
         roots,
         el.as_secs_f64()
     );
+    // A build whose entries are all on Re:CoM's clips writes nothing new.
+    let opt = BuildOptions { only: Some(vec![4, 8, 98, 117]), ..BuildOptions::default() };
+    let b2 = build(&Inputs { mset: d.mset.clone(), mdls: d.mdls.clone(), ann: d.ann.clone(), mdl: d.mdl.clone(), weapon: d.wep.clone() }, &opt).unwrap();
+    assert!(!b2.changed && b2.weapon.is_none() && b2.new_slots() == 0);
+    assert_eq!(b2.bytes, d.ann);
+    // The old behaviour (every entry converted) still builds.
+    let opt = BuildOptions { reuse_recom: false, only: Some(vec![0, 98, 117]), ..BuildOptions::default() };
+    let b3 = build(&Inputs { mset: d.mset.clone(), mdls: d.mdls.clone(), ann: d.ann.clone(), mdl: d.mdl.clone(), weapon: None }, &opt).unwrap();
+    assert_eq!(b3.entries.iter().map(|e| (e.kh1_entry, e.slot)).collect::<Vec<_>>(), [(0, 161), (98, 259), (117, 278)]);
 }
 
 /// Re:CoM slot → KH1 entry for every Re:CoM clip that is a bake of a KH1 motion
@@ -357,4 +392,81 @@ fn e_keyblade_matches_recom_bakes() {
     // residual motions of kh1-posing.md §8.
     assert!(others.iter().all(|&(e, r)| e == 4 || r < 0.2), "{others:?}");
     assert_eq!(others.len(), 36);
+}
+
+/// Matches beyond [`BAKES`] (clip_origin's table): 0 → p001_001 (KH1 idle; Re:CoM animates the
+/// keychain `chain1/2/4` and `neckla1`), 65 → p001_043 (jacket tails `b_jack1a/1b`,
+/// `r_jack3b/4b`), 78 → p001_157 (a plain bake; clip_origin's table had only 155/156).
+const EXTRA: [(usize, usize); 3] = [(1, 0), (43, 65), (157, 78)];
+
+#[test]
+fn f_matching_finds_recom_bakes() {
+    let Some(d) = data() else { return };
+    let ms = MotionSet::parse(&d.mset).unwrap();
+    let ann = Ann::parse(&d.ann).unwrap();
+    let conv = Converter::new(&d.mdls, RecomSkeleton::parse(&d.mdl).unwrap()).unwrap();
+    let clips = decode_pack(&ann);
+    let refs = referenced_entries(&ms).unwrap();
+    let qs: Vec<Query> = refs.iter().map(|(e, _, r)| Query { entry: *e, motion: &ms.motions[*e], root_motion: *r }).collect();
+    let t0 = std::time::Instant::now();
+    let found = match_all(&conv, &qs, &clips);
+    let el = t0.elapsed();
+    let want: Vec<(usize, usize)> = BAKES.iter().chain(EXTRA.iter()).map(|&(s, e)| (e, s)).collect();
+    // The known pairs, as bakes.
+    for (e, s) in [(98usize, 55usize), (117, 70), (4, 20), (8, 4)] {
+        let m = found.iter().find(|m| m.entry == e).unwrap();
+        let (sc, k) = m.found.as_ref().unwrap();
+        assert_eq!((sc.slot, *k), (s, MatchKind::Bake), "entry {e}");
+        assert!(sc.match_error() < 0.02, "entry {e}: {}", sc.match_error());
+    }
+    let mut got: Vec<(usize, usize)> = found.iter().filter_map(|m| m.found.as_ref().map(|(s, _)| (m.entry, s.slot))).collect();
+    got.sort();
+    let mut w = want.clone();
+    w.sort();
+    assert_eq!(got, w, "matched (entry, slot) pairs");
+    // No ambiguity: each entry passes its rule with one clip only, and no clip serves two entries.
+    for m in &found {
+        assert!(m.ambiguous.is_empty(), "entry {} also matches {:?}", m.entry, m.ambiguous);
+    }
+    let mut slots: Vec<usize> = got.iter().map(|p| p.1).collect();
+    slots.dedup();
+    assert_eq!(slots.len(), got.len(), "a clip serves two KH1 entries");
+    // Margins.
+    let bakes: Vec<f64> = found.iter().filter_map(|m| m.found.as_ref().filter(|f| f.1 == MatchKind::Bake).map(|f| f.0.match_error())).collect();
+    let worst_bake = bakes.iter().copied().fold(0.0, f64::max);
+    let edited: Vec<(usize, usize, Vec<usize>)> = found.iter().filter_map(|m| m.found.as_ref().filter(|f| f.1 == MatchKind::Edited).map(|f| (m.entry, f.0.slot, f.0.disagreeing()))).collect();
+    let worst_edit = edited.iter().map(|x| x.2.len()).max().unwrap_or(0);
+    let closest_other = found.iter().filter_map(|m| m.runner_up.as_ref().map(|r| (r.disagreeing().len(), m.entry, r.slot))).min().unwrap();
+    let bake_slots: Vec<usize> = found.iter().filter_map(|m| m.found.as_ref().filter(|f| f.1 == MatchKind::Bake).map(|f| f.0.slot)).collect();
+    // Every pair (not just runner-ups) on a clip that is no bake and not the entry's own match.
+    let mut free_other = (usize::MAX, 0, 0);
+    for (q, m) in qs.iter().zip(&found) {
+        let fit: Vec<_> = clips.iter().filter(|c| frames_fit(c.frames, q.motion.frames) && !bake_slots.contains(&c.slot) && m.found.as_ref().is_none_or(|f| f.0.slot != c.slot)).collect();
+        let Some(n) = fit.iter().map(|c| c.frames).max() else { continue };
+        let kh1 = kh1_locals(&conv, q.motion, q.root_motion, n);
+        for c in fit {
+            free_other = free_other.min((score(&kh1, c).disagreeing().len(), q.entry, c.slot));
+        }
+    }
+    let unmatched_best = found.iter().filter(|m| m.found.is_none()).filter_map(|m| m.runner_up.as_ref().map(|r| (r.disagreeing().len(), m.entry, r.slot))).min();
+    eprintln!(
+        "(f) {} of {} KH1 entries found in Re:CoM ({} bakes, worst bake error {worst_bake:.4}°; {} edited, at most {worst_edit} bones: {:?}); closest non-chosen pair {} bones (entry, slot) {:?}; closest clip for an unmatched entry {:?}; closest pair on a clip that is no bake {:?}; {:.2}s",
+        got.len(),
+        found.len(),
+        bakes.len(),
+        edited.len(),
+        edited.iter().map(|x| (x.0, x.1, x.2.len())).collect::<Vec<_>>(),
+        closest_other.0,
+        (closest_other.1, closest_other.2),
+        unmatched_best,
+        free_other,
+        el.as_secs_f64()
+    );
+    assert!(worst_bake < 0.75, "{worst_bake}");
+    assert!(worst_edit <= 16, "{worst_edit}");
+    // Every runner-up is clearly not the motion: ≥ 17 bones (76/77/78 against each other's
+    // bakes), and an unmatched entry's closest clip ≥ 26 (86/87 against 84's bake).
+    assert!(closest_other.0 >= 17, "{closest_other:?}");
+    assert!(unmatched_best.is_none_or(|u| u.0 >= 26), "{unmatched_best:?}");
+    assert!(free_other.0 > 3 * MAX_EDITED_BONES, "{free_other:?}");
 }

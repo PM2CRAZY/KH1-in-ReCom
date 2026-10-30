@@ -1,13 +1,14 @@
 //! `kh1-recom-build`: the asset build step. Reads the player's own KH 1.5+2.5 folder (KH1's
-//! and Re:CoM's archives) and writes `<mod>/recom/PLAYER/0001/PL0001.ANN` and
-//! `<mod>/recom/PLAYER/0002/PL0002.ANN` (both extended) and `<mod>/recom/kh1-motions.json` into
-//! Panacea's Re:CoM mod folder.
+//! and Re:CoM's archives) and writes `<mod>/recom/kh1-motions.json` (the KH1 entry → Re:CoM
+//! slot map) and, when some KH1 motion is not in Re:CoM, `<mod>/recom/PLAYER/0001/PL0001.ANN`
+//! and `<mod>/recom/PLAYER/0002/PL0002.ANN` (both extended) into Panacea's Re:CoM mod folder.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use kh1_recom_assets::build::{build, BuildOptions, Inputs};
+use kh1_recom_assets::ann::Ann;
+use kh1_recom_assets::build::{build, BuildOptions, Inputs, RECOM_SORA_SLOTS};
 use kh1_recom_assets::install;
 
 const USAGE: &str = "usage: kh1-recom-build [--game <KH 1.5+2.5 folder>] [--mod-dir <Panacea mod_path>] [--out <file.ANN>]
@@ -17,7 +18,7 @@ const USAGE: &str = "usage: kh1-recom-build [--game <KH 1.5+2.5 folder>] [--mod-
   --mod-dir  Panacea's mod_path; default: mod_path= from <game>/panacea_settings.txt
   --out      write Sora's pack here (PL0002.ANN and the manifest next to it) instead of
              <mod>/recom/PLAYER/000{1,2}/PL000{1,2}.ANN and <mod>/recom/kh1-motions.json
-  --loop / --once   force KH1 entries to loop / play once (default: KH1 pose at N = pose at 0)
+  --loop / --once   force new KH1 clips to loop / play once (default: KH1 pose at N = pose at 0)
   --dry-run  convert and report, write nothing";
 
 fn main() -> ExitCode {
@@ -88,22 +89,25 @@ fn run() -> Result<(), String> {
     let t1 = Instant::now();
     let built = build(&Inputs { mset, mdls, ann, mdl, weapon }, &opt).map_err(|e| e.to_string())?;
     let t_conv = t1.elapsed();
-    let n_loop = built.entries.iter().filter(|e| e.looped).count();
-    let n_root = built.entries.iter().filter(|e| e.root_motion).count();
+    let n_recom = built.recom_entries();
+    let n_new = built.new_slots();
+    let n_edit = built.entries.iter().filter(|e| e.match_kind == Some(kh1_recom_assets::matching::MatchKind::Edited)).count();
     println!(
-        "converted {} KH1 motions into slots {}..{} ({} loop, {} root motion); pack {} bytes ({} slots); read {:.2}s, convert {:.2}s",
+        "{} KH1 motions: {} play Re:CoM's own clips ({} bakes, {} with Re:CoM edits), {} get new slots {}; read {:.2}s, match + convert {:.2}s",
         built.entries.len(),
-        built.base_slots,
-        built.ann.slots.len() - 1,
-        n_loop,
-        n_root,
-        built.bytes.len(),
-        built.ann.slots.len(),
+        n_recom,
+        n_recom - n_edit,
+        n_edit,
+        n_new,
+        if built.changed { format!("{}..{} (pack {} bytes, {} slots)", built.base_slots, built.ann.slots.len() - 1, built.bytes.len(), built.ann.slots.len()) } else { "(none: Re:CoM's packs are left as they are)".into() },
         t_read.as_secs_f64(),
         t_conv.as_secs_f64()
     );
+    for e in built.entries.iter().filter(|e| !e.ambiguous.is_empty()) {
+        println!("note: KH1 entry {} also matches Re:CoM slots {:?} (chose {})", e.kh1_entry, e.ambiguous, e.slot);
+    }
     if let Some(w) = &built.weapon {
-        println!("Keyblade: {} clips into slots {}..{}; pack {} bytes ({} slots)", built.entries.len(), built.base_slots, w.ann.slots.len() - 1, w.bytes.len(), w.ann.slots.len());
+        println!("Keyblade: {} new clips; pack {} bytes ({} slots)", n_new, w.bytes.len(), w.ann.slots.len());
     }
     if dry {
         return Ok(());
@@ -123,22 +127,48 @@ fn run() -> Result<(), String> {
             (install::mod_file(&m, install::SORA_ANN), install::mod_file(&m, install::KEYBLADE_ANN), install::recom_dir(&m).join(install::MANIFEST))
         }
     };
-    if let Some(w) = &built.weapon {
-        if wep_path == ann_path {
-            return Err("--out must not be named PL0002.ANN".into());
-        }
-        if let Some(dir) = wep_path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
-        std::fs::write(&wep_path, &w.bytes).map_err(|e| format!("{}: {e}", wep_path.display()))?;
-        println!("wrote {} ({} bytes)", wep_path.display(), w.bytes.len());
+    if wep_path == ann_path {
+        return Err("--out must not be named PL0002.ANN".into());
     }
-    if let Some(dir) = ann_path.parent() {
+    if built.changed {
+        if let Some(w) = &built.weapon {
+            write(&wep_path, &w.bytes)?;
+        }
+        write(&ann_path, &built.bytes)?;
+    } else {
+        // Nothing new: Panacea serves Re:CoM's own files. Remove packs an earlier run left.
+        for p in [&ann_path, &wep_path] {
+            remove_stale(p)?;
+        }
+    }
+    if let Some(dir) = man.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    std::fs::write(&ann_path, &built.bytes).map_err(|e| format!("{}: {e}", ann_path.display()))?;
     let json = built.manifest_json(&sources.iter().map(|(k, v)| (*k, v.clone())).collect::<Vec<_>>());
     std::fs::write(&man, &json).map_err(|e| format!("{}: {e}", man.display()))?;
-    println!("wrote {} ({} bytes)\nwrote {} ({} bytes)", ann_path.display(), built.bytes.len(), man.display(), json.len());
+    println!("wrote {} ({} bytes)", man.display(), json.len());
+    Ok(())
+}
+
+fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    println!("wrote {} ({} bytes)", path.display(), bytes.len());
+    Ok(())
+}
+
+/// Deletes `path` only if it is a pack this step wrote earlier (an `.ANN` with more than
+/// Re:CoM's 161 slots; Re:CoM's own have 161 and 158); anything else is left alone.
+fn remove_stale(path: &Path) -> Result<(), String> {
+    let Ok(b) = std::fs::read(path) else { return Ok(()) };
+    let ours = Ann::parse(&b).is_ok_and(|a| a.slots.len() > RECOM_SORA_SLOTS);
+    if ours {
+        std::fs::remove_file(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        println!("removed {} (an earlier extended pack; Re:CoM's own is used now)", path.display());
+    } else {
+        println!("note: {} exists and was not written by this step; left as it is", path.display());
+    }
     Ok(())
 }
