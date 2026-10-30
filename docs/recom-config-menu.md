@@ -150,7 +150,8 @@ owner decision, 2026-10-30; see `recom-motion-switch.md`):
   (the message table is bypassed, not changed). Seen in game (owner's screenshot,
   2026-10-30): the rows render with Re:CoM's buttons, text and highlights. Checked (in game).
 - **Help line:** with the cursor on our row the help line shows our text
-  ("Re:CoM: card battles as in the original. KH1: Kingdom Hearts combat."). Mode 9 of the
+  ("Re:CoM: card battles as in the original. KH1: Kingdom Hearts combat. (mod v0.6.2)"; the
+  version is the DLL's own, built in from `Cargo.toml` since 0.6.2). Mode 9 of the
   original first sets help `0x50041A` (its highlighted item index stays 0 when the cursor is
   on row 5), then our hook sets ours on the same help object. `0x140259000` keeps the pointer
   as is when `help+0x9C` is 0, else formats it with `0x1402402B0`; our text is static and has

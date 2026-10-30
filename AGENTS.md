@@ -11,6 +11,26 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 11: mod version on the Combat row's help line, version 0.6.2 (2026-10-30)
+
+> "also make it so hovering over the recom/kh1 config option shows the mod version as well"
+
+- Address: the help line `camp+0x9D0`, set with `0x140259000` by our Config draw hook
+  (`0x1400DF1B0`), unchanged since Stage 6. Checked (decomp).
+- Change: the Combat row's help text now ends with "(mod v<version>)". The version comes from
+  `crates/kh1-recom/Cargo.toml` at build time, so it is the same as the log's first line. The
+  text stays static, NUL-terminated ASCII with no `%`, so `0x140259000` keeps the pointer as
+  before. A unit test checks the suffix. Checked (test).
+- Assumption: the longer line (82 characters) fits the help box without being cut off. Not
+  seen in game yet.
+- Also in this build: the 0.6.1 swing / guard / roll fix (Stage 10). The owner's 0.6.0
+  retest (traces 3-6) ran 0.6.0, because the DLL installed on the PC was copied before the
+  build bot had built 0.6.1. Those traces show the Stage 10 fault in all 9 moves (attack:
+  action 0xA; guard: action 6 sub 1; roll: action 6 sub 0), and the Stage 10 hook covers
+  actions 6 and 0xA. Checked (trace).
+
+---
+
 ## Stage 10: fix the swing / roll position jump, version 0.6.1 (2026-10-30)
 
 > "sora cant do his ground combo, it either makes him jump or teleport or just jitter

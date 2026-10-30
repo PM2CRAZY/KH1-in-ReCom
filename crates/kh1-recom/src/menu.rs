@@ -94,7 +94,12 @@ pub const TEXT: [RowText; ROWS] = [
     RowText {
         label: b"Combat\0",
         options: [b"Re:CoM\0", b"KH1\0"],
-        help: b"Re:CoM: card battles as in the original. KH1: Kingdom Hearts combat.\0",
+        help: concat!(
+            "Re:CoM: card battles as in the original. KH1: Kingdom Hearts combat. (mod v",
+            env!("CARGO_PKG_VERSION"),
+            ")\0"
+        )
+        .as_bytes(),
     },
 ];
 
@@ -310,6 +315,12 @@ mod tests {
             }
         }
         assert!(selected(true, 1) && !selected(true, 0) && selected(false, 0));
+    }
+
+    #[test]
+    fn combat_help_shows_the_mod_version() {
+        let help = std::str::from_utf8(TEXT[0].help).unwrap();
+        assert!(help.ends_with(&format!("(mod v{})\0", crate::VERSION)), "{help}");
     }
 
     #[test]
