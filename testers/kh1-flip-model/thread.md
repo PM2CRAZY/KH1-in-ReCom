@@ -55,3 +55,15 @@
 > 1:1 check: checked the writer against every KH1 model and HD mesh in your install, byte for
 > byte (files), and Panacea's raw-file route against OpenKH's source. Couldn't check whether KH1
 > loads and draws the files, because that needs the game running. That's this test.
+
+**Owner (in chat, relayed):** step 1: "the shadows showed up normally". Panacea's console wasn't
+visible, so the `LoadFile` line couldn't be checked.
+
+> [!tip] Assistant
+> Step 1 passed: KH1 ran with our rebuilt Shadow in place with no crash and normal Shadows. That
+> doesn't yet prove KH1 read our file and not its own, because the two look the same. I've
+> swapped in `big` (`mod\kh1\raw\xa_ex_2020.mdls`). Puffed-up Shadows in step 2 prove both: KH1
+> loaded our file, and it draws what our writer changed.
+>
+> 1:1 check: none applies (no gameplay values change). Couldn't check the console line (window
+> not found).
