@@ -192,8 +192,14 @@ At KH1 setting:
       come from **KH2** (the player's KH2 files): KH2's model, Strength and Magic. Reach is
       measured from the KH2 model's blade length; radius, critical rate / bonus and priority are
       the Kingdom Key's.
-    - Soul Eater uses **KH1 Riku's** Soul Eater model. Its numbers are still open.
-    - Order: owning and equipping, then KH1 models, then KH2 models and stats, then Soul Eater.
+    - Unlock rule: **ever earned** (Re:CoM's discovery state `0x14015B3F0`, normal or premium).
+      The Kingdom Key is always unlocked.
+    - **Soul Eater is not for Sora** (owner, 2026-10-31): Re:CoM never gives Sora its card
+      (Riku-only, `0x1401592D0`), so it stays out of his list.
+    - The entry is **hidden in Riku's story**.
+    - The equipped Keyblade is one byte in Re:CoM's save block (`save + 0x2674`, a range no code
+      uses; `docs/recom-keyblade-equip.md`).
+    - Order: owning and equipping, then KH1 models, then KH2 models and stats.
 
 ## Known open design questions (ask the owner, don't guess)
 
