@@ -212,6 +212,16 @@ At KH1 setting:
     (`0x14017DA80`) is skipped, for every attacker (option "Enemies stay hittable", not KH1
     swings only), **bosses included**.
 
+27. Enemy reactions to Guard (owner, 2026-10-31; completes decision 20), behind a new Config row
+    "Guard reactions", **on by default**, only at the KH1 setting:
+    - a blocked **melee** attacker plays **Re:CoM's own flinch** (state 11 via `0x14017D260(enemy,
+      1)`; its card ends first). KH1 plays a per-attack recoil that Re:CoM has no data for, so
+      the flinch is a stand-in;
+    - a blocked **shot flies back and hurts enemies** with Re:CoM's damage (not KH1: KH1's
+      blocked shots change side and never hit again);
+    - **bosses and duels included**.
+    Research: `guard-enemy-reactions.md` (kept with the decomp tools).
+
 ## Known open design questions (ask the owner, don't guess)
 
 - Revisit later: party, progression.
