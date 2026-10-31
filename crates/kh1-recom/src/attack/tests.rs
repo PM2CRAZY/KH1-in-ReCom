@@ -100,16 +100,16 @@ fn kh1_damage_uses_the_twins_defence_curve() {
     let m = Moveset::kh1_defaults();
     let mut rng = kh1_core::Kh1Rand::new(1);
     // Defence 8, Strength 10 swing → curve[2] = 2.
-    assert_eq!(kh1_damage(&m, 13, 10, &twin(8), &mut rng).unwrap().damage, 2);
+    assert_eq!(kh1_damage(&m, 13, 10, &WeaponData::kingdom_key(), &twin(8), &mut rng).unwrap().damage, 2);
     // The finisher adds 4 power → curve[6] = 6 (or a critical 10 + 4 → curve[10] = 12).
     for _ in 0..20 {
-        let d = kh1_damage(&m, 8, 10, &twin(8), &mut rng).unwrap();
+        let d = kh1_damage(&m, 8, 10, &WeaponData::kingdom_key(), &twin(8), &mut rng).unwrap();
         assert_eq!(d.damage, if d.critical { 12 } else { 6 });
     }
     // A cap of 1 per hit (KH1's record +0x10) holds.
     let mut capped = twin(0);
     capped.max_damage = 1;
-    assert_eq!(kh1_damage(&m, 8, 40, &capped, &mut rng).unwrap().damage, 1);
+    assert_eq!(kh1_damage(&m, 8, 40, &WeaponData::kingdom_key(), &capped, &mut rng).unwrap().damage, 1);
 }
 
 #[test]
@@ -124,6 +124,16 @@ fn stats_json_reads_the_asset_steps_format() {
     // Format 1 (no lock radius) still reads; the radius is then unknown.
     let old = parse_stats(&t.replace(r#""lock_radius": 30, "#, "")).unwrap();
     assert_eq!(old.lock_radius("CEnemyShadow"), None);
+    // Format 3: base Strength plus the equipped Keyblade's, and the Keyblade rows.
+    assert_eq!(s.strength_with(1, &WeaponData::kingdom_key()), Some(7), "format 2: the Kingdom Key's table");
+    let base = (1..=100).map(|l| (3 + l).to_string()).collect::<Vec<_>>().join(", ");
+    let kb = r#"{"card": 15, "name": "Ultima Weapon", "source": "kh1", "kh1_item": 100, "model": "xw_ex_5160", "radius": 50, "blade_far": -5.6, "blade_near": 0, "frac_scale": 0.8, "strength": 14, "crit": 40, "crit_bonus": 2, "priority": 90, "magic": 2}"#;
+    let v3 = parse_stats(&t.replace(r#""sora_strength""#, &format!(r#""sora_base_strength": [{base}], "keyblades": [{kb}], "sora_strength""#))).unwrap();
+    let u = v3.keyblade(15).unwrap();
+    assert_eq!((u.name.as_str(), u.weapon.radius, u.weapon.strength, u.weapon.priority, u.magic), ("Ultima Weapon", 50.0, 14, 90, 2));
+    assert_eq!(v3.strength_with(1, &u.weapon), Some(4 + 14));
+    assert_eq!(v3.strength_with(1, &WeaponData::kingdom_key()), Some(4 + 3));
+    assert!(v3.keyblade(4).is_none());
     assert_eq!(s.strength(1), Some(7));
     assert_eq!(s.strength(150), Some(106));
     assert_eq!(s.twin("CEnemyShadow", 1).unwrap().defence, 8);

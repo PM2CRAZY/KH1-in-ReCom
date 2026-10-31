@@ -3,6 +3,7 @@
 
 mod attack;
 mod hook;
+mod keyblades;
 mod menu;
 mod movement;
 mod stats;
@@ -208,6 +209,25 @@ fn install_attack(base: usize, s: &Settings, stats_file: Option<&Path>) {
     }
 }
 
+/// The camp menu's "Keyblades" entry (`keyblades`, decision 25): four camp wrappers, all or
+/// nothing. Needs the Config input hook (the page runs through it), so it is installed only
+/// after that one. Whether the entry shows is decided each time Re:CoM builds the list.
+fn install_keyblades(base: usize) {
+    let site = |name: &str| crate::sites::KEYBLADE_HOOKS.iter().find(|h| h.name == name).expect("site");
+    let hooks = [
+        hook::Hook { site: site("camp update (0x1400D9C80)"), ours: keyblades::camp_update as *const () as usize, original: &keyblades::ORIG_UPDATE },
+        hook::Hook { site: site("camp entry build (0x1400E3DE0)"), ours: keyblades::entry_build as *const () as usize, original: &keyblades::ORIG_BUILD },
+        hook::Hook { site: site("camp cursor set (0x1400DEA10)"), ours: keyblades::cursor_set as *const () as usize, original: &keyblades::ORIG_CURSOR },
+        hook::Hook { site: site("camp teardown (0x1400D7C20)"), ours: keyblades::teardown as *const () as usize, original: &keyblades::ORIG_TEARDOWN },
+    ];
+    // SAFETY: the targets' bytes are checked again inside, before anything is written.
+    if unsafe { hook::install_all(base, &hooks) } {
+        log("keyblades: camp wrappers in; the 8th entry shows at Combat = KH1 in Sora's story");
+    } else {
+        log("keyblades: not hooked; no Keyblades entry (the Kingdom Key's numbers stand)");
+    }
+}
+
 /// KH1 damage and HP on Re:CoM's KH1-equivalent enemies (`stats`): needs `kh1-stats.json`.
 fn install_stats(base: usize, stats_file: Option<&Path>) {
     if !stats::load(stats_file) {
@@ -312,11 +332,12 @@ fn run(mod_dir: Option<PathBuf>) {
         // SAFETY: the targets' bytes are checked again inside, before anything is written.
         if unsafe { hook::install_all(base, &hooks) } {
             log("config menu: row added (camp menu > Config, below Re:CoM's rows)");
+            install_keyblades(base);
         } else {
             log("config menu: not hooked; use kh1-recom.ini");
         }
     } else {
-        log("config menu: off in the ini; Re:CoM's menu untouched");
+        log("config menu: off in the ini; Re:CoM's menu untouched (no Keyblades entry either)");
     }
 
     let dll_dir = dll.parent().map(Path::to_path_buf).unwrap_or_default();

@@ -27,7 +27,7 @@ use crate::attack::{self as atk, field};
 use crate::movement::SwingStart;
 use crate::sites::data;
 use crate::units::to_kh1;
-use kh1_core::{Moveset, TargetPart, Vec3, WeaponData};
+use kh1_core::{Moveset, TargetPart, Vec3};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -406,14 +406,15 @@ pub unsafe extern "win64" fn pair_dispatch(coll: usize, list: usize) -> i32 {
     if weapon == 0 || coll != weapon + 0x240 || shape == 0 {
         return o(coll, list);
     }
-    let Some(live) = atk::live_attack(moveset(), kh1_row, &WeaponData::kingdom_key()) else { return o(coll, list) };
+    let kh1_weapon = super::stats::equipped_weapon();
+    let Some(live) = atk::live_attack(moveset(), kh1_row, &kh1_weapon) else { return o(coll, list) };
     let bone = func::<BoneFn>(ACTOR_BONE);
     let (b2, b3) = (bone(weapon, 2), bone(weapon, 3));
     if b2 == 0 || b3 == 0 {
         return o(coll, list);
     }
     let (w2, w3) = (rd_vec(b2 + 0xD0), rd_vec(b3 + 0xD0));
-    let (a, bp) = atk::blade_points(w2, w3, &live, &WeaponData::kingdom_key());
+    let (a, bp) = atk::blade_points(w2, w3, &live, &kh1_weapon);
     let serial: i32 = rd(coll + 0x70);
     let prev = BLADE.lock().map(|mut t| t.frame(serial, a)).unwrap_or(None);
     // Assumption: Sora's centre for the first frame's sweep is `player+0x4B0` (the attack origin

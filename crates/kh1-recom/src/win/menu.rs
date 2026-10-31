@@ -11,6 +11,9 @@
 //!   animation (0, 1, 4) it sets the bottom edge offset of the panel's 9-slice sprites, so
 //!   Re:CoM's own sprite code draws the panel one row taller (`menu::panel`).
 //!
+//! `cfg_input` also runs the Keyblades page (`keyblades`, the camp's 8th entry), which Re:CoM's
+//! camp opens through these same Config states.
+//!
 //! Offsets and calls: `docs/recom-config-menu.md`. Checked (decomp + disasm) unless noted.
 
 use super::{base, log, va};
@@ -102,6 +105,11 @@ fn row_value(_k: usize) -> bool {
 /// Hook on `0x1400D3EB0` (the Config screen's input/state function).
 pub unsafe extern "win64" fn cfg_input(camp: *mut u8) -> u64 {
     let orig: InputFn = std::mem::transmute(ORIG_INPUT.load(Ordering::Acquire));
+    // Before anything else: the camp's Config states 0x4A..0x4C run the Keyblades page when the
+    // cursor is on our 8th entry (`keyblades`); Re:CoM's Config screen is never touched then.
+    if super::keyblades::page_active(camp) {
+        return super::keyblades::page(camp);
+    }
     if camp.is_null() || rd::<i32>(camp, STATE) != 2 {
         return orig(camp);
     }

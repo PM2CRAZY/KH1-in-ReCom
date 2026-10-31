@@ -15,6 +15,7 @@
 use super::movement::{orig, rd, wr};
 use super::{base, log, va};
 use crate::attack::{EnemyStats, Kh1Stats};
+use kh1_core::WeaponData;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Mutex, OnceLock};
 
@@ -208,12 +209,57 @@ pub unsafe extern "win64" fn max_hp(enemy: usize) -> i32 {
     orig::<MaxHpFn>(&ORIG_MAX_HP)(enemy)
 }
 
+/// The Keyblades the stats file has numbers for, by Re:CoM card kind (format 3; empty before).
+pub fn keyblade_cards() -> Vec<u16> {
+    STATS.get().map(|s| s.keyblades.iter().map(|k| k.card).collect()).unwrap_or_default()
+}
+
+/// A Keyblade's numbers by Re:CoM card kind.
+pub fn keyblade(card: u16) -> Option<&'static crate::attack::Keyblade> {
+    STATS.get()?.keyblade(card)
+}
+
+/// The equipped Keyblade at the KH1 setting (decision 25), by Re:CoM's card kind: the byte the
+/// camp menu's Keyblades page writes in Re:CoM's own save block (`save + 0x2674`,
+/// `keyblades::EQUIP_OFFSET`), validated (`keyblades::equipped_card`): the Kingdom Key when it is
+/// 0, out of range, Soul Eater, or a Keyblade without numbers. One pointer read; Re:CoM saves,
+/// loads, snapshots and zeroes the byte itself.
+pub fn equipped_card() -> u16 {
+    // SAFETY: a static pointer of the image, then a byte inside the 0x2AD4-byte block it points at.
+    let byte = unsafe {
+        let save: usize = rd(va(base(), crate::keyblades::SAVE_PTR));
+        if save == 0 {
+            return crate::keyblades::KINGDOM_KEY;
+        }
+        rd::<u8>(save + crate::keyblades::EQUIP_OFFSET)
+    };
+    crate::keyblades::equipped_card(byte, |c| keyblade(c).is_some())
+}
+
+/// Writes the equipped Keyblade into the save block (the Keyblades page's confirm).
+pub fn set_equipped(card: u16) {
+    // SAFETY: as above.
+    unsafe {
+        let save: usize = rd(va(base(), crate::keyblades::SAVE_PTR));
+        if save != 0 {
+            wr::<u8>(save + crate::keyblades::EQUIP_OFFSET, crate::keyblades::save_byte_for(card));
+        }
+    }
+}
+
+/// The equipped Keyblade's KH1 weapon numbers; the Kingdom Key's when the stats file has no
+/// Keyblade rows (format 1–2).
+pub fn equipped_weapon() -> WeaponData {
+    keyblade(equipped_card()).map(|k| k.weapon.clone()).unwrap_or_else(WeaponData::kingdom_key)
+}
+
 /// KH1's damage for Sora's swing row on this enemy's twin, or None (Re:CoM's number stands).
 pub fn kh1_hit(enemy: usize, kh1_row: usize, sora_level: u32) -> Option<i32> {
     let (_, t) = twin(enemy)?;
-    let strength = STATS.get()?.strength(sora_level)?;
+    let w = equipped_weapon();
+    let strength = STATS.get()?.strength_with(sora_level, &w)?;
     let mut g = RNG.lock().ok()?;
     let rng = g.get_or_insert_with(|| kh1_core::Kh1Rand::new(1));
-    let d = crate::attack::kh1_damage(super::attack::moveset(), kh1_row, strength, t, rng)?;
+    let d = crate::attack::kh1_damage(super::attack::moveset(), kh1_row, strength, &w, t, rng)?;
     Some(d.damage)
 }

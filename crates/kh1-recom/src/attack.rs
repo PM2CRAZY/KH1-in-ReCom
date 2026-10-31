@@ -471,11 +471,11 @@ pub struct EnemyStats {
 
 /// The KH1 swing damage against a KH1 twin's stats (`0x1402BFA80` through kh1-core), before
 /// Re:CoM's extras (back bonus, weak part, boss falloff) which its own damage path applies.
-pub fn kh1_damage(m: &Moveset, kh1_row: usize, strength: i32, twin: &EnemyStats, rng: &mut kh1_core::Kh1Rand) -> Option<kh1_core::DamageResult> {
+pub fn kh1_damage(m: &Moveset, kh1_row: usize, strength: i32, weapon: &WeaponData, twin: &EnemyStats, rng: &mut kh1_core::Kh1Rand) -> Option<kh1_core::DamageResult> {
     let rw = m.row(kh1_row)?;
     let data = m.attack(rw.attack)?;
     let attacker = AttackerStats { strength, ..Default::default() };
-    let live = LiveAttack::new(data, &WeaponData::kingdom_key(), &attacker, 1.0);
+    let live = LiveAttack::new(data, weapon, &attacker, 1.0);
     let mut resist = [1.0f32; 16];
     for (r, v) in resist.iter_mut().zip(twin.resist.iter()) {
         *r = *v as f32 / 100.0;
@@ -484,11 +484,30 @@ pub fn kh1_damage(m: &Moveset, kh1_row: usize, strength: i32, twin: &EnemyStats,
     Some(kh1_core::damage::compute_damage(&live, &kh1_core::DamageCurve::kh1_defaults(), &stats, rng))
 }
 
+/// One Keyblade Sora can equip at the KH1 setting (decision 25), keyed by Re:CoM's Keyblade card
+/// kind (1 Kingdom Key … 0x18 Bond of Flame; table `0x1405256D0`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Keyblade {
+    pub card: u16,
+    pub name: String,
+    /// Where its numbers and model come from: `kh1` (KH1's weapon row), later `kh2`.
+    pub source: String,
+    pub model: String,
+    pub weapon: WeaponData,
+    /// KH1 weapon row `+0x38`: the Magic bonus.
+    pub magic: i32,
+}
+
 /// `kh1-stats.json` (written by the asset step, `kh1-recom-assets` `stats`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Kh1Stats {
-    /// Sora's KH1 Strength at levels 1..=100 (keep Rod, give up Shield; decision 18).
+    /// Sora's KH1 Strength at levels 1..=100 with the Kingdom Key (keep Rod, give up Shield;
+    /// decision 18).
     pub sora_strength: Vec<i32>,
+    /// The same without a Keyblade (format 3): the equipped one's Strength is added.
+    pub base_strength: Vec<i32>,
+    /// The Keyblades with KH1 numbers (format 3).
+    pub keyblades: Vec<Keyblade>,
     /// Re:CoM class name → its twin's record per Re:CoM world id 1..=13.
     pub enemies: Vec<(String, Vec<EnemyStats>)>,
     /// Re:CoM class name → its twin's first kind-0 lock-point radius (KH1 units), the radius
@@ -500,6 +519,18 @@ impl Kh1Stats {
     /// Sora's KH1 Strength at a Re:CoM level (clamped to 1..=100).
     pub fn strength(&self, level: u32) -> Option<i32> {
         self.sora_strength.get(level.clamp(1, 100) as usize - 1).copied()
+    }
+    /// Sora's KH1 Strength at a Re:CoM level with this Keyblade's Strength bonus. Older files
+    /// (no base Strength) only know the Kingdom Key's.
+    pub fn strength_with(&self, level: u32, weapon: &WeaponData) -> Option<i32> {
+        if self.base_strength.len() == 100 {
+            return self.base_strength.get(level.clamp(1, 100) as usize - 1).map(|b| b + weapon.strength);
+        }
+        self.strength(level)
+    }
+    /// A Keyblade by Re:CoM's card kind.
+    pub fn keyblade(&self, card: u16) -> Option<&Keyblade> {
+        self.keyblades.iter().find(|k| k.card == card)
     }
     /// The twin record for a Re:CoM class in a Re:CoM world (1-based). Worlds outside 1..=13
     /// (none, special floors) give nothing: Re:CoM's own numbers stand.
@@ -524,6 +555,35 @@ pub fn parse_stats(text: &str) -> Result<Kh1Stats, String> {
     let sora_strength = ints(v.get("sora_strength").ok_or("no `sora_strength`")?, "sora_strength")?;
     if sora_strength.len() != 100 {
         return Err(format!("`sora_strength` has {} levels, not 100", sora_strength.len()));
+    }
+    let base_strength = match v.get("sora_base_strength") {
+        Some(b) => ints(b, "sora_base_strength")?,
+        None => Vec::new(),
+    };
+    if !base_strength.is_empty() && base_strength.len() != 100 {
+        return Err(format!("`sora_base_strength` has {} levels, not 100", base_strength.len()));
+    }
+    let mut keyblades = Vec::new();
+    for k in v.get("keyblades").and_then(|k| k.as_array()).unwrap_or(&[]) {
+        let name = k.get("name").and_then(|n| n.as_str()).ok_or("keyblade without `name`")?.to_string();
+        let num = |f: &str| k.get(f).and_then(|x| x.as_f64()).ok_or_else(|| format!("{name}: no `{f}`"));
+        keyblades.push(Keyblade {
+            card: num("card")? as u16,
+            source: k.get("source").and_then(|x| x.as_str()).unwrap_or("kh1").to_string(),
+            model: k.get("model").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            weapon: WeaponData {
+                radius: num("radius")? as f32,
+                blade_far: num("blade_far")? as f32,
+                blade_near: num("blade_near")? as f32,
+                frac_scale: num("frac_scale")? as f32,
+                strength: num("strength")? as i32,
+                crit: num("crit")? as u8,
+                crit_bonus: num("crit_bonus")? as i8,
+                priority: num("priority")? as u8,
+            },
+            magic: num("magic")? as i32,
+            name,
+        });
     }
     let mut enemies = Vec::new();
     let mut lock_radius = Vec::new();
@@ -556,7 +616,7 @@ pub fn parse_stats(text: &str) -> Result<Kh1Stats, String> {
         }
         enemies.push((class, worlds));
     }
-    Ok(Kh1Stats { sora_strength, enemies, lock_radius })
+    Ok(Kh1Stats { sora_strength, base_strength, keyblades, enemies, lock_radius })
 }
 
 #[cfg(test)]

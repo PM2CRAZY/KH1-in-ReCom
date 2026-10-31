@@ -470,3 +470,16 @@ fn f_matching_finds_recom_bakes() {
     assert!(unmatched_best.is_none_or(|u| u.0 >= 26), "{unmatched_best:?}");
     assert!(free_other.0 > 3 * MAX_EDITED_BONES, "{free_other:?}");
 }
+
+/// The `keyblades` array from KH1's own `btltbl.bin` (decision 25).
+#[test]
+fn keyblades_from_kh1s_weapon_table() {
+    let Some(dir) = std::env::var_os("KH1_TEST_DATA").map(PathBuf::from) else { return };
+    let Ok(b) = std::fs::read(dir.join("btltbl.bin")) else { return };
+    let t = kh1_formats::btltbl::Btltbl::parse(b).unwrap();
+    let j = kh1_recom_assets::stats::keyblades_json(&t).unwrap();
+    assert_eq!(j.matches("\"source\": \"kh1\"").count(), 17);
+    assert!(j.contains("\"card\": 1, \"name\": \"Kingdom Key\", \"source\": \"kh1\", \"kh1_item\": 81, \"model\": \"xw_ex_5010\", \"radius\": 40"));
+    assert!(j.contains("\"card\": 15, \"name\": \"Ultima Weapon\", \"source\": \"kh1\", \"kh1_item\": 100, \"model\": \"xw_ex_5160\", \"radius\": 50"));
+    assert!(j.contains("\"strength\": 14, \"crit\": 40, \"crit_bonus\": 2, \"priority\": 90, \"magic\": 2"));
+}

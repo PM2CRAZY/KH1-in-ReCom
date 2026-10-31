@@ -11,6 +11,32 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 19: Keyblades at the KH1 setting, step 1 (owning and equipping), version 0.8.0 (2026-10-31)
+
+> "a. Besides soul eater, every other keyblade should be from KH2 … incorporated NATIVELY in this
+> camp menu along with the KH1 keyblades" / unlock: "Ever earned" / Soul Eater: "Not for Sora" /
+> Riku's story: "Hide" / menu: "New camp entry" (decision 25)
+
+- Asset step: `kh1-stats.json` format 3 adds `keyblades` (the 17 KH1 Keyblades with Re:CoM
+  cards, by Re:CoM card kind 1..0x11, from KH1's weapon table: radius, reach, Strength, crit,
+  priority, magic) and `sora_base_strength` (without a Keyblade). Checked (files: Kingdom Key and
+  Ultima Weapon rows; names matched by KH1's item order and stats, Assumption for the names).
+- Runtime: the equipped Keyblade's KH1 numbers drive the blade test, the damage and Strength.
+  It is one byte at `save + 0x2674` (`*(u64*)0x14087B110`), a range of Re:CoM's save block no
+  code uses, which Re:CoM saves, checksums and zeroes itself (`recom-cards-save.md`). 0 = the
+  Kingdom Key. Checked (decomp + exe scan); the log checks the range on real saves.
+- Camp menu: an 8th entry "Keyblades" (KH1 setting, Sora's story, below Settings), through
+  wrappers on the camp update `0x1400D9C80`, the entry build `0x1400E3DE0`, the cursor set
+  `0x1400DEA10` and the teardown `0x1400D7C20` (all-or-nothing). Its page runs in Re:CoM's Config
+  states 0x4A..0x4C, built from Re:CoM's classes after the Status page `0x1400EB7E0`. Unlocked =
+  Re:CoM's "ever obtained" state `0x14015B3F0` (normal or premium); names from Re:CoM's card
+  names (`0x140164CA0`). Details and addresses: `docs/recom-keyblade-equip.md`.
+- Owner's screenshot: the 8th entry has room at Re:CoM's spacing (y ≈ 507 of 720).
+- Assumptions: object ownership on delete; the equipped mark (Re:CoM's row marker 0x1D); the
+  header title; the spare range on real saves. Not seen in game.
+
+---
+
 ## Stage 18: KH1's lunge distance uses the enemy's body radius, version 0.7.5 (2026-10-31)
 
 > "a then b then c" (owner: (a) the lunge distance, (b) KH1 hurtboxes on twins, (c) the

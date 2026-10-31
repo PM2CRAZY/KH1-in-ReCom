@@ -181,6 +181,46 @@ pub fn lock_radii(mdls: &[u8]) -> Result<Vec<f32>> {
     Ok(out)
 }
 
+/// The Keyblades KH1 has, by Re:CoM's Keyblade card kind (1 Kingdom Key … 0x18 Bond of Flame, in
+/// the order of the names at `0x1405060F0`; kind 0 is "no card"; per-kind table `0x1405256D0`,
+/// Checked (exe + decomp)), with their KH1 item ids. Matched by name; the item order and each row's Strength /
+/// Magic agree with KH1 FM's Keyblade list (e.g. Ultima Weapon +14 / +2, Oathkeeper +9 / +1,
+/// One-Winged Angel +8 / −2). Checked (files); the names themselves are an Assumption (KH1's
+/// item-name file not read). Decision 25: these 17 use KH1's rows and models.
+pub const KH1_KEYBLADES: &[(u8, &str, u16)] = &[
+    (1, "Kingdom Key", 0x51),
+    (2, "Three Wishes", 0x57),
+    (3, "Crabclaw", 0x5A),
+    (4, "Pumpkinhead", 0x59),
+    (5, "Fairy Harp", 0x58),
+    (6, "Wishing Star", 0x63),
+    (7, "Spellbinder", 0x5C),
+    (8, "Metal Chocobo", 0x5F),
+    (9, "Olympia", 0x5D),
+    (10, "Lionheart", 0x5E),
+    (11, "Lady Luck", 0x62),
+    (12, "Divine Rose", 0x5B),
+    (13, "Oathkeeper", 0x60),
+    (14, "Oblivion", 0x61),
+    (15, "Ultima Weapon", 0x64),
+    (16, "Diamond Dust", 0x65),
+    (17, "One-Winged Angel", 0x66),
+];
+
+/// The `keyblades` array: each KH1 Keyblade's weapon row (`btltbl` weapon table, 0x58-byte rows;
+/// `kh1-formats` `btltbl::Weapon`), keyed by Re:CoM's card kind.
+pub fn keyblades_json(t: &kh1_formats::btltbl::Btltbl) -> Result<String> {
+    let mut rows = Vec::new();
+    for (idx, name, item) in KH1_KEYBLADES {
+        let w = t.weapon_for_item(*item).map_err(|e| Error::Format(format!("{name}: {e}")))?;
+        rows.push(format!(
+            "    {{\"card\": {idx}, \"name\": \"{name}\", \"source\": \"kh1\", \"kh1_item\": {item}, \"model\": \"{}\", \"radius\": {}, \"blade_far\": {}, \"blade_near\": {}, \"frac_scale\": {}, \"strength\": {}, \"crit\": {}, \"crit_bonus\": {}, \"priority\": {}, \"magic\": {}}}",
+            w.model, w.radius, w.blade_far, w.blade_near, w.frac_scale, w.strength, w.crit, w.crit_bonus, w.priority, w.magic
+        ));
+    }
+    Ok(format!("  \"keyblades\": [\n{}\n  ],\n", rows.join(",\n")))
+}
+
 /// Reads one record from a script.
 pub fn record(script: &[u8], at: u32, btltbl: &[u8]) -> Result<Record> {
     let at = at as usize;
@@ -261,8 +301,13 @@ fn rec_json(r: &Record) -> String {
 /// Builds `kh1-stats.json`. `read` gives a KH1 file by name.
 pub fn build_json(read: &mut dyn FnMut(&str) -> Result<Vec<u8>>, btltbl: &[u8], keyblade_strength: i32) -> Result<(String, usize)> {
     let strength = sora_strength(btltbl, keyblade_strength)?;
-    let mut s = String::from("{\n  \"format\": \"kh1-recom-assets stats 2\",\n");
+    let base = sora_strength(btltbl, 0)?;
+    let parsed = kh1_formats::btltbl::Btltbl::parse(btltbl.to_vec()).map_err(|e| Error::Format(format!("btltbl.bin: {e}")))?;
+    let mut s = String::from("{\n  \"format\": \"kh1-recom-assets stats 3\",\n");
     s.push_str(&format!("  \"sora_strength\": [{}],\n", strength.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
+    // Without the Keyblade: the runtime adds the equipped one's Strength (decision 25).
+    s.push_str(&format!("  \"sora_base_strength\": [{}],\n", base.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
+    s.push_str(&keyblades_json(&parsed)?);
     s.push_str(&format!(
         "  \"worlds\": [{}],\n  \"enemies\": [\n",
         RECOM_WORLDS.iter().map(|w| format!("\"{}\"", w.0)).collect::<Vec<_>>().join(", ")

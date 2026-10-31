@@ -12,6 +12,9 @@
 //!   (`movement`, `rows`, `units`; `docs/recom-kh1-movement.md`);
 //! - at `combat = kh1`, runs KH1's Attack (no cards) through Re:CoM's own attack action, rows,
 //!   collision and damage path (`attack`; `docs/recom-kh1-attack.md`);
+//! - at `combat = kh1`, in Sora's story, adds an 8th camp menu entry, "Keyblades", whose page
+//!   equips the Keyblades Sora has earned, run by Re:CoM's own camp code (`keyblades`;
+//!   `docs/recom-keyblade-equip.md`);
 //! - F9 records a Re:CoM trace in kh1-trace's CSV schema (`trace`).
 //!
 //! `motions` (with `json`) reads the asset build step's manifest and `PL0001.ANN` header, for the
@@ -20,6 +23,7 @@
 pub mod attack;
 pub mod hookplan;
 pub mod json;
+pub mod keyblades;
 pub mod menu;
 pub mod motions;
 pub mod movement;
