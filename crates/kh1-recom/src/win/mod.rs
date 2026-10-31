@@ -2,6 +2,7 @@
 //! between our Config row and `kh1-recom.ini`.
 
 mod attack;
+mod battle;
 mod guard;
 mod hook;
 mod keyblades;
@@ -168,6 +169,7 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
     }
     let stats_file = recom_bases(dirs).into_iter().map(|b| b.join("kh1-stats.json")).find(|p| p.is_file());
     install_attack(base, s, stats_file.as_deref());
+    install_battles(base);
     let th = &crate::sites::TRACE_HOOKS;
     let hooks = [
         hook::Hook { site: &th[0], ours: trace::field_exe as *const () as usize, original: &trace::ORIG_FIELD },
@@ -227,6 +229,20 @@ fn install_attack(base: usize, s: &Settings, stats_file: Option<&Path>) {
         install_stats(base, stats_file);
     } else {
         log("attack: not hooked; Sora attacks as in Re:CoM (the Battle case and row-pick slot stay patched but are not reached)");
+    }
+}
+
+/// M6 stage 1 (`battle`, decisions 29 / 30): at Combat = KH1 in Sora's story, Heartless attack
+/// without cards, several at once. Needs the movement handlers (they carry the setting).
+fn install_battles(base: usize) {
+    if !movement::installed() {
+        log("m6: movement not hooked; battles stay Re:CoM's");
+        return;
+    }
+    if battle::install(base) {
+        log("m6: wrappers in (card play 0x140198870, battle enemy manager ctor 0x1401859B0, setPlayCard log 0x140163830); P2-P4 are switched at each battle start by the setting");
+    } else {
+        log("m6: not hooked; battles stay Re:CoM's (cards and turn-taking)");
     }
 }
 

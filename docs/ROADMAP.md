@@ -30,7 +30,8 @@ and it is checked against KH1 traces.
 | M3 Config | Done in game (row, panel, help line with the version). |
 | M4 movement | Built; fixes in game (springs 0.6.0, roll/guard position 0.6.1, ledge grab 0.6.3 untested). Not yet diffed against the oracle ×50. |
 | M5 Attack | Combos, windows and press rules match KH1 in the owner's traces. 0.7.0: KH1 damage and HP on 31 Re:CoM enemy classes (each world's KH1 record), Sora's KH1 Strength by level (keep Rod, give up Shield); not seen in game yet. Next: Guard's block, recoil and Counterattack, with new Re:CoM enemy reactions behind a toggle (decision 20). MP charge comes with M7. |
-| M6–M14 | Not started. |
+| M6 battles without cards | Stage 1 built, not seen in game (`recom-m6-battles.md`): at KH1, Heartless and Heartless bosses attack without cards (the card play does message 2's work), several at once (think gate, grant and crowd pace switched per battle). Next: stage 2 (no deck / deck HUD for Sora), stage 3 (bosses, P5 first). |
+| M7–M14 | Not started. |
 
 ## Phase 1: foundations inside Re:CoM
 

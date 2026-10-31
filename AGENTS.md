@@ -11,6 +11,31 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 28: M6 stage 1, Heartless attack without cards and several at once, version 0.12.0 (2026-10-31)
+
+> "When KH1 is selected, enemies shouldnt play cards, and also, multiple enemies should be able
+> to attack at the same time, exactly how it works in KH1" / crowd pace: "Each attacks as if
+> alone (KH1)" (decisions 29, 30)
+
+- Research `m6-cardless-battles.md`: Heartless attacks run through the card play `0x140198870`.
+  Re:CoM serialises enemy attacks in four places: CBTL's single enemy slot, the think gate
+  `0x14017D010`, one grant per frame in `0x140187600`, and think-rate scaling by enemy count
+  `0x14017F380`. Checked (decomp + exe).
+- **P1:** a wrapper on the card play, at KH1 in Sora's story. With HP above 0, CBTL not locked
+  and an attack state 2..10, it does what message 2 does: set the flags, set the next state, no
+  card and no CBTL slot. Re:CoM's state code runs the attack. When CBTL is locked (win pose,
+  escape, death, duels), Re:CoM's card play refuses as usual. Marluxia 3 keeps Re:CoM's path
+  while its own handler ignores message 2.
+- **P2–P4:** byte patches written at each battle start (wrapper on the manager constructor
+  `0x1401859B0`): the think gate always yes, every request granted, no crowd scaling. Re:CoM's
+  bytes are written back at the Re:CoM setting.
+- No branch or pointer lands inside the patched bytes (exe scan). 132 site byte lists re-checked.
+- Not in this stage: human bosses (deck-picked attacks), the action-0xB check of 12 bosses
+  (Tutorial Leon still never attacks at KH1), Sora's deck, Marluxia 3's sleight cards.
+  `docs/recom-m6-battles.md`. Not seen in game.
+
+---
+
 ## Stage 27: turned-back shots do damage, version 0.11.2 (2026-10-31)
 
 > "it looks like when guarding a projectile, it sends it back but doesnt do any damage. make

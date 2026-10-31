@@ -20,12 +20,16 @@
 //!   groups in Re:CoM's PLAYER resource table, picked when Re:CoM builds the weapon, and the
 //!   weapon rebuilt with Re:CoM's own constructor when the camp closes (`keyblade_models`;
 //!   `docs/recom-keyblade-models.md`);
+//! - at `combat = kh1`, in Sora's story, Heartless (bosses included) attack without cards and
+//!   several at once: the card play does message 2's work, and Re:CoM's three other
+//!   serialisers are patched per battle (`battle`; `docs/recom-m6-battles.md`);
 //! - F9 records a Re:CoM trace in kh1-trace's CSV schema (`trace`).
 //!
 //! `motions` (with `json`) reads the asset build step's manifest and `PL0001.ANN` header, for the
 //! KH1-only clips the movement plays (High Jump, Guard).
 
 pub mod attack;
+pub mod battle;
 pub mod guard;
 pub mod hookplan;
 pub mod json;

@@ -283,6 +283,70 @@ pub const MODEL_CALLEES: &[Site] = &[
     Site { name: "player put weapon away (0x1401F5480)", rva: 0x001F_5480, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9, 0x48, 0x8B, 0x89, 0xD0, 0x03, 0x00, 0x00, 0x48, 0x85, 0xC9] },
 ];
 
+/// M6 stage 1, battles at the KH1 setting (`win::battle`, `crate::battle`,
+/// `docs/recom-m6-battles.md`). Same rule as [`HOOKS`]. Checked (exe): no branch in the exe and no
+/// pointer in its data lands inside the moved bytes (only the function starts are referenced).
+pub const M6_HOOKS: &[Site] = &[
+    // mov [rsp+8],rbx; mov [rsp+0x10],rsi; push rdi; sub rsp,0x20 (15 bytes; the next
+    // instruction, `mov rax,[rip+…]`, is RIP-relative and stays). The Heartless card play,
+    // vtable +0x98 of 49 enemy classes; its only caller is the enemy update `0x14018537C`.
+    Site { name: "enemy card play (0x140198870)", rva: 0x0019_8870, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20] },
+    // mov [rsp+8],rcx; push rbp; push rsi; push rdi; push r12: CBattleEnemyManager's ctor,
+    // called once per battle by the battle build `0x1401AEBF0` and the 100 Acre Wood one
+    // `0x14042D710`.
+    Site { name: "battle enemy manager ctor (0x1401859B0)", rva: 0x0018_59B0, expect: &[0x48, 0x89, 0x4C, 0x24, 0x08, 0x55, 0x56, 0x57, 0x41, 0x54] },
+    // mov rax,rsp; push rdi; push r12; push r13; push r14; push r15: CBTL::setPlayCard (log only:
+    // which classes still play a side-2 card in a KH1 battle).
+    Site { name: "CBTL setPlayCard (0x140163830)", rva: 0x0016_3830, expect: &[0x48, 0x8B, 0xC4, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57] },
+];
+
+/// Re:CoM functions the M6 code calls.
+pub const M6_CALLEES: &[Site] = &[
+    // sub rsp,0x28; mov eax,ecx; test ecx,ecx; jne; mov rax,[rip+…]: a task by id (0 if none).
+    Site { name: "task by id (0x1402AD300)", rva: 0x002A_D300, expect: &[0x48, 0x83, 0xEC, 0x28, 0x8B, 0xC1, 0x85, 0xC9, 0x75, 0x0C, 0x48, 0x8B, 0x05, 0x8F, 0x9D, 0x84] },
+];
+
+/// Re:CoM code the M6 card-play wrapper does the work of, or relies on: checked so that a build
+/// where it differs is never patched. Not called.
+pub const M6_CHECKED: &[Site] = &[
+    // 0x140198870 after the moved bytes: clear 0x800 | 2 (masks at 0x14052A468 / 0x14052A418),
+    // then CBTL = task 0x16.
+    Site { name: "card play: clear 0x802, get CBTL (0x14019887F)", rva: 0x0019_887F, expect: &[0x48, 0x8B, 0x05, 0xE2, 0x1B, 0x39, 0x00, 0x48, 0x8B, 0xD9, 0x48, 0x0B, 0x05, 0x88, 0x1B, 0x39, 0x00, 0x48, 0xF7, 0xD0, 0x48, 0x21, 0x81, 0x60, 0x02, 0x00, 0x00, 0xB9, 0x16, 0x00, 0x00, 0x00] },
+    // 0x1401634B0's gates: test [+0x208] 0xC0000000, 0xC0000004; cmp byte [+0x1E4],0; cmp
+    // [+0x20C],1; ja.
+    Site { name: "CBTL enemy-card gates (0x1401634BA)", rva: 0x0016_34BA, expect: &[0x8B, 0x81, 0x08, 0x02, 0x00, 0x00, 0x8B, 0xFA, 0x48, 0x8B, 0xD9, 0xA9, 0x00, 0x00, 0x00, 0xC0, 0x0F, 0x85, 0x86, 0x00, 0x00, 0x00, 0xA9, 0x04, 0x00, 0x00, 0xC0, 0x75, 0x7F, 0x80, 0xB9, 0xE4, 0x01, 0x00, 0x00, 0x00, 0x75, 0x76, 0x83, 0xB9, 0x0C, 0x02, 0x00, 0x00, 0x01, 0x77, 0x6D] },
+    // 0x140181620 case 2: and [+0x260],~0x200; call 0x1401809E0; if set: [+0x260] = (| 4) & ~0x10,
+    // [+0x68] = enemy + ([+0x278] + 0x13) << 6.
+    Site { name: "enemy message 2 (0x140181695)", rva: 0x0018_1695, expect: &[0x48, 0x81, 0xA3, 0x60, 0x02, 0x00, 0x00, 0xFF, 0xFD, 0xFF, 0xFF, 0x48, 0x8B, 0xCB, 0xE8, 0x38, 0xF3, 0xFF, 0xFF, 0x85, 0xC0, 0x74, 0x2C, 0x48, 0x8B, 0x83, 0x60, 0x02, 0x00, 0x00, 0x48, 0x83, 0xC8, 0x04, 0x48, 0x83, 0xE0, 0xEF, 0x48, 0x89, 0x83, 0x60, 0x02, 0x00, 0x00, 0x48, 0x63, 0x83, 0x78, 0x02, 0x00, 0x00, 0x48, 0x83, 0xC0, 0x13, 0x48, 0xC1, 0xE0, 0x06, 0x48, 0x03, 0xC3, 0x48, 0x89, 0x43, 0x68] },
+    // CBossMarluxia3's handler: test byte [+0xCE4],4; …; jne (own cases); else jmp 0x140181620.
+    Site { name: "Marluxia 3 message handler (0x1403F4550)", rva: 0x003F_4550, expect: &[0x48, 0x89, 0x5C, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0xF6, 0x81, 0xE4, 0x0C, 0x00, 0x00, 0x04, 0x8B, 0xFA, 0x48, 0x8B, 0xD9, 0x75, 0x0F, 0x48, 0x8B, 0x5C, 0x24, 0x38, 0x48, 0x83, 0xC4, 0x20, 0x5F, 0xE9, 0xA9, 0xD0, 0xD8, 0xFF] },
+    // The rest of the think gate P2 replaces: mov rbx,rcx; call 0x1401616A0 (side 2 playing); …;
+    // call 0x140186020 (not the last granted); mov eax,1 / xor eax,eax.
+    Site { name: "think gate body (0x14017D016)", rva: 0x0017_D016, expect: &[0x48, 0x8B, 0xD9, 0xE8, 0x82, 0x46, 0xFE, 0xFF, 0x85, 0xC0, 0x75, 0x22, 0x8D, 0x48, 0x19, 0xE8, 0xD6, 0x02, 0x13, 0x00, 0x8B, 0x53, 0x20, 0x48, 0x8B, 0xC8, 0xE8, 0xEB, 0x8F, 0x00, 0x00, 0x85, 0xC0, 0x74, 0x0B, 0xB8, 0x01, 0x00, 0x00, 0x00, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3, 0x33, 0xC0, 0x48, 0x83, 0xC4, 0x20, 0x5B, 0xC3] },
+    // The grant loop around P3: rcx = [rbx+0x260]; rax = [0x14052A458] (0x200); test rax,rcx; je;
+    // (P3's 6 bytes); mov rcx,rbx; mov [rbx+0x260],rax.
+    Site { name: "manager grant loop (0x14018764C)", rva: 0x0018_764C, expect: &[0x48, 0x8B, 0x8B, 0x60, 0x02, 0x00, 0x00, 0x48, 0x8B, 0x05, 0xFE, 0x2D, 0x3A, 0x00, 0x48, 0x85, 0xC8, 0x74, 0x27, 0x48, 0xF7, 0xD0, 0x48, 0x23, 0xC1, 0x48, 0x8B, 0xCB, 0x48, 0x89, 0x83, 0x60, 0x02, 0x00, 0x00] },
+    // The think rate before P4: r8d = edi (1, or 10 while +0x2D0 > 0) is set before the id test,
+    // so the jump P4 makes keeps that factor and drops only the enemy count.
+    Site { name: "think rate factor (0x14017F3C4)", rva: 0x0017_F3C4, expect: &[0x0F, 0x4E, 0xFE, 0xF7, 0xE9, 0x44, 0x8B, 0xC7, 0xC1, 0xFA, 0x0C, 0x8B, 0xC2, 0xC1, 0xE8, 0x1F, 0x03, 0xD0, 0x69, 0xC2, 0x10, 0x27, 0x00, 0x00, 0x2B, 0xC8] },
+];
+
+/// One code patch: Re:CoM's bytes (checked at start, the [`Site`]) and ours.
+pub use crate::battle::Patch;
+
+/// The three serialiser patches (M6 P2–P4, decision 30), switched at each battle start.
+pub const M6_PATCHES: &[Patch] = &[
+    // P2, the think gate `0x14017D010` (6 callers, all thinks): push rbx; sub rsp,0x20 → mov
+    // eax,1; ret. No "wait while an enemy card plays", no "not the last granted twice".
+    Patch { site: Site { name: "P2 think gate (0x14017D010)", rva: 0x0017_D010, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20] }, new: &[0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3] },
+    // P3, the manager's grant `0x140187600`: not rax; and rax,rcx → xor rax,rcx; or ah,8. Every
+    // requester's 0x200 becomes 0x800 instead of being dropped; the nearest is still stored.
+    Patch { site: Site { name: "P3 grant all (0x14018765F)", rva: 0x0018_765F, expect: &[0x48, 0xF7, 0xD0, 0x48, 0x23, 0xC1] }, new: &[0x48, 0x33, 0xC1, 0x80, 0xCC, 0x08] },
+    // P4, the think rate `0x14017F380`: cmp ecx,0x64; jge → cmp ecx,0x64; jmp. No multiply by
+    // the number of enemies.
+    Patch { site: Site { name: "P4 crowd pace (0x14017F3DE)", rva: 0x0017_F3DE, expect: &[0x83, 0xF9, 0x64, 0x7D, 0x26] }, new: &[0x83, 0xF9, 0x64, 0xEB, 0x26] },
+];
+
 /// A pointer in Re:CoM's data that holds another address of the image. The exe is relocated
 /// (ASLR, `DYNAMIC_BASE`), so these are checked at run time against `base + target`, not as
 /// bytes in the startup report.
@@ -344,6 +408,10 @@ pub fn all_sites() -> impl Iterator<Item = &'static Site> {
         .chain(KEYBLADE_DATA)
         .chain(MODEL_HOOKS)
         .chain(MODEL_CALLEES)
+        .chain(M6_HOOKS)
+        .chain(M6_CALLEES)
+        .chain(M6_CHECKED)
+        .chain(M6_PATCHES.iter().map(|p| &p.site))
 }
 
 /// What the PE headers of a loaded image say about its build.
@@ -436,7 +504,7 @@ mod tests {
         // The hooked prologues hold no rip-relative operand or branch, so they can run from the
         // trampoline (whole instructions, decoded in the comments above each site). The
         // trampoline (moved bytes + a 14-byte jump) must fit before the stub.
-        for h in HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS).chain(KEYBLADE_HOOKS).chain(MODEL_HOOKS) {
+        for h in HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS).chain(KEYBLADE_HOOKS).chain(MODEL_HOOKS).chain(M6_HOOKS) {
             assert!(h.expect.len() >= 5 && h.expect.len() + 14 <= crate::hookplan::STUB_AT, "{}", h.name);
             assert!(!h.expect.windows(2).any(|w| w == [0x8B, 0x05] || w == [0x8D, 0x05] || w == [0x8B, 0x0D] || w == [0x10, 0x05]), "{}", h.name);
             assert!(!h.expect.contains(&0xE8) && !h.expect.contains(&0xE9), "{}", h.name);
@@ -479,6 +547,39 @@ mod tests {
         }
         // The handle lookup it also calls is already checked.
         assert!(MOVE_CALLEES.iter().any(|s| s.rva == 0x002A_D350));
+    }
+
+    #[test]
+    fn m6_sites() {
+        // The three wrappers: the card play (exactly the 15 bytes before the RIP-relative load),
+        // the manager ctor, setPlayCard. None is hooked by another stage or called.
+        let rvas: Vec<u32> = M6_HOOKS.iter().map(|h| h.rva).collect();
+        assert_eq!(rvas, vec![0x0019_8870, 0x0018_59B0, 0x0016_3830]);
+        assert_eq!(M6_HOOKS[0].expect.len(), 15);
+        // The card play's checked body starts right after the moved bytes, with that load.
+        assert_eq!(M6_CHECKED[0].rva, M6_HOOKS[0].rva + 15);
+        assert_eq!(&M6_CHECKED[0].expect[..3], &[0x48, 0x8B, 0x05]);
+        let others = || HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS).chain(KEYBLADE_HOOKS).chain(MODEL_HOOKS);
+        for h in M6_HOOKS {
+            assert!(!others().any(|s| s.rva == h.rva), "{}", h.name);
+            assert!(!CALLEES.iter().chain(MOVE_CALLEES).chain(ATTACK_CALLEES).chain(STATS_CALLEES).chain(M6_CALLEES).any(|s| s.rva == h.rva), "{}", h.name);
+        }
+        // The task getter is `crate::battle`'s, and Re:CoM's handlers are the ones it compares.
+        assert_eq!(M6_CALLEES[0].rva, 0x002A_D300);
+        assert!(M6_CHECKED.iter().any(|s| s.rva == crate::battle::HANDLER_MARLUXIA3));
+        // The message-2 block ends with `mov [rbx+0x68],rax` (the next state).
+        let m2 = M6_CHECKED.iter().find(|s| s.rva == 0x0018_1695).unwrap();
+        assert_eq!(&m2.expect[m2.expect.len() - 4..], &[0x48, 0x89, 0x43, 0x68]);
+        // The patches sit inside the checked context of their functions.
+        let inside = |p: &Patch, ctx: u32| {
+            let c = M6_CHECKED.iter().find(|s| s.rva == ctx).unwrap();
+            let off = (p.site.rva - c.rva) as usize;
+            &c.expect[off..off + p.site.expect.len()] == p.site.expect
+        };
+        assert!(inside(&M6_PATCHES[1], 0x0018_764C));
+        assert_eq!(M6_CHECKED.iter().find(|s| s.rva == 0x0017_D016).unwrap().rva, M6_PATCHES[0].site.rva + 6);
+        let f = M6_CHECKED.iter().find(|s| s.rva == 0x0017_F3C4).unwrap();
+        assert_eq!(f.rva + f.expect.len() as u32, M6_PATCHES[2].site.rva);
     }
 
     #[test]
