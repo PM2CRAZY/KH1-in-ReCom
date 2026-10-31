@@ -209,6 +209,11 @@ pub unsafe extern "win64" fn max_hp(enemy: usize) -> i32 {
     orig::<MaxHpFn>(&ORIG_MAX_HP)(enemy)
 }
 
+/// The loaded stats file (the Keyblade model groups read it, `models`).
+pub fn all() -> Option<&'static Kh1Stats> {
+    STATS.get()
+}
+
 /// The Keyblades the stats file has numbers for, by Re:CoM card kind (format 3; empty before).
 pub fn keyblade_cards() -> Vec<u16> {
     STATS.get().map(|s| s.keyblades.iter().map(|k| k.card).collect()).unwrap_or_default()

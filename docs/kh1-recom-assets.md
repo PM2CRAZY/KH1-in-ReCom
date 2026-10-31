@@ -31,6 +31,14 @@ kh1-recom-build [--game <KH 1.5+2.5 folder>] [--mod-dir <mod_path>] [--out <file
   Keyblade, when PL0002 is in the archive). When none does, it writes no pack and removes a pack
   an earlier run left (only a file with more than 161 slots, i.e. one it wrote). With `--out`, the
   manifest goes next to the pack.
+- It also converts KH1's Keyblades into Re:CoM weapon models (decision 25,
+  `docs/recom-keyblade-models.md`). It reads each Keyblade's `.wpn` with its HD assets from the
+  `kh1_*` archives, and Re:CoM's `PLAYER/0002/PL0002.MDL` as the template. For cards 2–17 it writes
+  `<mod_path>/recom/PLAYER/00GG/PL00GG.MDL` (loose) and `<mod_path>/recom/raw/PLAYER/00GG/PL00GG.RTM`
+  (a plain PKG entry carrying the HD `<texture>_tm2.dds` files), G = 21…36. The Kingdom Key stays
+  on Re:CoM's own PL0002 (group 2). With `--out`, the `PLAYER/` and `raw/PLAYER/` folders go next
+  to the pack. A Keyblade that can't be converted (e.g. a vertex on a joint outside 2–11) stops
+  the step with its name. `--dry-run` converts and reports without writing.
 - Manifest (format `kh1-recom-assets motions 2`; read by `crates/kh1-recom` `motions.rs`
   `parse_manifest`, which ignores unknown keys). Top level: `format`, `pack`, `base_slots` (161),
   `slot_count`, `pack_changed`, `fps` (60, the new clips), `kh1_entries` (118), `recom_entries`,
@@ -68,7 +76,9 @@ kh1-recom-build [--game <KH 1.5+2.5 folder>] [--mod-dir <mod_path>] [--out <file
   - `matching::{match_all, score, DecodedClip}`: which KH1 motions Re:CoM has;
   - `ann::{Ann, Clip, Curve, Channel}`: read, write and sample;
   - `mdl::RecomSkeleton`;
-  - `convert::{Converter, ClipSpec, bone_map}`.
+  - `convert::{Converter, ClipSpec, bone_map}`;
+  - for the Keyblade models: `mdl::Mdl` (whole `.MDL`), `rtm::{Rtm, tim2_indexed8}`,
+    `texture::{decode_dds, quantise}`, `keyblade::{convert, group_for_card, mod_files}`.
 - Run on a fake game folder (`scratch/fakegame2`, `--mod-dir scratch/modout`, Sora + Keyblade,
   release, Linux): 1.45 s in total (0.49 s reading, 0.91 s matching + converting). 49 KH1 entries
   play Re:CoM's clips (39 bakes, 10 with Re:CoM edits), 69 get new slots 161–229. Output:
@@ -398,6 +408,10 @@ bones): local rotation (geodesic angle), translation and scale.
   Strength for levels 1..100 (decision 18) and the KH1 twin record of 31 Re:CoM enemy classes
   for each Re:CoM world (decision 21). Read from the player's `btltbl.bin` and the twins'
   `.mdls` (part 5, the AI script). Module `stats`; details in `recom-kh1-attack.md` § Damage.
+- Format `stats 4` (Keyblade models): each `keyblades` row also has `group` (the Re:CoM PLAYER
+  resource group of its model: 2 for the Kingdom Key, 21–36 for cards 2–17) and `textures` (its
+  texture names, e.g. `["xw_ex_5160_0", "xw_ex_5160_1"]`). The runtime's parser ignores unknown
+  keys. Details: `docs/recom-keyblade-models.md`.
 - Format 2 (0.7.5) adds per enemy `lock_radius` (its first kind-0 lock point's radius, KH1 units)
   and `lock_radii` (all of them), read from the twin's `.mdls` part 4 (`stats::lock_radii`). The
   runtime reads format 1 too (radius unknown, 0).

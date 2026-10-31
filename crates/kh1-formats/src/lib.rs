@@ -9,6 +9,7 @@
 //! - [`btltbl`]: `btltbl.bin`: action rows, attack records, damage curve, globals, weapons
 //! - [`mobj`]: whole `.mdls` files read and written (container, models, PS2 packets, textures)
 //! - [`cvbl`]: the PC's remastered meshes (`.cvbl` HD assets), read and written
+//! - [`wpn`]: weapon files (`xw_ex_5010.wpn`): the `MENV` model and its HD asset names
 //!
 //! No game data is embedded here. The one piece of the archive cipher that comes from the game
 //! (a 256-byte substitution table) is read from the user's own executable at runtime; this crate
@@ -27,6 +28,7 @@ pub mod mdls;
 pub mod mobj;
 pub mod mset;
 mod reader;
+pub mod wpn;
 
 /// Errors from the readers.
 #[derive(Debug)]

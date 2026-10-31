@@ -205,7 +205,7 @@ At KH1 setting:
       loaded**; Halloween Town shows the equipped Keyblade like every other world; no look-only
       test first, build the full swap. Native route: new resource groups for the converted models
       in Re:CoM's player resource table, picked when the weapon is built
-      (`/home/claude/re/notes/keyblade-models.md`, to move into `docs/` with the build).
+      (`docs/recom-keyblade-models.md`).
 
 26. Hits on attacking enemies (owner, 2026-10-31): at the KH1 setting, enemies stay hittable
     while they attack, as in KH1: Re:CoM's "hurt bodies off" at an attack state's start

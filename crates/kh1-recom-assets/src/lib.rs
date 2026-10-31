@@ -7,7 +7,10 @@
 //! which slot is which KH1 entry. Notes: `docs/kh1-recom-assets.md`.
 //!
 //! - [`ann`]: the `.ANN` pack and clip format (reader, writer, sampler);
-//! - [`mdl`]: Re:CoM's skeleton (`.MDL`);
+//! - [`mdl`]: Re:CoM's `.MDL` (skeleton for the motions; the whole file read and written);
+//! - [`rtm`]: Re:CoM's texture packs (`.RTM`) and their 8-bit TIM2s;
+//! - [`texture`]: DDS decoding, downscale and 256-colour quantising;
+//! - [`keyblade`]: KH1 Keyblades (`.wpn` + HD `.cvbl` / `.dds`) → Re:CoM weapon models;
 //! - [`convert`]: KH1 pose (via `kh1-anim`) → Re:CoM bones → clip;
 //! - [`build`]: the whole pack + manifest from the four input files;
 //! - [`install`]: finding the files in the player's install and the Panacea mod folder;
@@ -25,11 +28,14 @@ pub mod build;
 pub mod convert;
 pub mod flip;
 pub mod install;
+pub mod keyblade;
 pub mod matching;
 pub mod math;
 pub mod mdl;
+pub mod rtm;
 pub mod ses;
 pub mod stats;
+pub mod texture;
 
 /// Errors.
 #[derive(Debug)]

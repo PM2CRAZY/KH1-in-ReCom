@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn stats_panel_strings() {
-        let k = Keyblade { card: 1, name: "Kingdom Key".into(), source: "kh1".into(), model: String::new(), weapon: WeaponData::kingdom_key(), magic: 0 };
+        let k = Keyblade { card: 1, name: "Kingdom Key".into(), source: "kh1".into(), model: String::new(), weapon: WeaponData::kingdom_key(), magic: 0, group: None, textures: vec![] };
         assert_eq!(stat_values(&k), ["+3".to_string(), "+0".into(), "x1.00".into()]);
         let mut long = k.clone();
         long.weapon.blade_far = -7.4;

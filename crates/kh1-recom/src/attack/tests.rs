@@ -134,6 +134,18 @@ fn stats_json_reads_the_asset_steps_format() {
     assert_eq!(v3.strength_with(1, &u.weapon), Some(4 + 14));
     assert_eq!(v3.strength_with(1, &WeaponData::kingdom_key()), Some(4 + 3));
     assert!(v3.keyblade(4).is_none());
+    // Format 3 has no model groups: no model swap.
+    assert_eq!((u.group, u.textures.len()), (None, 0));
+    assert_eq!(crate::keyblade_models::Models::from_stats(&v3).unwrap(), None);
+    // Format 4: each converted Keyblade names its PLAYER group and textures.
+    let kb4 = kb.replace(r#""magic": 2}"#, r#""magic": 2, "group": 34, "textures": ["xw_ex_5160_0", "xw_ex_5160_1"]}"#);
+    let kk = kb.replace(r#""card": 15, "name": "Ultima Weapon""#, r#""card": 1, "name": "Kingdom Key""#);
+    let v4 = parse_stats(&t.replace(r#""sora_strength""#, &format!(r#""sora_base_strength": [{base}], "keyblades": [{kk}, {kb4}], "sora_strength""#))).unwrap();
+    let u4 = v4.keyblade(15).unwrap();
+    assert_eq!((u4.group, u4.textures.clone()), (Some(34), vec!["xw_ex_5160_0".to_string(), "xw_ex_5160_1".to_string()]));
+    let m = crate::keyblade_models::Models::from_stats(&v4).unwrap().unwrap();
+    assert_eq!((m.group_of(15), m.group_of(1)), (Some(34), Some(2)));
+    assert!(parse_stats(&t.replace(r#""sora_strength""#, &format!(r#""keyblades": [{}], "sora_strength""#, kb.replace(r#""magic": 2}"#, r#""magic": 2, "group": -3}"#)))).is_err());
     assert_eq!(s.strength(1), Some(7));
     assert_eq!(s.strength(150), Some(106));
     assert_eq!(s.twin("CEnemyShadow", 1).unwrap().defence, 8);

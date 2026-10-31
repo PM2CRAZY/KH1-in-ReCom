@@ -5,6 +5,7 @@ mod attack;
 mod hook;
 mod keyblades;
 mod menu;
+mod models;
 mod movement;
 mod stats;
 mod sys;
@@ -67,6 +68,8 @@ pub(crate) fn toggle(_k: usize) {
     }
     movement::set_mode(s.combat == settings::Mode::Kh1);
     log(&format!("config menu: combat = {}", s.combat.as_str()));
+    // The weapon's group follows Combat: its files start loading now; the camp close shows it.
+    models::prefetch();
 }
 
 /// The KH1-only clips the asset step added (Guard): the manifest
@@ -235,6 +238,8 @@ fn install_stats(base: usize, stats_file: Option<&Path>) {
         log("attack: damage: Re:CoM's own numbers (cardless AP = attack stat): no KH1 stats");
         return;
     }
+    // The equipped Keyblade's model (decision 25): its groups are in the stats file (format 4).
+    models::install(base);
     let site = |name: &str| crate::sites::STATS_HOOKS.iter().find(|h| h.name == name).expect("site");
     let hooks = [
         hook::Hook { site: site("enemy stats init (0x14017FF50)"), ours: stats::stat_init as *const () as usize, original: &stats::ORIG_STAT_INIT },

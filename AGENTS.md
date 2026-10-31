@@ -11,6 +11,40 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 22: KH1 Keyblade models, step 2 of the Keyblades, version 0.9.0 (2026-10-31)
+
+> "it all looks good continue" / swap timing: "When the menu closes" / memory: "Only the equipped
+> one" / Halloween: "Equipped Keyblade everywhere" / first test: "Skip, build it all"
+> (decision 25)
+
+- Asset step (`docs/recom-keyblade-models.md`):
+  - Re:CoM `.MDL` / `.RTM` readers and writers, byte-identical on Re:CoM's own files (PL0002,
+    PL0011, PL0101 MDL; five RTMs). Checked (files).
+  - KH1 `.wpn` reader (`kh1-formats/wpn.rs`), DDS decoding and a deterministic 256-colour
+    quantiser for the TIM2 fallback.
+  - The converter turns the HD `.cvbl` mesh of each of the 16 KH1 Keyblades (cards 2..0x11) into
+    a Re:CoM MDL with PL0002's skeleton byte for byte (all vertices on joints 2..11) and an RTM
+    whose HD `.dds` textures (`xw_ex_50x0_n_tm2.dds`, names unused by Re:CoM's 1,649 textures)
+    go through Panacea's raw route.
+  - New player resource groups 21..36 = card + 19, free in Re:CoM's table and archive. Checked
+    (exe + files).
+  - `kh1-stats.json` format 4 adds `group` and `textures`.
+- Runtime (`win/models.rs`):
+  - Re:CoM's PLAYER resource table is extended with the 16 groups (one checked pointer write
+    at `0x1407EBF28`).
+  - The weapon's model-init vtable slot `0x1405AADE0` picks the equipped group.
+  - Wrappers on "queue the player's group" `0x140211AA0` and on the field camp open/close
+    `0x1401A9590`. The weapon is rebuilt at camp close with Re:CoM's own constructor
+    `0x140224BA0` and destructor, only when the equipped group changed.
+  - Only the equipped group of ours is loaded. Re:CoM's group 2 stays loaded as Re:CoM loads
+    it: 100 Acre Wood's Veggie Panic Keyblade builds from it, and the shared ANN / EET keep
+    group 2's ids.
+  - Halloween Town shows the equipped Keyblade at the KH1 setting.
+- Assumptions: HD textures through Panacea's raw route; the group-2-first load order; the
+  weapon rebuilt every room and battle; the trail length on longer Keyblades. Not seen in game.
+
+---
+
 ## Stage 21: enemies stay hittable while they attack, version 0.8.2 (2026-10-31)
 
 > "sora should be able to hit enemies even if they are in the middle of attacking themselves" /

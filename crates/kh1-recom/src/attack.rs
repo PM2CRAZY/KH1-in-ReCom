@@ -496,6 +496,11 @@ pub struct Keyblade {
     pub weapon: WeaponData,
     /// KH1 weapon row `+0x38`: the Magic bonus.
     pub magic: i32,
+    /// Its model's Re:CoM PLAYER resource group (format 4; `keyblade_models`): None for a
+    /// Keyblade without a converted model, and in older files.
+    pub group: Option<u16>,
+    /// Its model's texture names (format 4), for the log.
+    pub textures: Vec<String>,
 }
 
 /// `kh1-stats.json` (written by the asset step, `kh1-recom-assets` `stats`).
@@ -582,6 +587,11 @@ pub fn parse_stats(text: &str) -> Result<Kh1Stats, String> {
                 priority: num("priority")? as u8,
             },
             magic: num("magic")? as i32,
+            group: match k.get("group") {
+                None => None,
+                Some(g) => Some(g.as_f64().filter(|x| (1.0..65535.0).contains(x) && x.fract() == 0.0).ok_or_else(|| format!("{name}: bad `group`"))? as u16),
+            },
+            textures: k.get("textures").and_then(|t| t.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default(),
             name,
         });
     }

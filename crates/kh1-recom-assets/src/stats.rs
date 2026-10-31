@@ -208,13 +208,23 @@ pub const KH1_KEYBLADES: &[(u8, &str, u16)] = &[
 ];
 
 /// The `keyblades` array: each KH1 Keyblade's weapon row (`btltbl` weapon table, 0x58-byte rows;
-/// `kh1-formats` `btltbl::Weapon`), keyed by Re:CoM's card kind.
-pub fn keyblades_json(t: &kh1_formats::btltbl::Btltbl) -> Result<String> {
+/// `kh1-formats` `btltbl::Weapon`), keyed by Re:CoM's card kind. A Keyblade with a model in
+/// `models` also gets `group` (its Re:CoM PLAYER resource group) and `textures` (its texture
+/// names; `docs/recom-keyblade-models.md`).
+pub fn keyblades_json(t: &kh1_formats::btltbl::Btltbl, models: &[crate::keyblade::KeybladeModel]) -> Result<String> {
     let mut rows = Vec::new();
     for (idx, name, item) in KH1_KEYBLADES {
         let w = t.weapon_for_item(*item).map_err(|e| Error::Format(format!("{name}: {e}")))?;
+        let model = match models.iter().find(|m| m.card == *idx) {
+            Some(m) => format!(
+                ", \"group\": {}, \"textures\": [{}]",
+                m.group,
+                m.textures.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(", ")
+            ),
+            None => String::new(),
+        };
         rows.push(format!(
-            "    {{\"card\": {idx}, \"name\": \"{name}\", \"source\": \"kh1\", \"kh1_item\": {item}, \"model\": \"{}\", \"radius\": {}, \"blade_far\": {}, \"blade_near\": {}, \"frac_scale\": {}, \"strength\": {}, \"crit\": {}, \"crit_bonus\": {}, \"priority\": {}, \"magic\": {}}}",
+            "    {{\"card\": {idx}, \"name\": \"{name}\", \"source\": \"kh1\", \"kh1_item\": {item}, \"model\": \"{}\", \"radius\": {}, \"blade_far\": {}, \"blade_near\": {}, \"frac_scale\": {}, \"strength\": {}, \"crit\": {}, \"crit_bonus\": {}, \"priority\": {}, \"magic\": {}{model}}}",
             w.model, w.radius, w.blade_far, w.blade_near, w.frac_scale, w.strength, w.crit, w.crit_bonus, w.priority, w.magic
         ));
     }
@@ -298,16 +308,17 @@ fn rec_json(r: &Record) -> String {
     )
 }
 
-/// Builds `kh1-stats.json`. `read` gives a KH1 file by name.
-pub fn build_json(read: &mut dyn FnMut(&str) -> Result<Vec<u8>>, btltbl: &[u8], keyblade_strength: i32) -> Result<(String, usize)> {
+/// Builds `kh1-stats.json`. `read` gives a KH1 file by name; `models` the converted Keyblade
+/// models ([`keyblades_json`]).
+pub fn build_json(read: &mut dyn FnMut(&str) -> Result<Vec<u8>>, btltbl: &[u8], keyblade_strength: i32, models: &[crate::keyblade::KeybladeModel]) -> Result<(String, usize)> {
     let strength = sora_strength(btltbl, keyblade_strength)?;
     let base = sora_strength(btltbl, 0)?;
     let parsed = kh1_formats::btltbl::Btltbl::parse(btltbl.to_vec()).map_err(|e| Error::Format(format!("btltbl.bin: {e}")))?;
-    let mut s = String::from("{\n  \"format\": \"kh1-recom-assets stats 3\",\n");
+    let mut s = String::from("{\n  \"format\": \"kh1-recom-assets stats 4\",\n");
     s.push_str(&format!("  \"sora_strength\": [{}],\n", strength.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
     // Without the Keyblade: the runtime adds the equipped one's Strength (decision 25).
     s.push_str(&format!("  \"sora_base_strength\": [{}],\n", base.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
-    s.push_str(&keyblades_json(&parsed)?);
+    s.push_str(&keyblades_json(&parsed, models)?);
     s.push_str(&format!(
         "  \"worlds\": [{}],\n  \"enemies\": [\n",
         RECOM_WORLDS.iter().map(|w| format!("\"{}\"", w.0)).collect::<Vec<_>>().join(", ")

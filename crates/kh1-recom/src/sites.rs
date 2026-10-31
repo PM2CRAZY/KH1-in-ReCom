@@ -244,6 +244,54 @@ pub const KEYBLADE_DATA: &[Site] = &[
     Site { name: "list cursor offsets (0x140509520)", rva: 0x0050_9520, expect: &[0x00, 0x00, 0x28, 0x43, 0x00, 0x00, 0x28, 0x43, 0x00, 0x00, 0x28, 0x43, 0x00, 0x00, 0x28, 0x43, 0x00, 0x00, 0x8E, 0x43, 0x00, 0x00, 0x8E, 0x43, 0x00, 0x00, 0x8E, 0x43, 0x00, 0x00, 0x8E, 0x43] },
 ];
 
+/// The equipped Keyblade's model (`win::models`, decision 25 "Models",
+/// `docs/recom-keyblade-models.md` § Runtime). Same rule as [`HOOKS`].
+pub const MODEL_HOOKS: &[Site] = &[
+    // push rbx; sub rsp,0x20; mov [rsp+0x30],rdi: Re:CoM's "queue the player's resource group if
+    // it is not loaded" (`0x140211AA0(char)`), called by the room and battle builders.
+    Site { name: "player group load (0x140211AA0)", rva: 0x0021_1AA0, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x89, 0x7C, 0x24, 0x30] },
+    // push rbx; sub rsp,0x30; mov qword [rsp+0x20],-2: the field's camp open / close
+    // (`0x1401A9590(field, open)`); with open = 0 the field resumes after the camp is gone.
+    Site { name: "field camp open/close (0x1401A9590)", rva: 0x001A_9590, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE, 0xFF, 0xFF, 0xFF] },
+];
+
+/// Re:CoM functions the model code calls (or reaches through a vtable it checks).
+pub const MODEL_CALLEES: &[Site] = &[
+    // sub rsp,0x38; xor r9d,r9d; mov dword [rsp+0x20],0; mov edx,ecx; mov r8d,0x100
+    Site { name: "queue player group (0x14023CCE0)", rva: 0x0023_CCE0, expect: &[0x48, 0x83, 0xEC, 0x38, 0x45, 0x33, 0xC9, 0xC7, 0x44, 0x24, 0x20, 0x00, 0x00, 0x00, 0x00, 0x8B, 0xD1, 0x41, 0xB8, 0x00, 0x01, 0x00, 0x00] },
+    // ...; mov eax,[0x14087CC74] (the loader's running flag)
+    Site { name: "load queued? (0x14023CA80)", rva: 0x0023_CA80, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0x05, 0xDF, 0x01, 0x64, 0x00] },
+    Site { name: "resource by type and id (0x1402A3E20)", rva: 0x002A_3E20, expect: &[0x40, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x48, 0x83, 0xEC, 0x20, 0x45, 0x8B, 0xE0, 0x8B, 0xDA] },
+    // test ecx,ecx; jle; mov rax,rsp; push r15; sub rsp,0x50
+    Site { name: "unload resources by id (0x1402A5B00)", rva: 0x002A_5B00, expect: &[0x85, 0xC9, 0x0F, 0x8E, 0x5D, 0x02, 0x00, 0x00, 0x48, 0x8B, 0xC4, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x50] },
+    Site { name: "CPlayerWeapon ctor (0x140224BA0)", rva: 0x0022_4BA0, expect: &[0x48, 0x8B, 0xC4, 0x48, 0x89, 0x48, 0x08, 0x56, 0x57, 0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x40] },
+    // The model init CPlayerWeapon's vtable slot +0x30 holds (shared by many classes).
+    Site { name: "entity model init (0x1401A4E70)", rva: 0x001A_4E70, expect: &[0x40, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x30, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE, 0xFF, 0xFF, 0xFF] },
+    // ...; lea rax,[CPlayerWeapon vtable 0x1405AADB0]: the scalar deleting dtor (vtable slot 0).
+    Site { name: "CPlayerWeapon dtor (0x140224EC0)", rva: 0x0022_4EC0, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8D, 0x05, 0xDF, 0x5E, 0x38, 0x00] },
+    // push rbx; sub rsp,0x20; mov rbx,rcx; mov rcx,[rcx+0x3D0]; test rcx,rcx: put the Keyblade
+    // away (`CPlayerSora` vtable +0x100, as stateInitial calls it after building the weapon).
+    Site { name: "player put weapon away (0x1401F5480)", rva: 0x001F_5480, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9, 0x48, 0x8B, 0x89, 0xD0, 0x03, 0x00, 0x00, 0x48, 0x85, 0xC9] },
+];
+
+/// A pointer in Re:CoM's data that holds another address of the image. The exe is relocated
+/// (ASLR, `DYNAMIC_BASE`), so these are checked at run time against `base + target`, not as
+/// bytes in the startup report.
+pub struct PtrSite {
+    pub name: &'static str,
+    pub rva: u32,
+    pub target: u32,
+}
+
+/// The pointers the model code checks before it patches or calls through them. Checked (exe,
+/// with its relocation table: all four are relocated).
+pub const MODEL_PTRS: &[PtrSite] = &[
+    PtrSite { name: "CPlayerWeapon vtable +0x30 (0x1405AADE0)", rva: 0x005A_ADE0, target: 0x001A_4E70 },
+    PtrSite { name: "CPlayerWeapon vtable +0 (0x1405AADB0)", rva: 0x005A_ADB0, target: 0x0022_4EC0 },
+    PtrSite { name: "CPlayerSora vtable +0x100 (0x1405A9A38)", rva: 0x005A_9A38, target: 0x001F_5480 },
+    PtrSite { name: "PLAYER resource table pointer (0x1407EBF28)", rva: 0x007E_BF28, target: 0x0080_55D0 },
+];
+
 /// Data this version reads or calls through, with its address (Steam). Checked (exe).
 pub mod data {
     /// Sequence ids for label items (`u16[]`).
@@ -285,6 +333,8 @@ pub fn all_sites() -> impl Iterator<Item = &'static Site> {
         .chain(KEYBLADE_HOOKS)
         .chain(KEYBLADE_CALLEES)
         .chain(KEYBLADE_DATA)
+        .chain(MODEL_HOOKS)
+        .chain(MODEL_CALLEES)
 }
 
 /// What the PE headers of a loaded image say about its build.
@@ -377,7 +427,7 @@ mod tests {
         // The hooked prologues hold no rip-relative operand or branch, so they can run from the
         // trampoline (whole instructions, decoded in the comments above each site). The
         // trampoline (moved bytes + a 14-byte jump) must fit before the stub.
-        for h in HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS).chain(KEYBLADE_HOOKS) {
+        for h in HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS).chain(KEYBLADE_HOOKS).chain(MODEL_HOOKS) {
             assert!(h.expect.len() >= 5 && h.expect.len() + 14 <= crate::hookplan::STUB_AT, "{}", h.name);
             assert!(!h.expect.windows(2).any(|w| w == [0x8B, 0x05] || w == [0x8D, 0x05] || w == [0x8B, 0x0D] || w == [0x10, 0x05]), "{}", h.name);
             assert!(!h.expect.contains(&0xE8) && !h.expect.contains(&0xE9), "{}", h.name);
@@ -394,6 +444,19 @@ mod tests {
             assert!(h.expect.len() >= 12, "{}", h.name);
             assert!(!HOOKS.iter().chain(CALLEES).chain(KEYBLADE_CALLEES).any(|s| s.rva == h.rva), "{}", h.name);
         }
+    }
+
+    #[test]
+    fn model_pointer_sites_are_data_not_code_sites() {
+        // Relocated pointers are never in the byte-checked lists, and never at a hooked address.
+        for p in MODEL_PTRS {
+            assert!(!all_sites().any(|s| s.rva == p.rva), "{}", p.name);
+            assert!(all_sites().any(|s| s.rva == p.target) || p.target == 0x0080_55D0, "{}: target not byte-checked", p.name);
+            assert_eq!(p.rva % 8, 0, "{}", p.name);
+        }
+        // The slot is CPlayerWeapon's +0x30 (vtable 0x1405AADB0) and the put-away is CPlayerSora's +0x100.
+        assert_eq!(MODEL_PTRS[0].rva - MODEL_PTRS[1].rva, 0x30);
+        assert_eq!(0x1_4000_0000u64 + MODEL_PTRS[2].rva as u64 - 0x100, data::SORA_VTABLE);
     }
 
     #[test]

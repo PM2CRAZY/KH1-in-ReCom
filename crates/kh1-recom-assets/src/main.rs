@@ -2,6 +2,8 @@
 //! and Re:CoM's archives) and writes `<mod>/recom/kh1-motions.json` (the KH1 entry → Re:CoM
 //! slot map) and, when some KH1 motion is not in Re:CoM, `<mod>/recom/PLAYER/0001/PL0001.ANN`
 //! and `<mod>/recom/PLAYER/0002/PL0002.ANN` (both extended) into Panacea's Re:CoM mod folder.
+//! It also converts KH1's Keyblades into Re:CoM weapon models (`PLAYER/00GG/PL00GG.MDL` and
+//! `raw/PLAYER/00GG/PL00GG.RTM`, `docs/recom-keyblade-models.md`) and writes `kh1-stats.json`.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -10,13 +12,17 @@ use std::time::Instant;
 use kh1_recom_assets::ann::Ann;
 use kh1_recom_assets::build::{build, BuildOptions, Inputs, RECOM_SORA_SLOTS};
 use kh1_recom_assets::install;
+use kh1_recom_assets::keyblade::{convert, group_for_card, Converted, KeybladeModel};
+use kh1_recom_assets::mdl::Mdl;
+use kh1_recom_assets::stats::KH1_KEYBLADES;
 
 const USAGE: &str = "usage: kh1-recom-build [--game <KH 1.5+2.5 folder>] [--mod-dir <Panacea mod_path>] [--out <file.ANN>]
                        [--loop E,E..] [--once E,E..] [--dry-run]
 
   --game     the game folder (holds Image/dt/Recom.hed and kh1_*.hed and the exes); default: .
   --mod-dir  Panacea's mod_path; default: mod_path= from <game>/panacea_settings.txt
-  --out      write Sora's pack here (PL0002.ANN and the manifest next to it) instead of
+  --out      write Sora's pack here (PL0002.ANN, the manifest, the stats and the Keyblade models'
+             PLAYER/ and raw/PLAYER/ folders next to it) instead of
              <mod>/recom/PLAYER/000{1,2}/PL000{1,2}.ANN and <mod>/recom/kh1-motions.json
   --loop / --once   force new KH1 clips to loop / play once (default: KH1 pose at N = pose at 0)
   --dry-run  convert and report, write nothing";
@@ -76,6 +82,7 @@ fn run() -> Result<(), String> {
             None
         }
     };
+    let pl0002_mdl = weapon.as_ref().map(|w| w.1.clone());
     let t_read = t0.elapsed();
     let mut sources = vec![
         ("PL0001.ANN sha256", kh1_formats::egs::sha256_hex(&ann)),
@@ -110,6 +117,16 @@ fn run() -> Result<(), String> {
     if let Some(w) = &built.weapon {
         println!("Keyblade: {} new clips; pack {} bytes ({} slots)", n_new, w.bytes.len(), w.ann.slots.len());
     }
+    // KH1's Keyblades as Re:CoM weapon models (decision 25).
+    let t2 = Instant::now();
+    let keyblades = convert_keyblades(&game, keys.clone(), pl0002_mdl.as_deref())?;
+    for (m, c) in &keyblades {
+        match c {
+            Some(c) => println!("Keyblade card {} → group {}: {} (MDL {} bytes, RTM {} bytes)", m.card, m.group, c.report.line(), c.mdl.len(), c.rtm.len()),
+            None => println!("Keyblade card {} → group {}: Re:CoM's own PL0002 ({:?})", m.card, m.group, m.textures),
+        }
+    }
+    println!("Keyblades: {} converted in {:.2}s", keyblades.iter().filter(|k| k.1.is_some()).count(), t2.elapsed().as_secs_f64());
     if dry {
         return Ok(());
     }
@@ -156,22 +173,61 @@ fn run() -> Result<(), String> {
     let ses_path = ann_path.with_file_name("PL0001.SES");
     write(&ses_path, &kh1_recom_assets::ses::write(&sound))?;
     println!("wrote {} ({} KH1 clip entries: guard {:?}, counterattack {:?})", ses_path.display(), n, guard, counter);
-    // KH1 stats (decisions 12, 18, 21): the enemy twins' records and Sora's Strength.
-    let (stats, n) = kh1_stats(&game, keys)?;
+    // The Keyblade models, under the same root as the manifest (`<mod>/recom` or --out's folder).
+    let root = man.parent().map(Path::to_path_buf).unwrap_or_default();
+    for (m, c) in &keyblades {
+        if let Some(c) = c {
+            for (rel, bytes) in kh1_recom_assets::keyblade::mod_files(m.group, c).map_err(|e| e.to_string())? {
+                write(&rel.split('/').fold(root.clone(), |p, s| p.join(s)), &bytes)?;
+            }
+        }
+    }
+    // KH1 stats (decisions 12, 18, 21, 25): the enemy twins' records, Sora's Strength, the
+    // Keyblades (with their model groups).
+    let models: Vec<KeybladeModel> = keyblades.iter().map(|k| k.0.clone()).collect();
+    let (stats, n) = kh1_stats(&game, keys, &models)?;
     let sp = man.with_file_name(install::STATS);
     std::fs::write(&sp, &stats).map_err(|e| format!("{}: {e}", sp.display()))?;
     println!("wrote {} ({} KH1 enemy twins, {} bytes)", sp.display(), n, stats.len());
     Ok(())
 }
 
-fn kh1_stats(game: &std::path::Path, keys: kh1_formats::egs::KeyTable) -> Result<(String, usize), String> {
+/// Converts the 17 KH1 Keyblades (`KH1_KEYBLADES`): their model names from KH1's weapon table,
+/// each `.wpn` with its HD assets from KH1's archives, laid out on Re:CoM's own `PL0002.MDL`.
+/// The Kingdom Key keeps Re:CoM's PL0002 (group 2). Without PL0002.MDL nothing is converted.
+fn convert_keyblades(game: &Path, keys: kh1_formats::egs::KeyTable, pl0002: Option<&[u8]>) -> Result<Vec<(KeybladeModel, Option<Converted>)>, String> {
+    let Some(pl0002) = pl0002 else {
+        println!("note: no PL0002.MDL; the Keyblade models are not built");
+        return Ok(Vec::new());
+    };
+    let template = Mdl::parse(pl0002).map_err(|e| format!("{}: {e}", install::KEYBLADE_MDL))?;
+    let inst = install::kh1(game, keys).map_err(|e| format!("KH1 files: {e}"))?;
+    let btl = inst.read("btltbl.bin").map_err(|e| format!("btltbl.bin: {e}"))?;
+    let table = kh1_formats::btltbl::Btltbl::parse(btl).map_err(|e| format!("btltbl.bin: {e}"))?;
+    let mut out = Vec::new();
+    for (card, name, item) in KH1_KEYBLADES {
+        let group = group_for_card(*card).ok_or_else(|| format!("{name}: no group for card {card}"))?;
+        if *card == 1 {
+            out.push((KeybladeModel { card: *card, group, textures: template.parts[0].texture_names() }, None));
+            continue;
+        }
+        let model = table.weapon_for_item(*item).map_err(|e| format!("{name}: {e}"))?.model;
+        let file = format!("{model}.wpn");
+        let (wpn, assets, _) = inst.read_full(&file).map_err(|e| format!("{name}: {file}: {e}"))?;
+        let c = convert(&template, &model, &wpn, &assets).map_err(|e| format!("{name} ({file}): {e}"))?;
+        out.push((KeybladeModel { card: *card, group, textures: c.textures.clone() }, Some(c)));
+    }
+    Ok(out)
+}
+
+fn kh1_stats(game: &std::path::Path, keys: kh1_formats::egs::KeyTable, models: &[KeybladeModel]) -> Result<(String, usize), String> {
     let inst = install::kh1(game, keys).map_err(|e| format!("KH1 files: {e}"))?;
     let btl = inst.read("btltbl.bin").map_err(|e| format!("btltbl.bin: {e}"))?;
     let parsed = kh1_formats::btltbl::Btltbl::parse(btl.clone()).map_err(|e| format!("btltbl.bin: {e}"))?;
     // The Kingdom Key (item 0x51): its weapon row's Strength (+0x30).
     let kk = parsed.weapon_for_item(0x51).map_err(|e| format!("Kingdom Key: {e}"))?.strength as i32;
     let mut read = |name: &str| inst.read(name).map_err(|e| kh1_recom_assets::Error::Format(format!("{name}: {e}")));
-    kh1_recom_assets::stats::build_json(&mut read, &btl, kk).map_err(|e| e.to_string())
+    kh1_recom_assets::stats::build_json(&mut read, &btl, kk, models).map_err(|e| e.to_string())
 }
 
 fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {

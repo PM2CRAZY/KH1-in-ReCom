@@ -864,6 +864,8 @@ impl Page {
             if let Some(&card) = self.cards.get(self.list.cursor as usize) {
                 super::stats::set_equipped(card);
                 self.equipped = super::stats::equipped_card();
+                // Its model starts loading now; the weapon is rebuilt when the camp closes.
+                super::models::prefetch();
                 sound(2);
                 self.redraw();
                 log(&format!("keyblades: equipped card {card:#x} (save byte {:#x})", kb::save_byte_for(card)));

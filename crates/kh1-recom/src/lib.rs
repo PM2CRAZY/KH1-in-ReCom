@@ -15,6 +15,10 @@
 //! - at `combat = kh1`, in Sora's story, adds an 8th camp menu entry, "Keyblades", whose page
 //!   equips the Keyblades Sora has earned, run by Re:CoM's own camp code (`keyblades`;
 //!   `docs/recom-keyblade-equip.md`);
+//! - at `combat = kh1`, in Sora's story, Sora's weapon shows the equipped Keyblade's model: new
+//!   groups in Re:CoM's PLAYER resource table, picked when Re:CoM builds the weapon, and the
+//!   weapon rebuilt with Re:CoM's own constructor when the camp closes (`keyblade_models`;
+//!   `docs/recom-keyblade-models.md`);
 //! - F9 records a Re:CoM trace in kh1-trace's CSV schema (`trace`).
 //!
 //! `motions` (with `json`) reads the asset build step's manifest and `PL0001.ANN` header, for the
@@ -23,6 +27,7 @@
 pub mod attack;
 pub mod hookplan;
 pub mod json;
+pub mod keyblade_models;
 pub mod keyblades;
 pub mod menu;
 pub mod motions;

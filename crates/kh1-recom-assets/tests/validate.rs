@@ -477,9 +477,15 @@ fn keyblades_from_kh1s_weapon_table() {
     let Some(dir) = std::env::var_os("KH1_TEST_DATA").map(PathBuf::from) else { return };
     let Ok(b) = std::fs::read(dir.join("btltbl.bin")) else { return };
     let t = kh1_formats::btltbl::Btltbl::parse(b).unwrap();
-    let j = kh1_recom_assets::stats::keyblades_json(&t).unwrap();
+    let j = kh1_recom_assets::stats::keyblades_json(&t, &[]).unwrap();
     assert_eq!(j.matches("\"source\": \"kh1\"").count(), 17);
     assert!(j.contains("\"card\": 1, \"name\": \"Kingdom Key\", \"source\": \"kh1\", \"kh1_item\": 81, \"model\": \"xw_ex_5010\", \"radius\": 40"));
     assert!(j.contains("\"card\": 15, \"name\": \"Ultima Weapon\", \"source\": \"kh1\", \"kh1_item\": 100, \"model\": \"xw_ex_5160\", \"radius\": 50"));
     assert!(j.contains("\"strength\": 14, \"crit\": 40, \"crit_bonus\": 2, \"priority\": 90, \"magic\": 2"));
+    assert!(!j.contains("\"group\""));
+    // With models: the group and texture names follow the row.
+    let m = [kh1_recom_assets::keyblade::KeybladeModel { card: 15, group: 34, textures: vec!["xw_ex_5160_0".into(), "xw_ex_5160_1".into()] }];
+    let j = kh1_recom_assets::stats::keyblades_json(&t, &m).unwrap();
+    assert!(j.contains("\"magic\": 2, \"group\": 34, \"textures\": [\"xw_ex_5160_0\", \"xw_ex_5160_1\"]}"));
+    assert_eq!(j.matches("\"group\"").count(), 1);
 }
