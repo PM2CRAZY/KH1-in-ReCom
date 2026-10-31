@@ -170,6 +170,29 @@ Steam bytes) that plays the same KH1 motion, with:
   effects. The KH1 test is chosen by the row's `0x80` flag in the dispatch.
 - Targets stay Re:CoM's own hurt shapes (M10/M11).
 
+### Enemy hurt shapes, Re:CoM vs KH1: the Shadow (2026-10-31)
+
+- **Re:CoM `ENEMY/0001/EN0001.ASD`** (`@COP`, version 3; body section: one 0x50-byte record;
+  layout from `0x140155160`). Checked (files + decomp):
+  - One **sphere** (kind 0), radius **0.55 m**, on bone `ex_2020_sk` (index 1), offset
+    (0, 0, 0.1).
+  - That bone is at the hips: 0.61 m up in the rest pose (`EN0001.MDL`).
+  - The file's other section holds 3 attack records (`r_hand` / `l_hand`, clips `e001_050` /
+    `e001_052`).
+- **KH1 `xa_ex_2020.mdls` part 4.** Checked (files + decomp):
+  - Two **ellipsoids**, radius 0.35 m.
+  - Hips: bone 2, 0.61 m, half height 0.40 m.
+  - Neck: bone 30, 1.06 m, half height 0.35 m.
+- **Comparison** (rest pose):
+  - Re:CoM's Shadow is wider (0.55 against 0.35 m across) and spans 0.06–1.16 m in height.
+  - KH1's is narrower and taller: 0.21–1.41 m.
+  - Against KH1's 0.40 m blade sphere, a hit needs the sphere centre within 0.95 m of Re:CoM's
+    centre, against 0.75 m of KH1's part centres.
+  - So KH1's blade hits Re:CoM's Shadow more easily than KH1's own Shadow, except for blows
+    above about 1.2 m. The Shadow's hurt shape is not why swings whiff.
+- The two games share the Shadow's skeleton: the hips and the bones below match to the
+  millimetre. Checked (files).
+
 ## Damage and reactions
 
 - **KH1 enemy stats (0.7.0, decisions 12 and 21).** Research notes: `kh1-enemy-stats.md` (kept
