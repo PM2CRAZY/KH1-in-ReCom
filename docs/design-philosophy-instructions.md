@@ -200,6 +200,12 @@ At KH1 setting:
     - The equipped Keyblade is one byte in Re:CoM's save block (`save + 0x2674`, a range no code
       uses; `docs/recom-keyblade-equip.md`).
     - Order: owning and equipping, then KH1 models, then KH2 models and stats.
+    - Models (owner, 2026-10-31): the equipped Keyblade shows **as soon as the camp menu
+      closes** (Sora's weapon rebuilt with Re:CoM's own constructor); **only the equipped one is
+      loaded**; Halloween Town shows the equipped Keyblade like every other world; no look-only
+      test first, build the full swap. Native route: new resource groups for the converted models
+      in Re:CoM's player resource table, picked when the weapon is built
+      (`/home/claude/re/notes/keyblade-models.md`, to move into `docs/` with the build).
 
 ## Known open design questions (ask the owner, don't guess)
 
