@@ -164,6 +164,15 @@ pub const ATTACK_CALLEES: &[Site] = &[
     // mov r10d,r8d; mov r8d,[rcx+0x150]; mov r11,rdx; mov edx,r10d (a thunk to 0x1402588B0)
     Site { name: "effect at actor (0x1401A6B20)", rva: 0x001A_6B20, expect: &[0x45, 0x8B, 0xD0, 0x44, 0x8B, 0x81, 0x50, 0x01, 0x00, 0x00, 0x4C, 0x8B, 0xDA, 0x41, 0x8B, 0xD2] },
     Site { name: "sphere vs column (0x140176FA0)", rva: 0x0017_6FA0, expect: &[0x40, 0x53, 0x55, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x50] },
+    // Guard reactions (decision 27, `win::guard`).
+    // push rbx; sub rsp,0x20; mov r8,[rcx+0x260]; mov rbx,rcx: the enemy reaction picker.
+    Site { name: "enemy reaction picker (0x14017D260)", rva: 0x0017_D260, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x4C, 0x8B, 0x81, 0x60, 0x02, 0x00, 0x00, 0x48, 0x8B, 0xD9] },
+    // mov [rsp+8],rbx; mov [rsp+0x10],rsi; push rdi; sub rsp,0x20; mov rdi,rcx: the enemy's
+    // "card done" (CBTL resetNowPlaying when it is the side-2 card now playing).
+    Site { name: "enemy card end (0x14017E1D0)", rva: 0x0017_E1D0, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xF9] },
+    // The whole function: mov rax,[rcx+0x18]; test rax,rax; je ret; or edx,1; mov [rax+0x64],edx;
+    // ret. CCollAttack's list setter (vtable +0x20).
+    Site { name: "attack list setter (0x14014E5A0)", rva: 0x0014_E5A0, expect: &[0x48, 0x8B, 0x41, 0x18, 0x48, 0x85, 0xC0, 0x74, 0x06, 0x83, 0xCA, 0x01, 0x89, 0x50, 0x64, 0xC3] },
 ];
 
 /// Exe bytes the Attack patches (not functions; checked the same way).
@@ -457,6 +466,19 @@ mod tests {
         // The slot is CPlayerWeapon's +0x30 (vtable 0x1405AADB0) and the put-away is CPlayerSora's +0x100.
         assert_eq!(MODEL_PTRS[0].rva - MODEL_PTRS[1].rva, 0x30);
         assert_eq!(0x1_4000_0000u64 + MODEL_PTRS[2].rva as u64 - 0x100, data::SORA_VTABLE);
+    }
+
+    #[test]
+    fn guard_reaction_callees_are_checked() {
+        // Decision 27 calls these three Re:CoM functions; each is byte-checked at start, and none
+        // is hooked.
+        for (rva, f) in [(0x0017_D260, crate::guard::func::PICKER), (0x0017_E1D0, crate::guard::func::END_CARD), (0x0014_E5A0, crate::guard::func::SET_LIST)] {
+            assert_eq!(rva, f);
+            assert!(ATTACK_CALLEES.iter().any(|s| s.rva == rva && s.expect.len() >= 16), "{rva:#x}");
+            assert!(!HOOKS.iter().chain(MOVE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS).chain(KEYBLADE_HOOKS).chain(MODEL_HOOKS).any(|s| s.rva == rva));
+        }
+        // The handle lookup it also calls is already checked.
+        assert!(MOVE_CALLEES.iter().any(|s| s.rva == 0x002A_D350));
     }
 
     #[test]

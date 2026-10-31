@@ -1,4 +1,4 @@
-# Re:CoM's Config menu, and our row in it
+# Re:CoM's Config menu, and our rows in it
 
 Steam addresses. Tags: Checked (decomp / disasm / exe) means read; Assumption means inferred.
 Built in `crates/kh1-recom` (`src/menu.rs`, `src/win/menu.rs`).
@@ -96,35 +96,44 @@ Built in `crates/kh1-recom` (`src/menu.rs`, `src/win/menu.rs`).
   Nothing else in the screenshot ends at the old bottom, so the 1-part sprite needs nothing
   (Assumption; the log now prints its rect and whether it is a scissor).
 
-## Our row (native)
+## Our rows (native)
 
-One row after row 4, drawn and run by the code above (the "KH1 motions test" row was removed by
+Rows after row 4, drawn and run by the code above (the "KH1 motions test" row was removed by
 owner decision, 2026-10-30; see `recom-motion-switch.md`):
 
 | row | label | options | ini key |
 |---|---|---|---|
 | 5 | Combat | Re:CoM / KH1 | `combat` (default kh1) |
+| 6 | Guard reactions | Off / On | `guard_reactions` (default on; decision 27) |
+
+- "Guard reactions" only has an effect at Combat = KH1 (Re:CoM's Sora has no Guard; at Re:CoM
+  nothing reads it). What it does: `recom-kh1-attack.md` § Enemy reactions to Guard. Its flip
+  takes effect at once (no restart).
 
 - **Hook `0x1400D3EB0`** (bytes `48 89 5C 24 08 57 48 83 EC 20`). Re:CoM's rows go to the
-  original. Changed only: up on row 0 → row 5 (was 4), down on row 4 → row 5 (was 0). On our
-  row: up → 4, down → 0, left/right flip, each followed by Re:CoM's cursor sound and a mode-9
-  redraw, as the original does. Confirm/cancel always goes to the original.
+  original. Changed only: up on row 0 → row 6, our last (was 4), down on row 4 → row 5 (was 0).
+  On our rows: up → the row above (5 → 4), down → the row below (6 → 0), left/right flip that
+  row, each followed by Re:CoM's cursor sound and a mode-9 redraw, as the original does.
+  Confirm/cancel always goes to the original (it never indexes by the cursor there; its draw
+  only compares its rows 0..4 with the cursor, `0x1400DF91C..0x1400DF925`, Checked (disasm)).
 - **Hook `0x1400DF1B0`** (bytes `48 8B C4 55 41 54 41 55 41 56`).
-  - After mode 9, builds our label and 2 values in slots 14..16 with the same calls and
-    arguments the original uses for row 3 (same fonts, sequence tables `0x1407C1230` /
-    `0x1407C1240[6..7]`), at row 3's x and one row step (row 4 − row 3) below row 4. When the
-    cursor is on our row, moves the cursor sprite and sets our help line exactly as the
-    original does for its rows. Re:CoM deletes our items with its own.
-  - **Panel one row taller.** After modes 0, 1 and 4 (the ones that can give the panel a new
-    animation), on each object of the panel's current sequence with the `C2DSprObj` vtable.
-    The row step is layout group `0xB` element `0x11` y − element `0xF` y.
-    - **9 parts** with flag 8 clear (the fill): edge offsets (0, 0, 0, row step) and flag 8.
-      Re:CoM's own 9-slice code draws its bottom one row lower, the top where it was. Not
+  - After mode 9, builds each row's label and 2 values (row 5: slots 14..16, row 6: 17..19;
+    Re:CoM leaves 14..20 unused) with the same calls and arguments the original uses for row 3
+    (same fonts, sequence tables `0x1407C1230` / `0x1407C1240[6..7]`), at row 3's x and one row
+    step (row 4 − row 3) below the row before. When the cursor is on one of our rows, moves the
+    cursor sprite and sets that row's help line exactly as the original does for its rows.
+    Re:CoM deletes our items with its own.
+  - **Panel taller by one row step per row we add (two).** After modes 0, 1 and 4 (the ones
+    that can give the panel a new animation), on each object of the panel's current sequence
+    with the `C2DSprObj` vtable. The row step is layout group `0xB` element `0x11` y − element
+    `0xF` y; the panel grows by 2 × that.
+    - **9 parts** with flag 8 clear (the fill): edge offsets (0, 0, 0, 2 × row step) and flag
+      8. Re:CoM's own 9-slice code draws its bottom two rows lower, the top where it was. Not
       Re:CoM's resize call, because that recentres the window on its origin (the screen's
       top-left here). Flag 8 set means done.
     - **Other part counts (≥ 2) shaped like a frame** (parts wholly above the sprite's middle,
       wholly below, and across it; `menu::panel::frame_rects`): each part with a y below the
-      middle gets its own copy of its rect entry with those y moved down by the row step, and
+      middle gets its own copy of its rect entry with those y moved down by 2 × the row step, and
       its `+0` repointed to the copy. The bottom row moves, the side edges stretch, the top row
       keeps Re:CoM's entry. It is the same move the 9-slice bottom offset makes, in the same
       part-local units, so frame and fill stay together through the open and close
@@ -134,7 +143,7 @@ owner decision, 2026-10-30; see `recom-motion-switch.md`):
     - **1 part:** left (logged with its rect and whether it is a scissor).
     - Mode 1 runs each frame only while the screen opens; mode 3 (every frame while open) is
       not touched, so nothing of ours runs per frame once open.
-  - The log prints `window panel, one row (X units) taller; sprites: …` (what each sprite
+  - The log prints `window panel, 2 rows (X units) taller; sprites: …` (what each sprite
     got) whenever something changed, at most 6 times per session.
   - **Assumption:** the frame sprites have the same scale as the fill at rest (seen for the
     fill; the frame is checked by the next screenshot).
@@ -149,9 +158,12 @@ owner decision, 2026-10-30; see `recom-motion-switch.md`):
 - Text: our label, options and help are NUL-terminated ASCII handed to the same text items
   (the message table is bypassed, not changed). Seen in game (owner's screenshot,
   2026-10-30): the rows render with Re:CoM's buttons, text and highlights. Checked (in game).
-- **Help line:** with the cursor on our row the help line shows our text
-  ("Re:CoM: card battles as in the original. KH1: Kingdom Hearts combat. (mod v0.6.2)"; the
-  version is the DLL's own, built in from `Cargo.toml` since 0.6.2). Mode 9 of the
+- **Help line:** with the cursor on our rows the help line shows our text:
+  - Combat: "Re:CoM: card battles as in the original. KH1: Kingdom Hearts combat. (mod v0.6.2)"
+    (the version is the DLL's own, built in from `Cargo.toml` since 0.6.2);
+  - Guard reactions: "On: a blocked attacker flinches and a blocked shot flies back. KH1 combat
+    only." (79 characters; ours are kept within 90, `menu::HELP_MAX`. Assumption: that fits the
+    help box on one line, as the Combat help does in game). Mode 9 of the
   original first sets help `0x50041A` (its highlighted item index stays 0 when the cursor is
   on row 5), then our hook sets ours on the same help object. `0x140259000` keeps the pointer
   as is when `help+0x9C` is 0, else formats it with `0x1402402B0`; our text is static and has
@@ -164,10 +176,10 @@ owner decision, 2026-10-30; see `recom-motion-switch.md`):
 
 ## Needs in-game testing
 
-- The panel's border (frame and highlight) now ends just below "Combat" with its corners
-  intact, lined up with the fill, through the open and close animations. Send the
-  "window panel, one row … taller; sprites: …" log lines (they list each sprite's parts and
+- The panel's border (frame and highlight) now ends just below "Guard reactions" with its
+  corners intact, lined up with the fill, through the open and close animations. Send the
+  "window panel, 2 rows … taller; sprites: …" log lines (they list each sprite's parts and
   what it got, including the 1-part sprite's rect).
-- The cursor and help line on the Combat row; up/down wrap through rows 0..5; left/right flip;
-  the ini changes on each flip.
+- The cursor and help line on both our rows; up/down wrap through rows 0..6; left/right flip
+  the row under the cursor; the ini changes on each flip (`combat`, `guard_reactions`).
 - Opening and closing the camp and the Config screen repeatedly (item ownership and deletion).

@@ -17,7 +17,10 @@
 //! - attack pair dispatch `0x14016EAD0`: for Sora's Keyblade on a KH1 row, KH1's sphere chain
 //!   tested with Re:CoM's own sphere / column primitives.
 //! - enemy hit handler `0x14017F7E0`: a KH1 hit lands during the enemy's card play (decision 14),
-//!   through Re:CoM's own interruptible-card path.
+//!   through Re:CoM's own interruptible-card path; a melee attacker Sora's Guard blocked plays
+//!   Re:CoM's own flinch (decision 27, `super::guard`).
+//! - the pair dispatch also hands its non-zero results to `super::guard` (decision 27: a blocked
+//!   shot is turned back there).
 //! - player damage check `0x1401E6DE0`: KH1's no-flinch frames (damage, no reaction).
 //! - root motion step `0x14024DCA0`: Sora's root travel one update late (decision 17).
 
@@ -64,6 +67,11 @@ const DEBUG_LINES: u32 = 200;
 
 pub fn set_debug(on: bool) {
     DEBUG.store(on, Ordering::Relaxed);
+}
+
+/// The Config row "Guard reactions" (decision 27, `super::guard`).
+pub fn set_guard_reactions(on: bool) {
+    super::guard::set_on(on);
 }
 
 fn debug(line: impl FnOnce() -> String) {
@@ -162,6 +170,11 @@ pub(super) unsafe fn set_guard(pl: usize, on: bool) {
         GUARD_ON.store(0, Ordering::Relaxed);
     }
     GUARD_HIT.store(0, Ordering::Relaxed);
+}
+
+/// KH1's guard object is live on this player (Re:CoM's body guard switched on by `set_guard`).
+pub(super) fn guard_live(pl: usize) -> bool {
+    pl != 0 && GUARD_ON.load(Ordering::Relaxed) == pl
 }
 
 /// A guarded hit since the last KH1 frame.
@@ -395,28 +408,38 @@ pub unsafe extern "win64" fn picker(pl: usize) {
 #[repr(C, align(16))]
 struct FakeSphere([u8; 0x90]);
 
+/// Re:CoM's own pair dispatch, and the Guard reactions (decision 27) on its non-zero results: a
+/// block of Sora's KH1 Guard (result 2 on the player side) may turn a shot back, which answers 0
+/// for that one test (`super::guard::on_result`). One compare per call otherwise.
+unsafe fn recom_pair(coll: usize, list: usize) -> i32 {
+    let r = orig::<PairFn>(&ORIG_PAIR)(coll, list);
+    if r == 0 {
+        return r;
+    }
+    super::guard::on_result(coll, list, r)
+}
+
 pub unsafe extern "win64" fn pair_dispatch(coll: usize, list: usize) -> i32 {
-    let o: PairFn = orig(&ORIG_PAIR);
     if !mv::kh1_on() {
-        return o(coll, list);
+        return recom_pair(coll, list);
     }
     let b = base();
     let pl: usize = rd(va(b, data::MAIN_PLAYER));
     if !mv::is_main_sora(pl) {
-        return o(coll, list);
+        return recom_pair(coll, list);
     }
     let weapon: usize = rd(pl + field::WEAPON);
     let shape: usize = rd(coll + 0x18);
-    let Some(kh1_row) = kh1_row_of(pl) else { return o(coll, list) };
+    let Some(kh1_row) = kh1_row_of(pl) else { return recom_pair(coll, list) };
     if weapon == 0 || coll != weapon + 0x240 || shape == 0 {
-        return o(coll, list);
+        return recom_pair(coll, list);
     }
     let kh1_weapon = super::stats::equipped_weapon();
-    let Some(live) = atk::live_attack(moveset(), kh1_row, &kh1_weapon) else { return o(coll, list) };
+    let Some(live) = atk::live_attack(moveset(), kh1_row, &kh1_weapon) else { return recom_pair(coll, list) };
     let bone = func::<BoneFn>(ACTOR_BONE);
     let (b2, b3) = (bone(weapon, 2), bone(weapon, 3));
     if b2 == 0 || b3 == 0 {
-        return o(coll, list);
+        return recom_pair(coll, list);
     }
     let (w2, w3) = (rd_vec(b2 + 0xD0), rd_vec(b3 + 0xD0));
     let (a, bp) = atk::blade_points(w2, w3, &live, &kh1_weapon);
@@ -509,7 +532,14 @@ pub unsafe extern "win64" fn enemy_hit(enemy: usize) -> u64 {
     if !mv::kh1_on() {
         return o(enemy);
     }
-    let Some(part) = take_kh1_hit(enemy) else { return o(enemy) };
+    let Some(part) = take_kh1_hit(enemy) else {
+        let hp: i32 = rd(enemy + 0x274);
+        let r = o(enemy);
+        // Decision 27: a melee attacker Sora's Guard blocked this frame reacts here, where Re:CoM
+        // runs its own reactions.
+        super::guard::after_enemy_hit(enemy, r, hp);
+        return r;
+    };
     // KH1's damage (decision 12) as the hit part's value (`+0x92`, read by `0x14016FDB0`); Re:CoM's
     // own path then applies its weak part, resistance % and boss falloff (decision 13).
     let pl: usize = rd(va(base(), data::MAIN_PLAYER));
@@ -529,6 +559,7 @@ pub unsafe extern "win64" fn enemy_hit(enemy: usize) -> u64 {
         let now: u64 = rd(enemy + 0x260);
         wr(enemy + 0x260, now & !0x200_0000);
     }
+    super::guard::after_enemy_hit(enemy, r, hp);
     let after: i32 = rd(enemy + 0x274);
     if let Ok(mut g) = HIT_LOG.lock() {
         if g.len() < 16 {

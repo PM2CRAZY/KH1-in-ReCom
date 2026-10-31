@@ -1,4 +1,5 @@
-//! Our row in Re:CoM's Config screen, run by Re:CoM's own menu code.
+//! Our rows in Re:CoM's Config screen ("Combat", "Guard reactions"), run by Re:CoM's own menu
+//! code.
 //!
 //! - `cfg_input` wraps the screen's input handler `0x1400D3EB0`. Re:CoM's rows go to the
 //!   original unchanged; at the two edges and on our rows it does what the original does for a
@@ -9,7 +10,7 @@
 //!   help line when the cursor is on our row. Re:CoM deletes those items itself (modes 6 / 9 and
 //!   the camp teardown clear all 21 slots). After the modes that give the window panel a new
 //!   animation (0, 1, 4) it sets the bottom edge offset of the panel's 9-slice sprites, so
-//!   Re:CoM's own sprite code draws the panel one row taller (`menu::panel`).
+//!   Re:CoM's own sprite code draws the panel one row taller per row we add (`menu::panel`).
 //!
 //! `cfg_input` also runs the Keyblades page (`keyblades`, the camp's 8th entry), which Re:CoM's
 //! camp opens through these same Config states.
@@ -97,9 +98,13 @@ unsafe fn rd<T: Copy>(p: *mut u8, off: usize) -> T {
 #[derive(Clone, Copy, Default)]
 struct Vec4([f32; 4]);
 
-/// Settings value our row `k` shows (option 1 = KH1).
-fn row_value(_k: usize) -> bool {
-    super::settings().combat == crate::settings::Mode::Kh1
+/// Settings value our row `k` shows (option 1: KH1 for Combat, On for Guard reactions).
+fn row_value(k: usize) -> bool {
+    let s = super::settings();
+    match k {
+        menu::ROW_GUARD_REACTIONS => s.guard_reactions,
+        _ => s.combat == crate::settings::Mode::Kh1,
+    }
 }
 
 /// Hook on `0x1400D3EB0` (the Config screen's input/state function).
@@ -195,7 +200,7 @@ unsafe fn stretch_panel(camp: *mut u8) {
     // Logged when something changed (each animation's new sprites), a few times per session.
     if changed && PANEL_LOGS.fetch_add(1, Ordering::Relaxed) < 6 {
         let g = grow.flatten().map(|g| format!("{g:.1}")).unwrap_or_else(|| "?".into());
-        log(&format!("config menu: window panel, one row ({g} units) taller; sprites: {}", report.join("; ")));
+        log(&format!("config menu: window panel, {} rows ({g} units) taller; sprites: {}", menu::ROWS, report.join("; ")));
     }
 }
 

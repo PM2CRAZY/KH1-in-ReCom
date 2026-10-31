@@ -47,6 +47,9 @@ pub fn switch_str(on: bool) -> &'static str {
 pub struct Settings {
     /// Sora's combat: Re:CoM's, or KH1's (from M4: KH1's movement).
     pub combat: Mode,
+    /// Enemy reactions to Sora's KH1 Guard (decision 27; only at `combat = kh1`): a blocked melee
+    /// attacker plays Re:CoM's own flinch, a blocked shot flies back and can hurt enemies.
+    pub guard_reactions: bool,
     /// Our rows in Re:CoM's Config menu. `off` leaves the menu untouched (a safety switch while
     /// the rows are untested in game; the settings then come from this file only).
     pub config_menu: bool,
@@ -102,7 +105,7 @@ impl Kh1Abilities {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { combat: Mode::Kh1, config_menu: true, abilities: Kh1Abilities::default(), debug_attack: false }
+        Settings { combat: Mode::Kh1, guard_reactions: true, config_menu: true, abilities: Kh1Abilities::default(), debug_attack: false }
     }
 }
 
@@ -115,6 +118,12 @@ pub const DEFAULT_FILE: &str = "\
 ;   recom: Sora fights with Re:CoM's cards, as in the original game.
 ;   kh1 moves Sora with KH1's movement (walk, run, jump, glide, Dodge Roll, Guard).
 combat = kh1
+;
+; guard_reactions = on | off (only at combat = kh1)
+;   on:  when Sora's Guard blocks an enemy, the attacker flinches (Re:CoM's own flinch), and a
+;        blocked shot flies back and can hurt enemies (Re:CoM's damage).
+;   off: a blocked enemy carries on; a blocked shot just vanishes.
+guard_reactions = on
 ;
 ; config_menu = on | off
 ;   off: don't add our rows to Re:CoM's Config menu (use this file instead).
@@ -158,6 +167,10 @@ pub fn parse(text: &str) -> (Settings, Vec<String>) {
             // The "KH1 motions test" switch was removed (owner, 2026-10-30): an old line is
             // ignored without a warning.
             "kh1_motions" => {}
+            "guard_reactions" => match parse_switch(v) {
+                Some(b) => s.guard_reactions = b,
+                None => warnings.push(bad("guard_reactions must be on or off")),
+            },
             "config_menu" => match parse_switch(v) {
                 Some(b) => s.config_menu = b,
                 None => warnings.push(bad("config_menu must be on or off")),
@@ -241,6 +254,7 @@ pub fn set_key(text: &str, key: &str, value: &str) -> String {
 /// Writes every setting into the file text.
 pub fn store(text: &str, s: &Settings) -> String {
     let t = set_key(text, "combat", s.combat.as_str());
+    let t = set_key(&t, "guard_reactions", switch_str(s.guard_reactions));
     let mut t = set_key(&t, "config_menu", switch_str(s.config_menu));
     let a = s.abilities;
     for (k, v) in [("high_jump", a.high_jump), ("glide", a.glide), ("superglide", a.superglide), ("dodge_roll", a.dodge_roll), ("guard", a.guard), ("counterattack", a.counterattack)] {
@@ -310,7 +324,7 @@ mod tests {
 
     #[test]
     fn store_round_trips() {
-        let s = Settings { combat: Mode::Recom, config_menu: false, abilities: Kh1Abilities { high_jump: true, glide: true, ..Default::default() }, debug_attack: true };
+        let s = Settings { combat: Mode::Recom, guard_reactions: false, config_menu: false, abilities: Kh1Abilities { high_jump: true, glide: true, ..Default::default() }, debug_attack: true };
         let t = store(DEFAULT_FILE, &s);
         let (back, w) = parse(&t);
         assert_eq!(back, s);
@@ -318,6 +332,31 @@ mod tests {
         assert!(t.contains("; combat = kh1 | recom"), "comments survive");
         // An empty file gets every key.
         assert_eq!(parse(&store("", &s)).0, s);
+    }
+}
+
+#[cfg(test)]
+mod guard_reaction_tests {
+    use super::*;
+
+    #[test]
+    fn guard_reactions_default_on_and_round_trip() {
+        assert!(Settings::default().guard_reactions);
+        assert!(DEFAULT_FILE.contains("\nguard_reactions = on\n"));
+        // An old ini without the key keeps the default (on), without a warning.
+        let (s, w) = parse("combat = kh1\nconfig_menu = on\n");
+        assert!(s.guard_reactions && w.is_empty(), "{w:?}");
+        let (s, w) = parse("guard_reactions = off\nguard_reactions = maybe\n");
+        assert!(!s.guard_reactions);
+        assert_eq!(w.len(), 1, "{w:?}");
+        // Rewriting an old file appends the key; flipping it changes only that line.
+        let t = store("combat = kh1\n", &Settings { guard_reactions: false, ..Default::default() });
+        assert!(t.contains("guard_reactions = off"));
+        assert!(!parse(&t).0.guard_reactions);
+        let t2 = store(DEFAULT_FILE, &Settings { guard_reactions: false, ..Default::default() });
+        assert_eq!(t2.lines().filter(|l| l.starts_with("guard_reactions")).count(), 1);
+        assert!(t2.contains("; guard_reactions = on | off"), "comments survive");
+        assert_eq!(parse(&t2).0, Settings { guard_reactions: false, ..Default::default() });
     }
 }
 

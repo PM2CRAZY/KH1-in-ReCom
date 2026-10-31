@@ -6,8 +6,9 @@
 //! `kh1-recom.ini`, and writes `kh1-recom.log` next to the game. Then, only when every check
 //! passed:
 //!
-//! - adds a "Combat" row to Re:CoM's Config menu, drawn and driven by Re:CoM's own menu code,
-//!   with Re:CoM's window panel drawn one row taller (`menu`, `docs/recom-config-menu.md`);
+//! - adds "Combat" and "Guard reactions" rows to Re:CoM's Config menu, drawn and driven by
+//!   Re:CoM's own menu code, with Re:CoM's window panel drawn taller (`menu`,
+//!   `docs/recom-config-menu.md`);
 //! - at `combat = kh1`, runs KH1 Sora's movement as the handlers of Re:CoM's own movement actions
 //!   (`movement`, `rows`, `units`; `docs/recom-kh1-movement.md`);
 //! - at `combat = kh1`, runs KH1's Attack (no cards) through Re:CoM's own attack action, rows,
@@ -25,6 +26,7 @@
 //! KH1-only clips the movement plays (High Jump, Guard).
 
 pub mod attack;
+pub mod guard;
 pub mod hookplan;
 pub mod json;
 pub mod keyblade_models;
@@ -104,6 +106,7 @@ pub fn startup_report(
                 s.combat.as_str(),
                 settings::switch_str(s.config_menu)
             );
+            let _ = writeln!(r, "settings: guard_reactions = {} (only at combat = kh1)", settings::switch_str(s.guard_reactions));
             let a = s.abilities;
             let _ = writeln!(
                 r,
@@ -146,6 +149,7 @@ mod tests {
         let (r, ok) = startup_report(&path, pe, &read, Ok(settings::DEFAULT_FILE.into()));
         assert!(ok, "{r}");
         assert!(r.contains("combat = kh1, config_menu = on"), "{r}");
+        assert!(r.contains("guard_reactions = on"), "{r}");
         assert!(r.contains("Config screen draw"));
     }
 

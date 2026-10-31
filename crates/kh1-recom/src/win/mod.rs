@@ -2,6 +2,7 @@
 //! between our Config row and `kh1-recom.ini`.
 
 mod attack;
+mod guard;
 mod hook;
 mod keyblades;
 mod menu;
@@ -51,12 +52,16 @@ pub(crate) fn settings() -> Settings {
 }
 
 /// Our Config row `k` was flipped: change the setting, rewrite the ini.
-pub(crate) fn toggle(_k: usize) {
+pub(crate) fn toggle(k: usize) {
     let mut s = settings();
-    s.combat = match s.combat {
-        settings::Mode::Kh1 => settings::Mode::Recom,
-        settings::Mode::Recom => settings::Mode::Kh1,
-    };
+    if k == crate::menu::ROW_GUARD_REACTIONS {
+        s.guard_reactions = !s.guard_reactions;
+    } else {
+        s.combat = match s.combat {
+            settings::Mode::Kh1 => settings::Mode::Recom,
+            settings::Mode::Recom => settings::Mode::Kh1,
+        };
+    }
     if let Ok(mut g) = SETTINGS.lock() {
         *g = Some(s.clone());
     }
@@ -65,6 +70,11 @@ pub(crate) fn toggle(_k: usize) {
         if let Err(e) = std::fs::write(&p, settings::store(&text, &s)) {
             log(&format!("config menu: could not write {}: {e}", p.display()));
         }
+    }
+    if k == crate::menu::ROW_GUARD_REACTIONS {
+        attack::set_guard_reactions(s.guard_reactions);
+        log(&format!("config menu: guard_reactions = {}", settings::switch_str(s.guard_reactions)));
+        return;
     }
     movement::set_mode(s.combat == settings::Mode::Kh1);
     log(&format!("config menu: combat = {}", s.combat.as_str()));
@@ -180,6 +190,7 @@ fn install_attack(base: usize, s: &Settings, stats_file: Option<&Path>) {
         return;
     }
     attack::set_debug(s.debug_attack);
+    attack::set_guard_reactions(s.guard_reactions);
     if s.debug_attack {
         log("attack: debug_attack = on (first 200 lines)");
     }
@@ -207,6 +218,12 @@ fn install_attack(base: usize, s: &Settings, stats_file: Option<&Path>) {
             "attack: KH1 Attack in Re:CoM's attack action 0xA, field and battle (combo_plus {}, air_combo_plus {}, combo_master {}); KH1 Keyblade chain in the pair dispatch; hits land during enemy cards; no-flinch roll; root motion one update late",
             a.combo_plus, a.air_combo_plus, a.combo_master
         ));
+        if guard::install(base) {
+            log(&format!(
+                "guard reactions: in the pair dispatch and enemy hit wrappers (decision 27; {} at combat = kh1)",
+                settings::switch_str(s.guard_reactions)
+            ));
+        }
         install_stats(base, stats_file);
     } else {
         log("attack: not hooked; Sora attacks as in Re:CoM (the Battle case and row-pick slot stay patched but are not reached)");
@@ -337,7 +354,7 @@ fn run(mod_dir: Option<PathBuf>) {
         ];
         // SAFETY: the targets' bytes are checked again inside, before anything is written.
         if unsafe { hook::install_all(base, &hooks) } {
-            log("config menu: row added (camp menu > Config, below Re:CoM's rows)");
+            log("config menu: rows added (camp menu > Config, below Re:CoM's rows: Combat, Guard reactions)");
             install_keyblades(base);
         } else {
             log("config menu: not hooked; use kh1-recom.ini");

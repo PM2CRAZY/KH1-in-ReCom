@@ -345,9 +345,9 @@ unless tagged.
     clip (`p001_226`) through a second appended action row. ini `counterattack = on | off`.
 - **Differences from KH1, by decision 20:** Re:CoM attacks have no KH1 priority, so every
   attack Re:CoM's guard stops gives kind 6 with no pushback. Re:CoM's guard covers Sora's body,
-  not the Keyblade's capsule, and measures the angle to the hit point. Re:CoM enemies get no
-  reaction yet (their recoil and turned-back shots are the next version, behind a Config
-  toggle).
+  not the Keyblade's capsule, and measures the angle to the hit point. Re:CoM enemies'
+  reactions to a block (their flinch, turned-back shots) are § Enemy reactions to Guard
+  (decision 27), behind the Config row "Guard reactions".
 - Assumption: leaving the recoil early in its free frames counts as the lock release for the
   8-frame countdown. Not traced in KH1.
 - Note to re-check: Stage 9 found the roll's `0x140297F30(Sora, 12)` leaves damage on (no-flinch
@@ -414,6 +414,172 @@ Research notes `guard-counter-sounds.md` (kept with the decomp tools).
   - The sound id of `always` #0xB: its sound table's file wasn't found.
   - That `always` is loaded wherever Sora guards (Assumption). If it isn't, `0x1402588B0` finds
     no group and does nothing (Checked, decomp).
+
+## Enemy reactions to Guard (decision 27)
+
+Owner (2026-10-31; completes decision 20): a new Config row "Guard reactions" (Off / On, **on by
+default**, ini `guard_reactions`), with an effect only at Combat = KH1. When Sora's KH1 Guard
+blocks an enemy attack, a **melee** attacker plays Re:CoM's own flinch (its card ends first) and a
+**shot flies back and hurts enemies** with Re:CoM's damage; bosses and duels included. Research
+notes: `guard-enemy-reactions.md` (kept with the decomp tools). Code: `crates/kh1-recom`
+(`guard.rs`, `win/guard.rs`, the two wrappers in `win/attack.rs`). Not KH1 1:1 by the owner's
+choice: KH1 plays a per-attack recoil Re:CoM has no data for (the flinch stands in), and KH1's
+generic code makes a blocked shot inert (research §3), not harmful.
+
+### Where it runs (no new hook)
+
+- **The block.** Re:CoM's hit apply `0x14016F1C0` returns 2 when Sora's body guard stops the
+  attack, after writing the attack's owner id into the body's `+0x98` (`player+0x728`), setting
+  `+0x9C |= 0x20` and recording the attack's serial on the body (so this attack instance never
+  tests Sora again). Checked (decomp).
+- **Detected** in the existing pair-dispatch wrapper (`0x14016EAD0`): after Re:CoM's own
+  dispatch, only when its result is non-zero. A block event is: result 2, the list is the player
+  side's (`*0x14087A838`, the list `0x14016F110` picks when the shape flags `& 0xE != 0`),
+  Combat = KH1, the row on, Sora's KH1 Guard live (our `set_guard`), Sora's body `+0x9C & 0x20`
+  and `+0x98` = the collision's owner (`coll+0x20`). Checked (decomp `0x14016F110`,
+  `0x14016EAD0`, `0x14016F1C0`). Cost otherwise: the compare of the result with 0.
+- **The attacker** is `0x1402AD350(coll+0x20)` (the handle lookup). Checked (decomp).
+  - **Shot:** its vtable is `CBullet` (`0x140525430`, 0x2F0 bytes) or `CHomingBullet`
+    (`0x140525530`, 0x340 bytes) and the collision is the bullet's own (`bullet+0x2A8`). The
+    bullet manager `0x140158DD0` makes only these two (spawn kind 1 / 2). Checked (decomp + exe
+    RTTI).
+  - **Melee:** the collision is one of the actor's `CAttackMotion` entries (`actor+0x100`,
+    vtable `0x140523E70`; count `+0x14`, entries `+0x18`, 0x40 bytes each, live when `+0x18` is
+    set, the collision at `+0x20`), the ones `0x14014E6A0` tests in the enemy update
+    `0x140185630`. Checked (decomp + disasm `0x14014E6A0`, `0x1401A4E70`).
+  - **Anything else** (the 16 boss classes that build their own `CCollAttack`, gimmicks): left
+    exactly as Re:CoM does it (blocked, no reaction), logged once per class.
+- The four vtables are checked by their RTTI names at start, and `CCollAttack` vtable `+0x20`
+  (`0x140523E48`) must hold `0x14014E5A0`; otherwise the reactions stay off (logged).
+
+### Melee: Re:CoM's own flinch
+
+- In the pair-dispatch wrapper the attacker's id is only remembered (we are inside its own
+  update, in `0x14014E6A0`). Several entries of one attacker blocked in one frame react once.
+- In the existing enemy-hit wrapper (`0x14017F7E0`, whose only caller is `0x140185630`, right
+  after the attack check), when that enemy's own hit handler has run and returned 0 (it wasn't
+  hit itself this frame; if it was, Re:CoM's own reaction to that hit stands):
+  1. skipped when HP (`+0x274`) ≤ 0, or `+0x260` bit 13 is set (Re:CoM's hit handler gives
+     such an enemy no reaction either, it only plays the guard spark). Checked (decomp);
+  2. **`0x14017D260(enemy, 1)`**, Re:CoM's reaction picker (its only caller is the hit handler):
+     kind 1 (Sora's basic swing kind) takes its default branch to `0x14017D800`, which sets
+     `+0x68 = enemy + 0x780` (state 11, the flinch) and clears `+0x260` bit 4, unless bit 19 or
+     bit 21 (super armour) is set: then only Re:CoM's damage voice plays (`0x140181B50`).
+     Checked (decomp). Each class's own flinch init (`+0x1F0` slot, bosses' face variants
+     included) then runs when Re:CoM switches state;
+  3. **the card ends** only when the picker chose the flinch: `0x14017E1D0(enemy)` (CBTL
+     `resetNowPlaying` if it is the side-2 card now playing; no break, no counters), then
+     `+0x260 &= ~1`. These are exactly the two steps of Re:CoM's own "interruptible card hit"
+     path (`0x14017F7E0`, `+0x260 & 0x2000001`). That path itself can't be used: it runs only
+     for a hit body, and a block hits nothing on the attacker. With super armour the attack goes
+     on, so its card is kept (ending it would leave CBTL's now-playing out of step with an
+     enemy still in its card attack). The attack state's own end (`0x14017DA90`) then clears
+     the card bits and switches the hurt bodies back on, as for any interrupted attack.
+     Checked (decomp).
+- Not called: `0x14017E190` and vtable `+0x3E0` (the "I was hit" hooks that run before the
+  picker on a hit), damage, notices. The blocked enemy still gets Re:CoM's "my attack
+  connected" bit (`+0x260 |= 0x40`), as before.
+- A remembered attacker that never runs the hit handler (a gimmick using `0x14014E6A0`
+  directly) is dropped after 64 hit-handler calls.
+
+### Shots: turned back with Re:CoM's own bullet runtime
+
+At the block, once (the turned-back shot never tests the player side again):
+1. **Re:CoM's list setter** `0x14014E5A0(coll, 0)` (`CCollAttack` vtable `+0x20`): `shape+100 =
+   1`, so `0x14016F110` tests the shot against the enemies' list (`*0x14087A840`) from now on.
+   Checked (decomp + exe). Within this same call `0x14016F110` re-reads the flags, so a shot
+   that tested both lists (`& 0xE == 4`) stops after the player side's.
+2. **Velocity reversed**: the mover `bullet+0xF0`, velocity `+0x80` (`0x1401D69F0` takes its
+   length as the speed). Checked (decomp).
+3. **Aim angles reversed**: mover `+0x50` (pitch), `+0x54` (yaw) set to the reversed velocity's
+   angles in Re:CoM's own convention (`0x1401A2F10`: pitch = −atan2(dy, |dxz|), yaw = atan2(dx,
+   dz)). Re:CoM rebuilds a bullet's velocity from these angles (`0x1401D5740`: forward
+   `0x1407C5860` = (0, 0, 1), rotated by +0x50 / +0x54 / +0x58, times the speed `+0x23C`) in its
+   homing ticks and in the bullet state's `+0xA0` (`0x1401561B0`), so without this a homing shot
+   would turn straight back toward Sora. Checked (decomp + exe). Roll `+0x58` is left (logged).
+4. **Homing at the shooter** (`bullet+0x238`, the spawning actor's id, written by the manager
+   `0x140158DD0` for actor types 0x1000.., 0x2000.., 0x4000; 0 otherwise, then no retarget).
+   Checked (decomp):
+   - `CBullet` with flag `0x800` homes on the actor `+0x258` while `+0x25C` > 0
+     (`0x1401573C0`): `+0x258` = shooter;
+   - `CHomingBullet` homes on the actor `+0x2F4` (`0x1401575D0`, and `0x1401563F0` with flag
+     `0x2000`): `+0x2F4` = shooter when it was > 0 or flag `0x2000` is set; with flag `0x80000`
+     it steers to the point `+0x300` instead: the shooter's position (mover `+0x30`) goes there.
+   - **Correction to the research** (§1.2 / §4.3 named `+0x32C`): `+0x32C` (spawn `+0x98`) is
+     only read by `CHomingBullet`'s floor-roll steer (flag `0x400000`, `0x1401561D0`), not the
+     homing. Checked (decomp). And `+0x32C` does not exist on a `CBullet` (0x2F0 bytes).
+5. **That one test answers 0** (the wrapper returns 0 instead of 2), so the bullet's step
+   (`0x140156A30` / `0x140156E20`) takes its "no hit" branch: no hit effect, no `+0x298`, no end.
+   Sora's body still has `+0x9C & 0x20`, so his KH1 guard recoil runs as before. Checked
+   (decomp).
+
+From then on Re:CoM moves, draws, collides and ends the shot (its range from its spawn point
+`+0xA0` / `+0x240`, its lifetime, map contact). It can hit any enemy body, its shooter included
+(the collision's owner is the bullet, not the shooter). A hit takes Re:CoM's own enemy hit path
+with the shot's own kind, element and AP (`coll+0x44 / +0x50 / +0x48`), the enemy's
+resistances and the reaction its kind gives (Re:CoM's damage, by the owner's choice; the KH1
+numbers of decisions 12 / 21 apply only to KH1 swings).
+
+### Logs (`kh1-recom.log`)
+
+- `guard reactions: block melee <class> id=… coll=… kind=… elem=… ap=… serial=… flags=… state=…`
+  and, when its hit handler runs, `<class> id=…: picker(1) -> flinch (state 11) | voice only …
+  flags A->B state S next N->M card ended | bit cleared | kept | none` (or why it was skipped).
+- `guard reactions: block shot CBullet|CHomingBullet id=… shooter=… (<class>) … flags=… list
+  A->B vel (…)->(…) angles (…)->(…) roll … homing …`.
+- `guard reactions: turned-back shot id=… met id=… (<class>) result r`, then `turned-back shot
+  id=… hit <class> id=…: damage d hp a->b` (with a note when a card play stopped the damage).
+- First 50 block lines and first 50 hit lines; "no reaction" classes once each.
+
+### Addresses (all Checked against the Steam exe's bytes and the decomp)
+
+| address | what | first bytes |
+|---|---|---|
+| `0x14017D260` | enemy reaction picker (called) | `40 53 48 83 EC 20 4C 8B 81 60 02 00 00 48 8B D9` |
+| `0x14017E1D0` | enemy card end (called) | `48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B F9` |
+| `0x14014E5A0` | `CCollAttack` list setter (called; the whole function) | `48 8B 41 18 48 85 C0 74 06 83 CA 01 89 50 64 C3` |
+| `0x1402AD350` | handle → object (called; already checked) | `48 83 EC 28 8B D1 48 8B 0D 33 9D 84 00 48 85 C9` |
+| `0x14087A838` / `0x14087A840` | player side's / enemies' collision list | data |
+| `0x140523E28` / `+0x20` | `CCollAttack` vtable / its setter slot | RTTI + pointer, at start |
+| `0x140523E70` | `CAttackMotion` vtable | RTTI, at start |
+| `0x140525430` / `0x140525530` | `CBullet` / `CHomingBullet` vtables | RTTI, at start |
+
+### Risks
+
+- **Bosses and duels** (included, owner's choice): every blocked melee hit can now end a boss's
+  card (as decision 14 does on a hit). Sleight chains, duel mode and story bosses that wait for
+  their card are the main risk. Super armour (bits 19 / 21) keeps the card and plays only the
+  voice.
+- **A turned-back shot meeting a card-playing enemy deals no damage**: Re:CoM's hit handler
+  returns before damage while `+0x260` bit 0 is set (unless bit 25), and the shooter is often
+  still in its card attack when its shot comes back. The log notes it. Whether a turned-back
+  shot should break into the card like a KH1 swing (decision 14's route) is an open question
+  for the owner.
+- **Damage scale**: the shot's Re:CoM AP against KH1 HP on twins (decision 12) may be large or
+  small next to Sora's KH1 hits. Not measured.
+- **Order in the frame** (Assumption): our `+0x68` write comes after the rush / charge states'
+  own "connected" handling only if their state exe runs before `+0x78`; the log's `next` shows
+  what was set at the time.
+- **State 11's knockback** reads the enemy's last hit body's attacker (`info+0x50` → `+0x98`),
+  which after a block is stale (an earlier hitter, or a dead bullet: then Sora's position). The
+  direction may be off (Assumption).
+- **Turned-back shots** may hit gimmicks or objects whose bodies are on the enemies' list.
+- A homing `CBullet` with flag bit 29 re-picks the nearest flagged object (`0x1401CDB90`) once
+  its shooter is gone; it can no longer hit Sora (enemies' list only).
+- The other results of the same dispatch call (other player-side bodies hit by that shot in
+  the same test) keep their own hits; only the answer to the bullet changes.
+
+### Not verified
+
+- In game: nothing yet.
+- That a bullet's model faces its mover angles (Assumption): if not, a turned-back shot flies
+  backwards-facing.
+- Roll `+0x58` is 0 on Re:CoM's shots (Assumption; the log prints it). If not, a homing shot's
+  rebuilt velocity is off by the roll.
+- The spawn-time order of the bullet state's `+0xA0` (velocity from angles) vs a direct
+  velocity write: reversing both covers either.
+- KH1: the per-attack recoil data (`+0x40` of KH1's enemy attack data) is not read (the flinch is
+  a stand-in by decision 27).
 
 ## MP charge (skipped, noted)
 
@@ -496,7 +662,8 @@ Data (checked old values):
 - Re:CoM's rows 1–7 must equal `attack::RECOM_ROWS_1_7`.
 
 Called: `0x1401F6660` (end attack), `0x140224FB0` (weapon attack end), `0x1402ABB20` (bone),
-`0x1401777E0`, `0x140176FA0`, `0x1401F7180`, `0x1402AD350`; `0x1401E80C0` (springs).
+`0x1401777E0`, `0x140176FA0`, `0x1401F7180`, `0x1402AD350`; `0x1401E80C0` (springs); and for the
+Guard reactions `0x14017D260`, `0x14017E1D0`, `0x14014E5A0` (§ Enemy reactions to Guard).
 
 Per frame, our code runs only as cheap tests outside a KH1 swing: the request bits, the damage
 check and the root step (a pointer compare), and the pair dispatch only while a weapon volume is

@@ -11,6 +11,31 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 25: enemy reactions to Guard, version 0.11.0 (2026-10-31)
+
+> decision 27: "Fly back, hurt enemies" / "Flinch" / "Include them" / default "On"
+
+- New Config row "Guard reactions" (row 6, Off / On, default On, `guard_reactions` in the ini).
+  It only acts at Combat = KH1.
+- Block detection in the pair-dispatch wrapper: result 2 on the player-side list
+  (`*0x14087A838`), Sora's KH1 Guard live, his body `+0x9C & 0x20`, and `+0x98` = the attack's
+  owner. Checked (decomp).
+- **Melee:** after the attacker's hit handler, Re:CoM's reaction picker `0x14017D260(enemy, 1)`.
+  If it picked the flinch (state 11), the card ends with `0x14017E1D0` and bit 0 is cleared.
+  Super armour keeps Re:CoM's voice-only reaction and the card. Bosses included.
+- **Shots:** Re:CoM's list setter `0x14014E5A0(coll, 0)` moves the shot to the enemies' list.
+  Its velocity and aim angles are reversed, a homing shot is pointed at its shooter
+  (`CBullet +0x258` with flag 0x800, `CHomingBullet +0x2F4`; the research note's `+0x32C` was
+  wrong), and that test answers 0 so the bullet isn't ended. Re:CoM then moves it, collides it
+  and applies its damage.
+- New callees byte-checked: `0x14017D260`, `0x14017E1D0`, `0x14014E5A0`. Classes checked by RTTI
+  at start.
+- Assumptions: bullet models face their mover angles; the flinch knockback direction (it reads
+  the last hitter); a returned shot does nothing to an enemy still in its card (Re:CoM's rule
+  kept, to ask). Not seen in game.
+
+---
+
 ## Stage 24: the six KH2 Keyblades, step 3 of the Keyblades, version 0.10.0 (2026-10-31)
 
 > "Besides soul eater, every other keyblade should be from KH2 … pull the stats/models (not

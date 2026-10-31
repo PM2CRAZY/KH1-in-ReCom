@@ -3,17 +3,21 @@
 //! Re:CoM's Config screen is `CCamp`'s sub-screen run by `0x1400D3EB0` (input) and drawn by
 //! `0x1400DF1B0` (mode 9 rebuilds the rows). It has 5 rows (cursor `camp+0xBE8`, 0..4): rows 0-3
 //! are two-choice toggles kept in bytes `camp+0xBED + row`, row 4 shows a 4-value setting it
-//! cannot change. Checked (decomp + disasm). We add row 5 below row 4, drawn by the same game
-//! code (its `CButton` items, its layout positions, its cursor sprite and help line), and have
-//! Re:CoM's own 9-slice code draw its window panel one row taller (`panel`).
+//! cannot change. Checked (decomp + disasm). We add rows 5 ("Combat") and 6 ("Guard reactions",
+//! decision 27) below row 4, drawn by the same game code (its `CButton` items, its layout
+//! positions, its cursor sprite and help line), and have Re:CoM's own 9-slice code draw its window
+//! panel one row taller per row we add (`panel`).
 //! See `docs/recom-config-menu.md`.
 
 /// Re:CoM's last row.
 pub const LAST_RECOM_ROW: i32 = 4;
 /// Our first row.
 pub const FIRST_ROW: i32 = 5;
-/// How many rows we add.
-pub const ROWS: usize = 1;
+/// How many rows we add: 5 "Combat", 6 "Guard reactions".
+pub const ROWS: usize = 2;
+/// Our row indices (`k`, row `FIRST_ROW + k`).
+pub const ROW_COMBAT: usize = 0;
+pub const ROW_GUARD_REACTIONS: usize = 1;
 /// The last row the cursor can reach.
 pub const LAST_ROW: i32 = FIRST_ROW + ROWS as i32 - 1;
 
@@ -101,7 +105,18 @@ pub const TEXT: [RowText; ROWS] = [
         )
         .as_bytes(),
     },
+    // Decision 27: only has an effect at Combat = KH1 (Re:CoM's Sora has no Guard).
+    RowText {
+        label: b"Guard reactions\0",
+        options: [b"Off\0", b"On\0"],
+        help: b"On: a blocked attacker flinches and a blocked shot flies back. KH1 combat only.\0",
+    },
 ];
+
+/// The longest help line of Re:CoM's own Config rows is not known (message files, not read);
+/// ours stay within the Combat row's length plus a little, which is seen in game. Assumption:
+/// the help box fits this many characters on one line.
+pub const HELP_MAX: usize = 90;
 
 /// Layout elements (group `0xB` of `camp.lad`, read with `0x140246100`) Re:CoM's rows use.
 /// Labels take x from the first and y from the second; values take x from the option's element
@@ -276,26 +291,43 @@ mod tests {
     }
 
     #[test]
-    fn edges_lead_to_our_row() {
-        assert_eq!(LAST_ROW, 5);
+    fn edges_lead_to_our_rows() {
+        assert_eq!(LAST_ROW, 6);
         assert_eq!(step(4, DOWN), Step::Move(5));
-        assert_eq!(step(0, UP), Step::Move(5));
+        assert_eq!(step(0, UP), Step::Move(6));
         assert_eq!(step(5, UP), Step::Move(4));
-        assert_eq!(step(5, DOWN), Step::Move(0));
+        assert_eq!(step(5, DOWN), Step::Move(6));
+        assert_eq!(step(6, UP), Step::Move(5));
+        assert_eq!(step(6, DOWN), Step::Move(0));
     }
 
     #[test]
-    fn our_row_toggles() {
-        assert_eq!(step(5, LEFT), Step::Toggle(0));
-        assert_eq!(step(5, RIGHT), Step::Toggle(0));
+    fn our_rows_toggle() {
+        assert_eq!(step(5, LEFT), Step::Toggle(ROW_COMBAT));
+        assert_eq!(step(5, RIGHT), Step::Toggle(ROW_COMBAT));
         assert_eq!(step(5, NONE), Step::Idle);
         assert_eq!(step(5, Input { up: true, left: true, ..NONE }), Step::Move(4));
+        assert_eq!(step(6, LEFT), Step::Toggle(ROW_GUARD_REACTIONS));
+        assert_eq!(step(6, RIGHT), Step::Toggle(ROW_GUARD_REACTIONS));
+        assert_eq!(step(6, NONE), Step::Idle);
+    }
+
+    #[test]
+    fn guard_reactions_row_text() {
+        let t = &TEXT[ROW_GUARD_REACTIONS];
+        assert_eq!(t.label, b"Guard reactions\0");
+        // Option 1 is the one `selected(true, _)` highlights: On.
+        assert_eq!(t.options, [&b"Off\0"[..], &b"On\0"[..]]);
+        assert!(selected(true, 1));
+        for t in &TEXT {
+            assert!(t.help.len() - 1 <= HELP_MAX, "{}", std::str::from_utf8(t.help).unwrap());
+        }
     }
 
     #[test]
     fn slots_fit_in_the_free_ones() {
         let all: Vec<usize> = (0..ROWS).flat_map(slots).collect();
-        assert_eq!(all, vec![14, 15, 16]);
+        assert_eq!(all, vec![14, 15, 16, 17, 18, 19]);
         assert!(all.iter().all(|&s| (FIRST_FREE_SLOT..SLOT_COUNT).contains(&s)));
     }
 
@@ -371,7 +403,8 @@ mod tests {
     #[test]
     fn panel_grows_by_one_row_step_per_row() {
         assert_eq!(panel::grow(300.0, 319.5), 19.5 * ROWS as f32);
-        assert_eq!(ROWS, 1);
+        assert_eq!(ROWS, 2);
+        assert_eq!(panel::grow(300.0, 326.0), 52.0);
     }
 
     #[test]

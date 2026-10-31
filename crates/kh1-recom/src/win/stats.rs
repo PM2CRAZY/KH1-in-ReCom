@@ -84,7 +84,7 @@ pub const CLASS_VTABLES: &[(&str, u32)] = &[
 
 /// The RTTI name of a vtable (`.?AV<class>@@`), through its complete-object locator (`vt − 8`:
 /// signature 1, type-descriptor RVA at `+0xC`, name at descriptor `+0x10`).
-unsafe fn rtti_name(b: usize, vt: usize) -> Option<String> {
+pub(super) unsafe fn rtti_name(b: usize, vt: usize) -> Option<String> {
     let col: usize = rd(vt - 8);
     if col < b || rd::<u32>(col) != 1 {
         return None;
