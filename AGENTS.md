@@ -11,6 +11,19 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 27: turned-back shots do damage, version 0.11.2 (2026-10-31)
+
+> "it looks like when guarding a projectile, it sends it back but doesnt do any damage. make
+> that do damage" (decision 28)
+
+- Owner's 0.11.0 log (Checked): turned-back shots met their shooters for 0 damage. The shooter was
+  in its card attack, and Re:CoM's hit handler skips hits then.
+- Change: a turned-back shot's hit gets the card-interrupt bit `0x2000000`, as a KH1 swing does,
+  so Re:CoM ends the card and applies the shot's damage. No new hook.
+- Not seen in game. Next: M6 (decision 29).
+
+---
+
 ## Stage 26: Two Become One from KH2, version 0.11.1 (2026-10-31)
 
 > "star seeker and bond of flame are correct. two become one is the wrong keyblade, but the

@@ -355,6 +355,28 @@ pub(super) unsafe fn after_enemy_hit(e: usize, r: u64, hp: i32) {
     });
 }
 
+/// Whether the hit Re:CoM's hit handler is about to take on `e` comes from a turned-back shot
+/// (the enemy's hit info `+0xF8` has its hit flag, and the hit body's attacker is one of ours).
+/// Decision 28: such a hit must do damage even while `e` plays a card, so the enemy-hit wrapper
+/// gives it the same card-interrupt bit as a KH1 swing (`+0x260 & 0x2000000`; Re:CoM's own
+/// "end the card, then take the hit" path). Owner's log on 0.11.0 (Checked): every turned-back
+/// shot met its shooter with 0 damage, "card playing: Re:CoM's hit handler took no hit".
+pub(super) unsafe fn turned_hit_pending(e: usize) -> bool {
+    if TURNED_N.load(Ordering::Relaxed) == 0 || !active() {
+        return false;
+    }
+    let info: usize = rd(e + enemy::INFO);
+    if info == 0 || rd::<u32>(info + enemy::INFO_FLAGS) & enemy::INFO_HIT == 0 {
+        return false;
+    }
+    let hit_body: usize = rd(info + enemy::INFO_BODY);
+    if hit_body == 0 {
+        return false;
+    }
+    let by: u32 = rd(hit_body + body::ATTACKER);
+    TURNED.lock().map(|t| t.iter().any(|&(_, i)| i == by)).unwrap_or(false)
+}
+
 /// An enemy's hit this frame came from a turned-back shot: the damage Re:CoM's own path gave.
 unsafe fn turned_damage(e: usize, r: u64, hp: i32) {
     let info: usize = rd(e + enemy::INFO);

@@ -534,7 +534,17 @@ pub unsafe extern "win64" fn enemy_hit(enemy: usize) -> u64 {
     }
     let Some(part) = take_kh1_hit(enemy) else {
         let hp: i32 = rd(enemy + 0x274);
+        // Decision 28: a shot Sora's Guard turned back breaks into the card like a KH1 swing.
+        let flags: u64 = rd(enemy + 0x260);
+        let force = flags & 1 != 0 && flags & 0x200_0000 == 0 && super::guard::turned_hit_pending(enemy);
+        if force {
+            wr(enemy + 0x260, flags | 0x200_0000);
+        }
         let r = o(enemy);
+        if force {
+            let now: u64 = rd(enemy + 0x260);
+            wr(enemy + 0x260, now & !0x200_0000);
+        }
         // Decision 27: a melee attacker Sora's Guard blocked this frame reacts here, where Re:CoM
         // runs its own reactions.
         super::guard::after_enemy_hit(enemy, r, hp);

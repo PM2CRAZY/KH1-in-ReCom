@@ -714,3 +714,17 @@ contact, hit) and `root` (anchor, Re:CoM's root position, our output).
 - The KH1 swing's Re:CoM clips have KH1's root travel (they are bakes of KH1's motions).
 - An enemy's hit-handler parts are the dispatch's body nodes.
 - `ctrl+0xA0` is zero on a clip's first update.
+
+### Turned-back shots break into the card (0.11.2, decision 28)
+
+- Owner's log on 0.11.0 (Checked): every turned-back shot met its shooter (Blue Rhapsody, Red
+  Nocturne, Creeper Plant), and every time it did 0 damage, logged "card playing: Re:CoM's hit
+  handler took no hit". The shooter was still in its card attack (`+0x260 & 1`), and Re:CoM's hit
+  handler `0x14017F7E0` returns before damage then.
+- Change: when the hit the handler is about to take comes from one of our turned-back shots, the
+  enemy-hit wrapper sets `0x2000000` for that call, as it does for a KH1 swing (decision 14).
+  Re:CoM's own path then ends the card and takes the hit with the shot's Re:CoM damage.
+  - How a turned-back hit is recognised: the enemy's hit info `+0xF8` has its hit flag, and the
+    hit body's attacker is a shot we turned back.
+- Not seen in game.
+
