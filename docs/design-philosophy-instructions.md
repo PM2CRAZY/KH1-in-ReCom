@@ -237,6 +237,17 @@ At KH1 setting:
       taking).
     - Re:CoM's events, scripts and bosses must still get every value they read (the main risk).
 
+30. M6 details (owner, 2026-10-31), research `m6-cardless-battles.md` (kept with the decomp tools):
+    - **Crowd pace: each enemy attacks as if alone (KH1)**. Re:CoM's think-rate scaling by enemy
+      count (`0x14017F380`) is off at KH1, as are its other three serialisers (CBTL's single
+      enemy slot, the think gate `0x14017D010`, one grant per frame in `0x140187600`).
+    - **Human bosses keep their decks as a hidden move list**: same attacks, reload pauses and
+      sleights as Re:CoM, no cards shown.
+    - **Marluxia 3's stock folder is hidden** at KH1.
+    - Staging: (1) Heartless attack without cards, several at once; (2) no deck / deck HUD for
+      Sora; (3) bosses one at a time, starting with the "Sora is attacking" check (action 0xB)
+      that 12 bosses read.
+
 ## Known open design questions (ask the owner, don't guess)
 
 - Revisit later: party, progression.
