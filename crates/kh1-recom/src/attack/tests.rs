@@ -153,3 +153,27 @@ fn stats_json_reads_the_asset_steps_format() {
     assert!(s.twin("CEnemySoldier", 1).is_none());
     assert!(parse_stats("{}").is_err());
 }
+
+/// Re:CoM's per-frame order (Battle exe `0x1401F9840`): the damage check (immune while
+/// `+0x7BC > 0`), the action step, then `+0x7BC -= dt`. The hold leaves KH1's 30 immune frames
+/// after the last reaction frame, then the 31st frame takes hits.
+#[test]
+fn post_hit_hold_leaves_thirty_frames() {
+    for dt in [50, 100] {
+        let frames_per_tick = dt / RECOM_UNITS_PER_FRAME;
+        let mut timer = 0;
+        // Three reaction frames.
+        for _ in 0..3 {
+            timer = post_hit_hold(timer, dt);
+            timer = (timer - dt).max(0);
+        }
+        let mut immune = 0;
+        while timer > 0 {
+            immune += frames_per_tick;
+            timer = (timer - dt).max(0);
+        }
+        assert_eq!(immune, KH1_HIT_UNTOUCHABLE_FRAMES);
+    }
+    // Re:CoM's revive timer is never shortened.
+    assert_eq!(post_hit_hold(3000, 50), 3000);
+}

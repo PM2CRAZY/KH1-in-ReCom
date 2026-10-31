@@ -11,6 +11,24 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 30: KH1's post-hit invulnerability, version 0.13.1 (2026-10-31)
+
+> "Lets also carry over sora's KH1 mechanic where if he gets hit he has a period of time where
+> he cant be hit again to prevent getting combo locked" (decision 31)
+
+- KH1: every damage reaction sets flag `0x80` with 30 frames (`0x140297F30`), counted down by
+  `0x140297FE0` from the reaction's release at 1 per 60 fps frame. Checked (decomp).
+- Re:CoM's own hit-immunity timer `player+0x7BC`: the damage check `0x1401E6DE0` skips hits while
+  it is above 0; the Battle / Field exes subtract dt. Checked (decomp).
+- Change: in the existing damage-check wrapper, at Combat = KH1 for the main Sora, a hit
+  reaction (action `0xC`) that starts holds `+0x7BC` at `1500 + dt` (30 frames) each of its
+  frames; Re:CoM counts the 30 frames down itself after it. No new hook; one read per frame.
+- Checked (test): 30 immune frames after the reaction at 60 and 30 fps. Assumption: leaving `0xC`
+  = KH1's lock release; hit order within a frame (±1 frame). Not seen in game.
+- `docs/recom-kh1-attack.md` § Post-hit invulnerability.
+
+---
+
 ## Stage 29: M6 stage 2, no deck for Sora in battle, version 0.13.0 (2026-10-31)
 
 > "The deck shouldnt be a mechanic when set to KH1. sora can still collect cards just in case

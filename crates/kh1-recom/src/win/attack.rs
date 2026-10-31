@@ -51,6 +51,15 @@ static TABLE: OnceLock<&'static [[u8; 16]]> = OnceLock::new();
 static MOVESET: OnceLock<Moveset> = OnceLock::new();
 /// The main player whose KH1 no-flinch is on.
 static NO_FLINCH: AtomicUsize = AtomicUsize::new(0);
+/// The player in a hit reaction that started at the KH1 setting (decision 31).
+static HIT_ARMED: AtomicUsize = AtomicUsize::new(0);
+/// Re:CoM's hit reaction action, set only by the damage check `0x1401E6DE0`. Checked (decomp).
+const HIT_REACTION: u32 = 0xC;
+/// Re:CoM's hit-immunity timer: the damage check skips hits while it is above 0; the Battle /
+/// Field exes subtract dt each frame; the revive sets 3000. Checked (decomp).
+const HIT_IMMUNE: usize = 0x7BC;
+/// Set when Sora's HP reaches 0 (the damage check's death path). Checked (decomp).
+const DEAD: usize = 0x7B0;
 /// Sora's frames (counted by the state exes), for the root delay.
 static TICK: AtomicU64 = AtomicU64::new(0);
 static ROOT: Mutex<crate::movement::RootDelay> = Mutex::new(crate::movement::RootDelay::new());
@@ -606,16 +615,45 @@ pub unsafe extern "win64" fn damage_check(pl: usize) -> u64 {
             *g = rd(pl + BODY_HIT_POINT);
         }
     }
-    if NO_FLINCH.load(Ordering::Relaxed) != pl || !mv::kh1_sora(pl) {
-        return o(pl);
-    }
-    let f: u32 = rd(pl + p::FLAGS_420);
-    wr(pl + p::FLAGS_420, f | 2);
-    let r = o(pl);
-    if f & 2 == 0 {
-        wr(pl + p::FLAGS_420, rd::<u32>(pl + p::FLAGS_420) & !2);
-    }
+    let kh1 = mv::kh1_sora(pl);
+    let r = if NO_FLINCH.load(Ordering::Relaxed) != pl || !kh1 {
+        o(pl)
+    } else {
+        let f: u32 = rd(pl + p::FLAGS_420);
+        wr(pl + p::FLAGS_420, f | 2);
+        let r = o(pl);
+        if f & 2 == 0 {
+            wr(pl + p::FLAGS_420, rd::<u32>(pl + p::FLAGS_420) & !2);
+        }
+        r
+    };
+    post_hit(pl, kh1);
     r
+}
+
+/// KH1's post-hit invulnerability (decision 31) on Re:CoM's own hit-immunity timer `+0x7BC`.
+/// The damage check is the only writer of the hit reaction `0xC` and runs every frame of it
+/// (Battle / Field exes); while the reaction plays we hold the timer at 30 frames + dt, so Re:CoM
+/// counts KH1's 30 frames down itself from the reaction's end. Only for reactions that start at
+/// the KH1 setting; the death reaction (`player+0x7B0`) is left alone.
+unsafe fn post_hit(pl: usize, kh1: bool) {
+    let reacting = rd::<u32>(pl + p::ACTION) == HIT_REACTION;
+    let armed = HIT_ARMED.load(Ordering::Relaxed) == pl;
+    if !reacting {
+        if armed {
+            HIT_ARMED.store(0, Ordering::Relaxed);
+        }
+        return;
+    }
+    if !armed {
+        // A reaction that began in this call: Re:CoM zeroes the time in action with it.
+        if !kh1 || rd::<u32>(pl + p::ACTION_TIME) != 0 || rd::<i32>(pl + DEAD) != 0 {
+            return;
+        }
+        HIT_ARMED.store(pl, Ordering::Relaxed);
+    }
+    let t: i32 = rd(pl + HIT_IMMUNE);
+    wr(pl + HIT_IMMUNE, atk::post_hit_hold(t, rd(pl + p::DT)));
 }
 
 /// Re:CoM's root step (`0x14024DCA0(ctrl, out travel, out yaw)`): for Sora's KH1 actions (the roll

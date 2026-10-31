@@ -636,6 +636,52 @@ numbers of decisions 12 / 21 apply only to KH1 swings).
   - Checked (decomp): the bit's only other readers are the room-card regen ticks (`0x1401600D0`,
     `0x1401601C0`), which don't run inside the call.
 
+## Post-hit invulnerability (0.13.1; decision 31)
+
+Owner: "if he gets hit he has a period of time where he cant be hit again to prevent getting
+combo locked".
+
+### KH1. Checked (decomp)
+
+- Every damage reaction (`0x14029CC40`, `CD80`, `CE10`, `CEC0`, `CFD0`, `D110`, `D210`, `D340`,
+  `D450`) calls `0x140297F30(Sora, 30.0)`: Sora flag `0x80` (no damage, no reaction) and timer
+  `+0xC` = 30, and it clears `0x100000`.
+- Sora's update `0x140297FE0`: while `flags & 0x1000080 == 0x80`, the frame the lock (flag 4)
+  is off sets `0x100000` without counting; from the next frame the timer loses the frame step
+  `DAT_14233FBDC` (1 at 60 fps) and both bits clear at ≤ 0. So the 30 frames start when the
+  reaction releases Sora.
+- The guard recoils (`0x14029D510`, `D5F0`, `D650`) use 8.0; that is the guard's own timer
+  (0.7.1), unchanged.
+
+### Re:CoM. Checked (decomp)
+
+- Without it, Re:CoM's damage check `0x1401E6DE0` takes hits during its hit reaction (action
+  `0xC`) and right after it, so Sora can be juggled.
+- `player+0x7BC` is Re:CoM's own hit-immunity timer: the damage check returns before any damage
+  while it is above 0 (`+0x722` cleared, as for the roll bit `+0x418 & 1`), the Battle / Field
+  exes (`0x1401F9840`, `0x1401FA0F0`, and the third exe at `0x140210000`) subtract dt after the
+  action step, and the revive sets 3000. No other reader.
+- The damage check is the only writer of action `0xC` (an 8-byte write that also zeroes the time
+  in action `+0x410`) and runs every frame of it (the exes skip it only in `0x17`, `0x1C`, `0x1D`
+  and `0x20`).
+- dt: 50 units per 60 fps frame (100 at 30 fps); 30 KH1 frames = 1500 units.
+
+### Ours (no new hook; the damage-check wrapper)
+
+- After Re:CoM's check, at Combat = KH1 for the main Sora: a reaction that began in this call
+  (action `0xC`, time 0, not dead) is armed. On each frame of an armed reaction, `+0x7BC` is
+  held at `max(+0x7BC, 1500 + dt)` (`attack::post_hit_hold`). The exe subtracts dt that frame, so
+  when the reaction ends Re:CoM counts exactly 1500 units = 30 frames itself. Leaving `0xC`
+  disarms it.
+- No reaction (the no-flinch frames, super armour, card breaks), no immunity, as in KH1.
+- Re:CoM setting: nothing written.
+- Test: `post_hit_hold_leaves_thirty_frames` (Re:CoM's check-then-subtract order, 60 and 30 fps).
+- Assumption: Re:CoM leaving `0xC` stands for KH1's lock release. Re:CoM's reaction clips are its
+  own, so the time spent inside the reaction is Re:CoM's; only the 30 frames after it are KH1's.
+- Assumption: within one frame KH1 checks hits after Sora's update; if it checks before, KH1's
+  window is one frame longer. Not traced.
+- Not seen in game.
+
 ## Hooks and patches (`sites::ATTACK_HOOKS`, `ATTACK_CALLEES`, `ATTACK_DATA`)
 
 All bytes were compared with the Steam exe (54 sites, script check). Hooks are all or nothing,

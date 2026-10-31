@@ -630,5 +630,24 @@ pub fn parse_stats(text: &str) -> Result<Kh1Stats, String> {
     Ok(Kh1Stats { sora_strength, base_strength, keyblades, enemies, lock_radius })
 }
 
+/// KH1's post-hit invulnerability: every damage reaction (`0x14029CC40` … `0x14029D450`) calls
+/// `0x140297F30(Sora, 30.0)`: flag `0x80` (no damage, no reaction) with a 30-frame timer that
+/// `0x140297FE0` counts down by the frame step (1 at 60 fps) only once the reaction's lock is
+/// released. Checked (decomp).
+pub const KH1_HIT_UNTOUCHABLE_FRAMES: i32 = 30;
+
+/// Re:CoM's time unit per 60 fps frame (`player+0x460` = dt; the roll's 600 units are 12 frames,
+/// `+0x464` = dt × 0.02). Checked (decomp).
+pub const RECOM_UNITS_PER_FRAME: i32 = 50;
+
+/// The value for Re:CoM's hit-immunity timer `player+0x7BC` on a frame of the hit reaction
+/// (action `0xC`). The damage check `0x1401E6DE0` skips hits while it is above 0, and the
+/// Battle / Field exes subtract dt after the action step. Held at 30 frames + this frame's dt
+/// through the reaction, it leaves exactly KH1's 30 frames once the reaction ends. Never lowers
+/// a longer timer (Re:CoM's revive sets 3000).
+pub fn post_hit_hold(current: i32, dt: i32) -> i32 {
+    current.max(KH1_HIT_UNTOUCHABLE_FRAMES * RECOM_UNITS_PER_FRAME + dt.max(0))
+}
+
 #[cfg(test)]
 mod tests;

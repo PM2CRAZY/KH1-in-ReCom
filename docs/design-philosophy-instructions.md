@@ -248,6 +248,11 @@ At KH1 setting:
       Sora; (3) bosses one at a time, starting with the "Sora is attacking" check (action 0xB)
       that 12 bosses read.
 
+31. Post-hit invulnerability (owner, 2026-10-31): "Lets also carry over sora's KH1 mechanic
+    where if he gets hit he has a period of time where he cant be hit again to prevent getting
+    combo locked". At Combat = KH1: KH1's 30 frames from the end of each hit reaction, on Re:CoM's
+    own hit-immunity timer `player+0x7BC` (`recom-kh1-attack.md` § Post-hit invulnerability).
+
 ## Known open design questions (ask the owner, don't guess)
 
 - Revisit later: party, progression.
