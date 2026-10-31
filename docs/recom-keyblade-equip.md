@@ -139,3 +139,12 @@ code runs only while it is open, like Re:CoM's pages.
 7. Combat = Re:CoM in Config: leaving Config removes the entry; back to KH1 adds it.
 8. Riku's story: no entry.
 9. Close the camp with Start while on the entry, and quit to title with the page open: no crash.
+
+## In game, 0.8.0 (owner, 2026-10-31)
+
+- Owner: "it all looks good". The entry, the page, equipping, removing the entry at the Re:CoM
+  setting and putting it back all work. Checked (owner + log).
+- Log on the owner's late-game save (Sora at level 99): `save+0x246b..=0x2817 is all zero apart
+  from our byte`. The spare range was unused in a real save. Checked (log).
+- The log also shows 17 Keyblades listed (cards 1..0x11, all KH1's, all ever obtained) and
+  equips from 0x1 up to 0x11 saved in the byte. Checked (log).
