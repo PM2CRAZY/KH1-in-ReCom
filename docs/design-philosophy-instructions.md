@@ -207,6 +207,11 @@ At KH1 setting:
       in Re:CoM's player resource table, picked when the weapon is built
       (`/home/claude/re/notes/keyblade-models.md`, to move into `docs/` with the build).
 
+26. Hits on attacking enemies (owner, 2026-10-31): at the KH1 setting, enemies stay hittable
+    while they attack, as in KH1: Re:CoM's "hurt bodies off" at an attack state's start
+    (`0x14017DA80`) is skipped, for every attacker (option "Enemies stay hittable", not KH1
+    swings only), **bosses included**.
+
 ## Known open design questions (ask the owner, don't guess)
 
 - Revisit later: party, progression.

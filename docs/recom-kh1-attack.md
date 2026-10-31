@@ -244,6 +244,42 @@ Steam bytes) that plays the same KH1 motion, with:
     rule.
   - The trace's `hits` column logs each KH1 hit: the HP before and after, and `:card` when it
     broke into a card play.
+  - **Correction (2026-10-31):** on its own this had almost no effect in game. Re:CoM switches
+    the enemy's hurt bodies off for the whole attack (below), so Sora's blade found nothing to hit
+    while the card bit was set.
+- **Hits on attacking enemies (0.8.2, decision 26).** Owner: "sora should be able to hit enemies
+  even if they are in the middle of attacking themselves". Research notes:
+  `hits-on-attacking-enemies.md` (kept with the decomp tools).
+  - **Re:CoM** (Checked, decomp + disasm):
+    - When an enemy plays a card (message 0xB in `0x140181620`) it sets `+0x260 |= 5` and moves to
+      an attack state 2..10.
+    - Each attack state's start runs the enemy's vtable `+0x438`. Its default `0x14017DA80` is
+      `0x1401A2D70(enemy, -1)`: every hurt body off (`node+0x10 = 0`).
+    - The end runs `+0x440` = `0x14017DA90`, which clears card bits 0 and 2 and switches the
+      bodies back on.
+    - Vexen and Marluxia 2 call `0x14017DA80` directly. Nothing else calls it.
+    - So no attacker can hit an enemy during its card attack. The Shadow's claw (state 2,
+      `e001_050`) and leap claw (state 3) are such states.
+  - **KH1** (Checked, decomp + files): hurt parts are skipped only when masked in `actor+0x3A8`
+    (AI syscalls 116 / 117). The Shadow's script never masks its hurt parts (its three 116 / 117
+    pairs change `+0x3AC`, lock points), so KH1's Shadow can be hit during its attack.
+  - **The mod:** a wrapper on `0x14017DA80` (5 bytes moved, `BA FF FF FF FF`; its tail jump
+    `E9 E6 52 02 00` checked) returns without switching the bodies off at the KH1 setting, in
+    Sora's story. That covers every attacker and every enemy, bosses included (owner's choice).
+    The attack's end still clears the card bits, and switching on bodies that are already on is
+    harmless. A KH1 hit during the card then ends it through the card-priority path above. Runs
+    once per enemy attack start.
+  - Side effects, from the owner's choice:
+    - Friend-card and other player attacks can now hit attacking enemies too.
+    - Bosses with card attacks are hittable mid-attack at the KH1 setting. The card-checking
+      boss risk stays with M6.
+  - **Not checked:** whether in KH1 the blade meeting the claw's own attack object stops the hit,
+    and whether a hit interrupts the claw in KH1. Not seen in game.
+  - Also fixed:
+    - A KH1 hit is now kept through the next swing's start: a chain could start before the
+      enemy's update consumed the hit, and the hit then took Re:CoM's damage and rule.
+    - The trace's `hits` column is cleared when F9 starts, so the first row no longer carries
+      hits from before the recording.
 
 ## Sora's KH1 Strength (decision 18: keep the Rod, give up the Shield)
 

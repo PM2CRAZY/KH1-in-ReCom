@@ -195,6 +195,7 @@ fn install_attack(base: usize, s: &Settings, stats_file: Option<&Path>) {
         hook::Hook { site: site("enemy hit handler (0x14017F7E0)"), ours: attack::enemy_hit as *const () as usize, original: &attack::ORIG_ENEMY_HIT },
         hook::Hook { site: site("player damage check (0x1401E6DE0)"), ours: attack::damage_check as *const () as usize, original: &attack::ORIG_DAMAGE_CHECK },
         hook::Hook { site: site("root motion step (0x14024DCA0)"), ours: attack::root_step as *const () as usize, original: &attack::ORIG_ROOT_STEP },
+        hook::Hook { site: site("enemy attack hurt off (0x14017DA80)"), ours: attack::hurt_off as *const () as usize, original: &attack::ORIG_HURT_OFF },
     ];
     // SAFETY: the targets' bytes are checked again inside, before anything is written.
     if unsafe { hook::install_all(base, &hooks) } {

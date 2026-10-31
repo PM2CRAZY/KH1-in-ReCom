@@ -11,6 +11,26 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 21: enemies stay hittable while they attack, version 0.8.2 (2026-10-31)
+
+> "sora should be able to hit enemies even if they are in the middle of attacking themselves" /
+> "Enemies stay hittable" / "Include bosses" (decision 26)
+
+- Cause (Checked, decomp + disasm): every Re:CoM enemy runs its vtable `+0x438` (default
+  `0x14017DA80` = `0x1401A2D70(enemy, -1)`, all hurt bodies off) when an attack state 2..10
+  starts. `+0x440` (`0x14017DA90`) switches them back on at its end. Trace 11's missed swing had a
+  still Shadow 0.65–0.86 m ahead for the whole hit window (Checked, trace). That the Shadow was
+  mid-claw is an Assumption: the trace has no enemy state.
+- KH1 (Checked, decomp + files): the Shadow's script never masks its hurt parts.
+- Change: a wrapper on `0x14017DA80` (5 bytes `BA FF FF FF FF`; the tail jump checked as a
+  callee) skips "bodies off" at the KH1 setting in Sora's story, for every enemy and attacker.
+  It runs once per attack start.
+- Also: KH1 hits survive the next swing's start; the trace's `hits` column is cleared at F9.
+- Correction: Stage 9's "hits land during card plays" (decision 14) never fired in game, because
+  the bodies were off. Not seen in game.
+
+---
+
 ## Stage 20: the stance idle after Guard and Counterattack in the field, version 0.8.1 (2026-10-31)
 
 > "when sora guards out of combat, the animation needs to smoothly go into the correct idle"

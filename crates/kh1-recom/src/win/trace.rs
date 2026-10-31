@@ -132,6 +132,10 @@ fn toggle() {
                     let mut out = BufWriter::with_capacity(1 << 16, f);
                     if schema::write_header(&mut out).is_ok() {
                         log(&format!("trace: recording to {}", path.display()));
+                        // Hits from before the recording don't belong to its first row.
+                        if let Ok(mut h) = super::attack::HIT_LOG.lock() {
+                            h.clear();
+                        }
                         *g = Some(Recorder { out, path, rows: 0, pending: None, player: 0 });
                         RECORDING.store(true, Ordering::Relaxed);
                     }

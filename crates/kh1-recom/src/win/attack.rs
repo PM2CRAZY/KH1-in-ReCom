@@ -40,6 +40,7 @@ pub static ORIG_PAIR: AtomicUsize = AtomicUsize::new(0);
 pub static ORIG_ENEMY_HIT: AtomicUsize = AtomicUsize::new(0);
 pub static ORIG_DAMAGE_CHECK: AtomicUsize = AtomicUsize::new(0);
 pub static ORIG_ROOT_STEP: AtomicUsize = AtomicUsize::new(0);
+pub static ORIG_HURT_OFF: AtomicUsize = AtomicUsize::new(0);
 
 /// The KH1 rows (by KH1 row id), built once from Re:CoM's rows 1–7. Never freed: `+0x3C8` points
 /// into it.
@@ -52,7 +53,10 @@ static TICK: AtomicU64 = AtomicU64::new(0);
 static ROOT: Mutex<crate::movement::RootDelay> = Mutex::new(crate::movement::RootDelay::new());
 static BLADE: Mutex<atk::BladeTrack> = Mutex::new(atk::BladeTrack { serial: 0, cur_a: None, prev_a: None });
 /// Enemy body parts a KH1 swing hit, until their owner's hit handler takes the hit.
-static KH1_HITS: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+static KH1_HITS: Mutex<Vec<(usize, u32)>> = Mutex::new(Vec::new());
+/// Counts KH1 swing starts; a KH1 hit is kept through the next swing's start (a chain can start
+/// before the enemy's update consumes the last swing's hit), and dropped after that.
+static SWING_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 /// `debug_attack = on`: one-line logs of the attack's decisions, at most [`DEBUG_LINES`].
 static DEBUG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static DEBUG_LEFT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(DEBUG_LINES);
@@ -277,8 +281,9 @@ unsafe fn apply_row(pl: usize, s: &SwingStart) -> bool {
     // KH1 has no post-swing lockout, and a swing starts from standing (root travel only).
     wr(pl + field::LOCKOUT, 0i32);
     wr(pl + field::SPEED_4E0, 0f32);
+    let gen = SWING_GEN.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
     if let Ok(mut g) = KH1_HITS.lock() {
-        g.clear();
+        g.retain(|&(_, at)| gen.wrapping_sub(at) <= 1);
     }
     true
 }
@@ -460,7 +465,7 @@ pub unsafe extern "win64" fn pair_dispatch(coll: usize, list: usize) -> i32 {
                     if r != 0 {
                         if let Ok(mut g) = KH1_HITS.lock() {
                             if g.len() < 64 {
-                                g.push(node);
+                                g.push((node, SWING_GEN.load(Ordering::Relaxed)));
                             }
                         }
                     }
@@ -486,7 +491,7 @@ unsafe fn take_kh1_hit(enemy: usize) -> Option<usize> {
     let Ok(mut g) = KH1_HITS.lock() else { return None };
     for i in 0..n.clamp(0, 32) as usize {
         let part = parts + i * 0x120;
-        if let Some(k) = g.iter().position(|&x| x == part) {
+        if let Some(k) = g.iter().position(|&(x, _)| x == part) {
             if rd::<i16>(part + 0x90) != 0 {
                 g.swap_remove(k);
                 return Some(part);
@@ -531,6 +536,20 @@ pub unsafe extern "win64" fn enemy_hit(enemy: usize) -> u64 {
         }
     }
     r
+}
+
+/// Re:CoM's enemies switch every hurt body off for the whole of an attack state (vtable `+0x438`,
+/// default `0x14017DA80` = `0x1401A2D70(enemy, -1)`, run when attack states 2..10 start; the end,
+/// `0x14017DA90`, clears the card bits and switches them back on). Checked (decomp + disasm;
+/// `docs/recom-kh1-attack.md` § Hits on attacking enemies). KH1's enemies stay hittable while they
+/// attack (the Shadow's script never masks its hurt parts, `actor+0x3A8`). Owner (2026-10-31,
+/// decision 26): at the KH1 setting, in Sora's story, enemies stay hittable while attacking, for
+/// every attacker, bosses included. Runs once per enemy attack start.
+pub unsafe extern "win64" fn hurt_off(enemy: usize) {
+    if mv::kh1_on() && !super::stats::riku_story() {
+        return;
+    }
+    orig::<PlFn>(&ORIG_HURT_OFF)(enemy)
 }
 
 /// Re:CoM's player damage check: KH1's no-flinch (`0x140297F30`: damage, no hit reaction) uses

@@ -136,7 +136,7 @@ fn world() -> i32 {
     unsafe { super::movement::func::<IntFn>(WORLD_FN)(0) & 0xFF }
 }
 
-fn riku_story() -> bool {
+pub(super) fn riku_story() -> bool {
     // SAFETY: as above.
     unsafe { super::movement::func::<BoolFn>(RIKU_FN)() & 0xFF != 0 }
 }
