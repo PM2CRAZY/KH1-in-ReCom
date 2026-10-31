@@ -176,6 +176,25 @@ At KH1 setting:
     Worlds KH1 doesn't have (Twilight Town, Castle Oblivion) use KH1's LV2 record. HP, Defence,
     damage floor / cap, level and resistances come from that record (decision 12).
 
+22. Sounds for KH1-only moves (owner, 2026-10-30): Re:CoM's own sounds for now ("Re:CoM's
+    sounds now"). KH1's own sounds, through a sound bank built from the player's files, can come
+    later.
+23. Guard's live window stays KH1's frames 10–36 (owner, 2026-10-31, moved on after the trace
+    showed the unblocked hits fell outside it).
+24. Hurt shapes (owner, 2026-10-31): KH1 hurt shapes on twins (option b of the hitbox plan) are
+    skipped for now. Re:CoM's Shadow is a 0.55 m sphere, wider than KH1's 0.35 m ellipsoids.
+25. Keyblades at the KH1 setting (owner, 2026-10-31, option a):
+    - Each Keyblade card Sora has earned unlocks that Keyblade as a KH1-style item.
+    - It is equipped from a **new top-level camp menu entry**, shown only at the KH1 setting and
+      drawn by Re:CoM's own menu code. Keyblade abilities are not included.
+    - The 16 Keyblades KH1 has use KH1's weapon rows and KH1's models.
+    - Star Seeker, Monochrome, Follow the Wind, Hidden Dragon, Photon Debugger and Bond of Flame
+      come from **KH2** (the player's KH2 files): KH2's model, Strength and Magic. Reach is
+      measured from the KH2 model's blade length; radius, critical rate / bonus and priority are
+      the Kingdom Key's.
+    - Soul Eater uses **KH1 Riku's** Soul Eater model. Its numbers are still open.
+    - Order: owning and equipping, then KH1 models, then KH2 models and stats, then Soul Eater.
+
 ## Known open design questions (ask the owner, don't guess)
 
 - Revisit later: party, progression.
