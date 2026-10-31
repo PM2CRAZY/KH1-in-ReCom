@@ -212,9 +212,15 @@ pub enum Bytes {
 }
 
 pub fn bytes_state(p: &Patch, have: &[u8]) -> Bytes {
-    if have == p.site.expect {
+    bytes_state_of(p.site.expect, p.new, have)
+}
+
+/// What `have` is, given Re:CoM's bytes and ours (shared with M6 stage 2's call retargets,
+/// whose new bytes are only known at run time).
+pub fn bytes_state_of(recom: &[u8], ours: &[u8], have: &[u8]) -> Bytes {
+    if have == recom {
         Bytes::Recom
-    } else if have == p.new {
+    } else if have == ours {
         Bytes::Ours
     } else {
         Bytes::Other
@@ -227,17 +233,23 @@ pub type Write<'a> = (usize, &'a [u8], &'a [u8]);
 /// The writes that make every patch `ours` (or Re:CoM's). None when any site holds bytes that
 /// are neither (then nothing is written at all).
 pub fn plan<'a>(patches: &'a [Patch], now: &[Bytes], ours: bool) -> Option<Vec<Write<'a>>> {
-    if now.len() != patches.len() || now.contains(&Bytes::Other) {
+    let pairs: Vec<(&'a [u8], &'a [u8])> = patches.iter().map(|p| (p.site.expect, p.new)).collect();
+    plan_pairs(&pairs, now, ours)
+}
+
+/// [`plan`] over (Re:CoM's bytes, ours) pairs.
+pub fn plan_pairs<'a>(pairs: &[(&'a [u8], &'a [u8])], now: &[Bytes], ours: bool) -> Option<Vec<Write<'a>>> {
+    if now.len() != pairs.len() || now.contains(&Bytes::Other) {
         return None;
     }
     Some(
-        patches
+        pairs
             .iter()
             .zip(now)
             .enumerate()
-            .filter_map(|(i, (p, &b))| match (b, ours) {
-                (Bytes::Recom, true) => Some((i, p.site.expect, p.new)),
-                (Bytes::Ours, false) => Some((i, p.new, p.site.expect)),
+            .filter_map(|(i, (&(recom, new), &b))| match (b, ours) {
+                (Bytes::Recom, true) => Some((i, recom, new)),
+                (Bytes::Ours, false) => Some((i, new, recom)),
                 _ => None,
             })
             .collect(),

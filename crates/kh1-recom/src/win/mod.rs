@@ -3,6 +3,7 @@
 
 mod attack;
 mod battle;
+mod deck;
 mod guard;
 mod hook;
 mod keyblades;
@@ -232,8 +233,9 @@ fn install_attack(base: usize, s: &Settings, stats_file: Option<&Path>) {
     }
 }
 
-/// M6 stage 1 (`battle`, decisions 29 / 30): at Combat = KH1 in Sora's story, Heartless attack
-/// without cards, several at once. Needs the movement handlers (they carry the setting).
+/// M6 stages 1 and 2 (`battle`, `deck`, decisions 29 / 30): at Combat = KH1 in Sora's story,
+/// Heartless attack without cards, several at once, and Sora has no deck. Needs the movement
+/// handlers (they carry the setting).
 fn install_battles(base: usize) {
     if !movement::installed() {
         log("m6: movement not hooked; battles stay Re:CoM's");
@@ -243,6 +245,12 @@ fn install_battles(base: usize) {
         log("m6: wrappers in (card play 0x140198870, battle enemy manager ctor 0x1401859B0, setPlayCard log 0x140163830); P2-P4 are switched at each battle start by the setting");
     } else {
         log("m6: not hooked; battles stay Re:CoM's (cards and turn-taking)");
+    }
+    // Stage 2: no deck for Sora (decision 29), on its own: it doesn't need stage 1's hooks.
+    if deck::install(base) {
+        log("m6: no-deck wrappers in (revolver build 0x1401F43D0, hit drop 0x14017E190); the 7 deck HUD mask reads are switched at each battle start by the setting");
+    } else {
+        log("m6: no-deck not hooked; Sora keeps Re:CoM's deck in battle");
     }
 }
 

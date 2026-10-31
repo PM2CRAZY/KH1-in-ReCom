@@ -23,6 +23,32 @@ pub fn rel_jmp(from: u64, to: u64) -> Option<[u8; 5]> {
     Some(b)
 }
 
+/// `call rel32` at `from` to `to`, if in range (a retargeted Re:CoM call).
+pub fn call_rel32(from: u64, to: u64) -> Option<[u8; 5]> {
+    let mut b = rel_jmp(from, to)?;
+    b[0] = 0xE8;
+    Some(b)
+}
+
+/// Where a `call rel32` at `from` goes (`None` if `bytes` is not one).
+pub fn call_target(from: u64, bytes: &[u8]) -> Option<u64> {
+    if bytes.len() != 5 || bytes[0] != 0xE8 {
+        return None;
+    }
+    let rel = i32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]) as i64;
+    Some((from as i64 + 5 + rel) as u64)
+}
+
+/// A stub that hands the caller's `rbx` to `to` as its third argument: `mov r8,rbx; jmp
+/// [rip+0]; dq to` (17 bytes). It touches no stack, so `to` is entered exactly as the callee
+/// the caller meant (return address, alignment and shadow space are the caller's).
+pub fn rbx_arg_stub(to: u64) -> [u8; 17] {
+    let mut b = [0u8; 17];
+    b[..3].copy_from_slice(&[0x49, 0x89, 0xD8]);
+    b[3..].copy_from_slice(&abs_jmp(to));
+    b
+}
+
 /// What goes over the first `len` bytes of the target: the jump to the stub, then `nop`s.
 pub fn entry_patch(target: u64, len: usize, stub: u64) -> Option<Vec<u8>> {
     if len < 5 {
@@ -64,6 +90,25 @@ mod tests {
         assert_eq!(rel_jmp(0x1000, 0x1005), Some([0xE9, 0, 0, 0, 0]));
         assert_eq!(rel_jmp(0x1000, 0x0F00), Some([0xE9, 0xFB, 0xFE, 0xFF, 0xFF]));
         assert_eq!(rel_jmp(0x1_0000_0000, 0x10), None);
+    }
+
+    #[test]
+    fn call_retarget_and_stub() {
+        // Re:CoM's own `call 0x1401B08C0` at 0x14015037C (`E8 3F 05 06 00`, Checked (exe)).
+        let site = 0x1_4015_037Cu64;
+        assert_eq!(call_target(site, &[0xE8, 0x3F, 0x05, 0x06, 0x00]), Some(0x1_401B_08C0));
+        assert_eq!(call_rel32(site, 0x1_401B_08C0), Some([0xE8, 0x3F, 0x05, 0x06, 0x00]));
+        let to = 0x1_3015_0000u64;
+        let c = call_rel32(site, to).unwrap();
+        assert_eq!(call_target(site, &c), Some(to));
+        assert_eq!(call_rel32(0x1_0000_0000, 0x10), None);
+        assert_eq!(call_target(site, &[0xE9, 0, 0, 0, 0]), None);
+        // mov r8,rbx (REX.W+B, 89 /r, ModRM 11 011 000), then the absolute jump.
+        let s = rbx_arg_stub(0x1122_3344_5566_7788);
+        assert_eq!(&s[..3], &[0x49, 0x89, 0xD8]);
+        assert_eq!(&s[3..9], &[0xFF, 0x25, 0, 0, 0, 0]);
+        assert_eq!(u64::from_le_bytes(s[9..].try_into().unwrap()), 0x1122_3344_5566_7788);
+        assert!(2 * s.len() <= BLOCK);
     }
 
     #[test]

@@ -11,6 +11,34 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 29: M6 stage 2, no deck for Sora in battle, version 0.13.0 (2026-10-31)
+
+> "The deck shouldnt be a mechanic when set to KH1. sora can still collect cards just in case
+> they want to change from KH1 combat to ReCoM combat, but in battle there shouldnt be a deck to
+> draw cards from when KH1 is selected" (decision 29)
+
+- **Empty revolver** (hook `0x1401F43D0`, `40 57 41 56 41 57 48 83 EC 40`): at KH1 in Sora's
+  story, outside minigame rooms, the battle revolver is built by Re:CoM's own constructor
+  `0x140164D40` from Re:CoM's end-of-deck entry, which is what Re:CoM builds for a saved deck of
+  0 cards (0 cards + Reload). It also replaces the tutorial deck. Checked (decomp + exe).
+- No draw, Reload, stock or sleights follow from it with no more code (no card to play; Reload
+  only from Re:CoM's battle branch, unused by KH1 Sora since Stage 9). Checked (decomp).
+- **No Friend-card drops** (hook `0x14017E190`, `40 53 48 83 EC 20 48 8B D9`): the roll returns
+  as Re:CoM's failed roll does. Its cards are all type 5, which only ever go into the battle
+  revolver; the collection is untouched. Checked (decomp + exe tables).
+- **Deck HUD hidden by Re:CoM's own event-hide mask** (variable (1, 0xE2)): seven reads
+  (`0x140168A34/A93/B32/B90`, `0x14015037C`, `0x140151625`, `0x1401545BD`) call a stub that adds
+  the cockpit bit 2 for this battle's empty revolver, or 0x20 for Sora's side-1 cards. Re:CoM's
+  bytes go back at each battle start at the Re:CoM setting. No branch or pointer lands inside the
+  patched bytes (exe scan); 163 site byte lists re-checked.
+- Log-only readers `0x1401EA1A0`, `0x1401EA1E0`, `0x140167CF0`; the F9 trace gains `m6deck`.
+- Assumption: the tutorial battles' scripts may wait for card flags (0x12, 0x14–0x16) that
+  can't fire at KH1 (already true since Stage 9). No flags are faked; the log and trace show it.
+- `crates/kh1-recom/src/{deck.rs, win/deck.rs}`, `docs/recom-m6-battles.md` § Stage 2. Not seen in
+  game.
+
+---
+
 ## Stage 28: M6 stage 1, Heartless attack without cards and several at once, version 0.12.0 (2026-10-31)
 
 > "When KH1 is selected, enemies shouldnt play cards, and also, multiple enemies should be able

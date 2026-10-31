@@ -23,6 +23,9 @@
 //! - at `combat = kh1`, in Sora's story, Heartless (bosses included) attack without cards and
 //!   several at once: the card play does message 2's work, and Re:CoM's three other
 //!   serialisers are patched per battle (`battle`; `docs/recom-m6-battles.md`);
+//! - at `combat = kh1`, in Sora's story, Sora fights without a deck: Re:CoM's own constructor
+//!   builds an empty battle revolver, Friend-card drops stop, and the deck HUD is hidden through
+//!   Re:CoM's own event-hide mask (`deck`; `docs/recom-m6-battles.md` § Stage 2);
 //! - F9 records a Re:CoM trace in kh1-trace's CSV schema (`trace`).
 //!
 //! `motions` (with `json`) reads the asset build step's manifest and `PL0001.ANN` header, for the
@@ -30,6 +33,7 @@
 
 pub mod attack;
 pub mod battle;
+pub mod deck;
 pub mod guard;
 pub mod hookplan;
 pub mod json;

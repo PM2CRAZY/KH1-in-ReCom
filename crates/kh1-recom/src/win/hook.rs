@@ -22,6 +22,18 @@ unsafe fn alloc_near(near: usize) -> Option<usize> {
     None
 }
 
+/// Places `code` (at most [`hookplan::BLOCK`] bytes) in executable memory within rel32 reach of
+/// `near`; its address. The block is never freed (Re:CoM may call into it at any time).
+pub unsafe fn place_near(near: usize, code: &[u8]) -> Option<usize> {
+    if code.is_empty() || code.len() > hookplan::BLOCK {
+        return None;
+    }
+    let block = alloc_near(near)?;
+    std::ptr::copy_nonoverlapping(code.as_ptr(), block as *mut u8, code.len());
+    FlushInstructionCache(GetCurrentProcess(), block as *const c_void, code.len());
+    Some(block)
+}
+
 /// Writes `new` over `at` if the bytes there are `expect` (code or data; same length).
 pub unsafe fn patch(at: usize, expect: &[u8], new: &[u8], what: &str) -> bool {
     if expect.len() != new.len() || expect.is_empty() {

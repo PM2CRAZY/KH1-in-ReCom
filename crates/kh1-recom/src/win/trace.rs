@@ -55,8 +55,9 @@ impl Recorder {
             row.hits = h.join(" ");
             h.clear();
         }
-        // M6: the enemies' attack states and CBTL's enemy slot (`battle`), recording only.
-        let m6 = super::battle::trace_token();
+        // M6: the enemies' attack states and CBTL's enemy slot (`battle`), Sora's revolver and
+        // the deck tutorial flags (`deck`), recording only.
+        let m6 = format!("{}; {}", super::battle::trace_token(), super::deck::trace_token());
         row.events = if row.events.is_empty() { m6 } else { format!("{}; {m6}", row.events) };
         row.frame = self.rows;
         if row.write_csv(&mut self.out).is_ok() {

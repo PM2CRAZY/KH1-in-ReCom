@@ -347,6 +347,94 @@ pub const M6_PATCHES: &[Patch] = &[
     Patch { site: Site { name: "P4 crowd pace (0x14017F3DE)", rva: 0x0017_F3DE, expect: &[0x83, 0xF9, 0x64, 0x7D, 0x26] }, new: &[0x83, 0xF9, 0x64, 0xEB, 0x26] },
 ];
 
+/// M6 stage 2, no deck for Sora in battle (`win::deck`, `crate::deck`, `docs/recom-m6-battles.md`
+/// § Stage 2). Same rule as [`HOOKS`]. Checked (exe): no branch in the exe and no relocated
+/// pointer lands inside the moved bytes; both are reached only by direct calls.
+pub const M6_DECK_HOOKS: &[Site] = &[
+    // push rdi; push r14; push r15; sub rsp,0x40: the battle revolver build (`player+0x3F0`),
+    // called by CPlayer::stateInitial (0x1401FAAD0, battle rooms only) and Riku's (0x140206A1A).
+    Site { name: "battle revolver build (0x1401F43D0)", rva: 0x001F_43D0, expect: &[0x40, 0x57, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x40] },
+    // push rbx; sub rsp,0x20; mov rbx,rcx: an enemy's card drop (the roll 0x1401602A0 gives only
+    // Friend cards 0x31..0x39); called by the hit handler 0x14017FC9D and the battle setup
+    // 0x140180366 / 0x1401803F4.
+    Site { name: "enemy hit card drop (0x14017E190)", rva: 0x0017_E190, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9] },
+];
+
+/// Pass-through hooks that only log, once per battle, a reader of the empty revolver. Installed
+/// apart: if they fail, the deck work stands. Same rule as [`HOOKS`] (exe-scanned like
+/// [`M6_DECK_HOOKS`]).
+pub const M6_DECK_READERS: &[Site] = &[
+    // sub rsp,0x28; mov rcx,[rcx+0x3F0]: "hand empty?" (only caller CAtelTutorial 0x140137CB0,
+    // which then sets event flag (1, 0x11)).
+    Site { name: "tutorial hand-empty check (0x1401EA1A0)", rva: 0x001E_A1A0, expect: &[0x48, 0x83, 0xEC, 0x28, 0x48, 0x8B, 0x89, 0xF0, 0x03, 0x00, 0x00] },
+    // sub rsp,0x28; mov rcx,[rcx+0x3F0]: the event script's revolver scroll (only caller the
+    // script VM 0x140145C50).
+    Site { name: "script revolver scroll (0x1401EA1E0)", rva: 0x001E_A1E0, expect: &[0x48, 0x83, 0xEC, 0x28, 0x48, 0x8B, 0x89, 0xF0, 0x03, 0x00, 0x00] },
+    // mov [rsp+8],rbx; mov [rsp+0x10],rdi: a value search over a revolver's cards (callers the
+    // enemy card value 0x140182500 and Oogie's 0x1403D91C0).
+    Site { name: "revolver value search (0x140167CF0)", rva: 0x0016_7CF0, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x7C, 0x24, 0x10] },
+];
+
+/// Re:CoM functions the stage-2 code calls.
+pub const M6_DECK_CALLEES: &[Site] = &[
+    // push rbp; push rsi; push rdi; sub rsp,0x60; mov qword [rsp+0x28],-2: CCardRevolver's ctor
+    // (mem, player, list, side, selected), as 0x1401F43D0 calls it.
+    Site { name: "CCardRevolver ctor (0x140164D40)", rva: 0x0016_4D40, expect: &[0x40, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x60, 0x48, 0xC7, 0x44, 0x24, 0x28, 0xFE, 0xFF, 0xFF] },
+    // cmp ecx,2; jae; mov eax,ecx; lea rcx,[rax+rax*2]: a system flag (table, index) -> 0/1.
+    Site { name: "system flag get (0x1401B0870)", rva: 0x001B_0870, expect: &[0x83, 0xF9, 0x02, 0x73, 0x40, 0x8B, 0xC1, 0x48, 0x8D, 0x0C, 0x40] },
+    // cmp ecx,2; jae; mov eax,ecx; lea rcx,[rax+rax*2]: a system variable (table, index); (1,
+    // 0xE2) is Re:CoM's HUD-hide mask.
+    Site { name: "system variable get (0x1401B08C0)", rva: 0x001B_08C0, expect: &[0x83, 0xF9, 0x02, 0x73, 0x1D, 0x8B, 0xC1, 0x48, 0x8D, 0x0C, 0x40] },
+    // mov rax,[rip+…]; movzx ecx,word [rax+0x187A]; mov eax,0x4B0: room 1200..1255 (minigames).
+    Site { name: "minigame room? (0x140235360)", rva: 0x0023_5360, expect: &[0x48, 0x8B, 0x05, 0xA9, 0x5D, 0x64, 0x00, 0x0F, 0xB7, 0x88, 0x7A, 0x18, 0x00, 0x00, 0xB8, 0xB0, 0x04, 0x00, 0x00] },
+];
+
+/// Re:CoM's HUD-hide mask reads (`call 0x1401B08C0` with ecx = 1, edx = 0xE2) whose target the
+/// stage-2 code points at a stub, per battle, in the player's cockpit update `0x1401689F0`
+/// (each read is followed by `test al,2`; rbx = the revolver). `expect` is Re:CoM's call.
+pub const M6_COCKPIT_CALLS: &[Site] = &[
+    Site { name: "cockpit mask read 1 (0x140168A34)", rva: 0x0016_8A34, expect: &[0xE8, 0x87, 0x7E, 0x04, 0x00] },
+    Site { name: "cockpit mask read 2 (0x140168A93)", rva: 0x0016_8A93, expect: &[0xE8, 0x28, 0x7E, 0x04, 0x00] },
+    Site { name: "cockpit mask read 3 (0x140168B32)", rva: 0x0016_8B32, expect: &[0xE8, 0x89, 0x7D, 0x04, 0x00] },
+    Site { name: "cockpit mask read 4 (0x140168B90)", rva: 0x0016_8B90, expect: &[0xE8, 0x2B, 0x7D, 0x04, 0x00] },
+];
+
+/// The same mask reads in CBattleCard code (rbx = the card): the per-frame show / hide
+/// `0x140150340` (tests 0x20 for side 1), the deal `0x1401514B0` and refresh `0x1401545A0` (test
+/// the whole mask).
+pub const M6_CARD_CALLS: &[Site] = &[
+    Site { name: "card mask read, show/hide (0x14015037C)", rva: 0x0015_037C, expect: &[0xE8, 0x3F, 0x05, 0x06, 0x00] },
+    Site { name: "card mask read, deal (0x140151625)", rva: 0x0015_1625, expect: &[0xE8, 0x96, 0xF2, 0x05, 0x00] },
+    Site { name: "card mask read, refresh (0x1401545BD)", rva: 0x0015_45BD, expect: &[0xE8, 0xFE, 0xC2, 0x05, 0x00] },
+];
+
+/// Re:CoM code stage 2 relies on (not called, not patched): checked so a build where it differs
+/// is never touched.
+pub const M6_DECK_CHECKED: &[Site] = &[
+    // 0x1401F43D0: mov rdi,rcx; cmp qword [rcx+0x3F0],0; jne tail: a built revolver is kept.
+    Site { name: "revolver build: slot test (0x1401F43F2)", rva: 0x001F_43F2, expect: &[0x48, 0x8B, 0xF9, 0x48, 0x83, 0xB9, 0xF0, 0x03, 0x00, 0x00, 0x00, 0x0F, 0x85, 0x54, 0x01, 0x00, 0x00] },
+    // Its tail: mov ecx,0x16; call 0x1402AD300; mov [rdi+0x3E8],rax (CBTL, always run).
+    Site { name: "revolver build: tail (0x1401F4557)", rva: 0x001F_4557, expect: &[0xB9, 0x16, 0x00, 0x00, 0x00, 0xE8, 0x9F, 0x8D, 0x0B, 0x00, 0x48, 0x89, 0x87, 0xE8, 0x03, 0x00, 0x00] },
+    // The deck loader 0x14016C970: an entry whose id byte is 0 or >= 0xCB ends the list.
+    Site { name: "deck loader: end of list (0x14016C9A0)", rva: 0x0016_C9A0, expect: &[0x8B, 0x0C, 0x96, 0x89, 0x4C, 0x24, 0x70, 0x84, 0xC9, 0x74, 0x2B, 0x80, 0xF9, 0xCB, 0x73, 0x26] },
+    // The functions whose mask reads are retargeted put their object in rbx first (rbx is not
+    // written again before the reads: Checked (disasm)).
+    Site { name: "cockpit update start (0x1401689F0)", rva: 0x0016_89F0, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x40, 0x83, 0x79, 0x5C, 0x01, 0x48, 0x8B, 0xD9] },
+    Site { name: "card show/hide: rbx = card (0x140150359)", rva: 0x0015_0359, expect: &[0x48, 0x8B, 0xD9, 0xBA, 0xE2, 0x00, 0x00, 0x00, 0xB9, 0x01, 0x00, 0x00, 0x00, 0xE8, 0x55, 0x05, 0x06, 0x00, 0x0F, 0xB6, 0xBB, 0x6C, 0x02, 0x00, 0x00] },
+    Site { name: "card deal start (0x1401514B0)", rva: 0x0015_14B0, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x80, 0xB9, 0x6C, 0x02, 0x00, 0x00, 0x01] },
+    // mov rbx,rcx; mov [rcx+0x68],rax
+    Site { name: "card deal: rbx = card (0x1401514CC)", rva: 0x0015_14CC, expect: &[0x48, 0x8B, 0xD9, 0x48, 0x89, 0x41, 0x68] },
+    Site { name: "card refresh start (0x1401545A0)", rva: 0x0015_45A0, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x83, 0xB9, 0x90, 0x02, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD9] },
+    // Each read's context: mov edx,0xE2; ecx = 1; the call; the test after it.
+    Site { name: "cockpit read 1 context (0x140168A2C)", rva: 0x0016_8A2C, expect: &[0xBA, 0xE2, 0x00, 0x00, 0x00, 0x8D, 0x48, 0xFD, 0xE8, 0x87, 0x7E, 0x04, 0x00, 0xA8, 0x02] },
+    Site { name: "cockpit read 2 context (0x140168A89)", rva: 0x0016_8A89, expect: &[0xBA, 0xE2, 0x00, 0x00, 0x00, 0xB9, 0x01, 0x00, 0x00, 0x00, 0xE8, 0x28, 0x7E, 0x04, 0x00, 0xA8, 0x02] },
+    Site { name: "cockpit read 3 context (0x140168B2A)", rva: 0x0016_8B2A, expect: &[0xBA, 0xE2, 0x00, 0x00, 0x00, 0x8D, 0x48, 0xFC, 0xE8, 0x89, 0x7D, 0x04, 0x00, 0xA8, 0x02] },
+    Site { name: "cockpit read 4 context (0x140168B86)", rva: 0x0016_8B86, expect: &[0xBA, 0xE2, 0x00, 0x00, 0x00, 0xB9, 0x01, 0x00, 0x00, 0x00, 0xE8, 0x2B, 0x7D, 0x04, 0x00, 0xA8, 0x02] },
+    Site { name: "card read show/hide context (0x140150372)", rva: 0x0015_0372, expect: &[0xBA, 0xE2, 0x00, 0x00, 0x00, 0xB9, 0x01, 0x00, 0x00, 0x00, 0xE8, 0x3F, 0x05, 0x06, 0x00, 0x40, 0x80, 0xFF, 0x01] },
+    Site { name: "card read deal context (0x14015161B)", rva: 0x0015_161B, expect: &[0xBA, 0xE2, 0x00, 0x00, 0x00, 0xB9, 0x01, 0x00, 0x00, 0x00, 0xE8, 0x96, 0xF2, 0x05, 0x00, 0x85, 0xC0] },
+    Site { name: "card read refresh context (0x1401545B3)", rva: 0x0015_45B3, expect: &[0xBA, 0xE2, 0x00, 0x00, 0x00, 0xB9, 0x01, 0x00, 0x00, 0x00, 0xE8, 0xFE, 0xC2, 0x05, 0x00, 0x85, 0xC0] },
+];
+
 /// A pointer in Re:CoM's data that holds another address of the image. The exe is relocated
 /// (ASLR, `DYNAMIC_BASE`), so these are checked at run time against `base + target`, not as
 /// bytes in the startup report.
@@ -412,6 +500,12 @@ pub fn all_sites() -> impl Iterator<Item = &'static Site> {
         .chain(M6_CALLEES)
         .chain(M6_CHECKED)
         .chain(M6_PATCHES.iter().map(|p| &p.site))
+        .chain(M6_DECK_HOOKS)
+        .chain(M6_DECK_READERS)
+        .chain(M6_DECK_CALLEES)
+        .chain(M6_COCKPIT_CALLS)
+        .chain(M6_CARD_CALLS)
+        .chain(M6_DECK_CHECKED)
 }
 
 /// What the PE headers of a loaded image say about its build.
@@ -504,7 +598,7 @@ mod tests {
         // The hooked prologues hold no rip-relative operand or branch, so they can run from the
         // trampoline (whole instructions, decoded in the comments above each site). The
         // trampoline (moved bytes + a 14-byte jump) must fit before the stub.
-        for h in HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS).chain(KEYBLADE_HOOKS).chain(MODEL_HOOKS).chain(M6_HOOKS) {
+        for h in HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS).chain(KEYBLADE_HOOKS).chain(MODEL_HOOKS).chain(M6_HOOKS).chain(M6_DECK_HOOKS).chain(M6_DECK_READERS) {
             assert!(h.expect.len() >= 5 && h.expect.len() + 14 <= crate::hookplan::STUB_AT, "{}", h.name);
             assert!(!h.expect.windows(2).any(|w| w == [0x8B, 0x05] || w == [0x8D, 0x05] || w == [0x8B, 0x0D] || w == [0x10, 0x05]), "{}", h.name);
             assert!(!h.expect.contains(&0xE8) && !h.expect.contains(&0xE9), "{}", h.name);
@@ -580,6 +674,42 @@ mod tests {
         assert_eq!(M6_CHECKED.iter().find(|s| s.rva == 0x0017_D016).unwrap().rva, M6_PATCHES[0].site.rva + 6);
         let f = M6_CHECKED.iter().find(|s| s.rva == 0x0017_F3C4).unwrap();
         assert_eq!(f.rva + f.expect.len() as u32, M6_PATCHES[2].site.rva);
+    }
+
+    #[test]
+    fn m6_deck_sites() {
+        // The two stage-2 wrappers and the three log-only readers: hooked by no other stage, and
+        // the readers are not the hand-empty / scroll pair confused (same bytes, two addresses).
+        let hooked = || HOOKS.iter().chain(MOVE_HOOKS).chain(TRACE_HOOKS).chain(ATTACK_HOOKS).chain(STATS_HOOKS).chain(KEYBLADE_HOOKS).chain(MODEL_HOOKS).chain(M6_HOOKS);
+        let called = || CALLEES.iter().chain(MOVE_CALLEES).chain(ATTACK_CALLEES).chain(STATS_CALLEES).chain(KEYBLADE_CALLEES).chain(MODEL_CALLEES).chain(M6_CALLEES);
+        for h in M6_DECK_HOOKS.iter().chain(M6_DECK_READERS) {
+            assert!(!hooked().any(|s| s.rva == h.rva), "{}", h.name);
+            assert!(!called().chain(M6_DECK_CALLEES).any(|s| s.rva == h.rva), "{}", h.name);
+        }
+        assert_eq!(M6_DECK_HOOKS.iter().map(|h| h.rva).collect::<Vec<_>>(), vec![0x001F_43D0, 0x0017_E190]);
+        assert_eq!(M6_DECK_READERS[0].expect, M6_DECK_READERS[1].expect);
+        // The drop hook is not the enemy card end the Attack calls (0x14017E1D0, next function).
+        assert!(ATTACK_CALLEES.iter().any(|s| s.rva == 0x0017_E1D0));
+        assert!(0x0017_E190 + (M6_DECK_HOOKS[1].expect.len() as u32) < 0x0017_E1D0);
+        // The allocator the wrapper calls is the one already checked.
+        assert!(CALLEES.iter().any(|s| s.rva == 0x004A_CE54));
+        // Every retargeted read is Re:CoM's `call 0x1401B08C0` (the checked getter), and sits in
+        // its checked context right after `mov edx,0xE2` / ecx = 1.
+        let getter = M6_DECK_CALLEES.iter().find(|s| s.rva == 0x001B_08C0).unwrap();
+        for c in M6_COCKPIT_CALLS.iter().chain(M6_CARD_CALLS) {
+            assert_eq!(c.expect.len(), 5, "{}", c.name);
+            assert_eq!(crate::hookplan::call_target(0x1_4000_0000 + c.rva as u64, c.expect), Some(0x1_4000_0000 + getter.rva as u64), "{}", c.name);
+            let ctx = M6_DECK_CHECKED.iter().find(|s| s.rva < c.rva && c.rva + 5 <= s.rva + s.expect.len() as u32 && s.expect[0] == 0xBA).unwrap_or_else(|| panic!("{}", c.name));
+            let off = (c.rva - ctx.rva) as usize;
+            assert_eq!(&ctx.expect[off..off + 5], c.expect, "{}", c.name);
+            assert_eq!(&ctx.expect[..5], &[0xBA, 0xE2, 0x00, 0x00, 0x00], "{}", c.name);
+        }
+        // The cockpit reads are inside 0x1401689F0 (size 0x63B), the card reads inside their three
+        // functions.
+        assert!(M6_COCKPIT_CALLS.iter().all(|c| (0x0016_89F0..0x0016_89F0 + 0x63B).contains(&c.rva)));
+        for (c, (start, size)) in M6_CARD_CALLS.iter().zip([(0x0015_0340u32, 0x223u32), (0x0015_14B0, 0x253), (0x0015_45A0, 0x96)]) {
+            assert!((start..start + size).contains(&c.rva), "{}", c.name);
+        }
     }
 
     #[test]
