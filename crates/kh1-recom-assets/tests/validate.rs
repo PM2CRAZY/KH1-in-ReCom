@@ -489,3 +489,27 @@ fn keyblades_from_kh1s_weapon_table() {
     assert!(j.contains("\"magic\": 2, \"group\": 34, \"textures\": [\"xw_ex_5160_0\", \"xw_ex_5160_1\"]}"));
     assert_eq!(j.matches("\"group\"").count(), 1);
 }
+
+/// Halloween Town's body pack (`PL0011.ANN`, in `KH1_TEST_DATA`): Re:CoM's own slots kept byte
+/// for byte, the new clips at PL0001's slots (Guard `p001_225`, Counterattack `p001_226`).
+#[test]
+fn g_halloween_pack_gets_the_same_slots() {
+    let Some(d) = data() else { return };
+    let Some(dir) = std::env::var_os("KH1_TEST_DATA").map(PathBuf::from) else { return };
+    let Ok(hw) = std::fs::read(dir.join("PL0011.ANN")) else { return };
+    let built = build(&Inputs { mset: d.mset, mdls: d.mdls, ann: d.ann, mdl: d.mdl, weapon: d.wep }, &BuildOptions::default()).unwrap();
+    let out = kh1_recom_assets::build::extend_costume_pack(&built, &hw).unwrap();
+    let base = Ann::parse(&hw).unwrap();
+    let ext = Ann::parse(&out).unwrap();
+    assert_eq!(ext.slots.len(), built.ann.slots.len());
+    for (i, s) in base.slots.iter().enumerate() {
+        assert_eq!(&ext.slots[i], s, "Re:CoM's slot {i} kept");
+    }
+    for name in ["p001_225", "p001_226"] {
+        let want = built.ann.find(name).expect("in PL0001");
+        assert_eq!(ext.find(name), Some(want), "{name} at PL0001's slot");
+        assert_eq!(ext.slots[want], built.ann.slots[want]);
+    }
+    assert!(kh1_recom_assets::build::extend_costume_pack(&built, &out).is_err(), "refuses an extended pack");
+    eprintln!("(g) PL0011.ANN: {} → {} slots", base.slots.len(), ext.slots.len());
+}

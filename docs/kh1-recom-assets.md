@@ -437,3 +437,21 @@ bones): local rotation (geodesic angle), translation and scale.
 - Re:CoM binds entries to clips by name, so the new entries only reach the appended clips.
   Re:CoM's own clips and sounds are unchanged.
 - The local mod's `mod.yml` copies it like the other files.
+
+## Halloween Town's pack (`PL0011.ANN` / `.SES`, 0.9.1)
+
+- In Halloween Town Re:CoM gives Sora resource group 11. Its `PL0011.ANN` is a reduced copy of
+  `PL0001.ANN`: 158 slots, the same `p001_NNN` names at the same slots, with empty slots between.
+  Checked (files).
+- Its `PL0011.MDL` skeleton is `PL0001.MDL`'s: 135 bones, same names, rest pose within 0.06 mm.
+  Checked (files). Its `PL0011.SES` is byte-identical to `PL0001.SES`. Checked (files).
+- Our appended rows (Guard `p001_225`, Counterattack `p001_226`) had no clip there, so the Guard
+  never started in Halloween Town (owner's trace 12, a world-6 battle: the motion time stayed at
+  0 for 77 frames until a hit). Checked (trace + log).
+- `kh1-recom-build` now also writes `PLAYER/0011/PL0011.ANN`
+  (`build::extend_costume_pack`): Re:CoM's slots byte for byte, padded empty up to 161, then the
+  same new clips at the same slots as `PL0001.ANN`. They must be the same slots: Re:CoM's name
+  lookup takes the index from the name first, and the Keyblade plays Sora's clip index on its own
+  pack. It also writes `PL0011.SES` with the same KH1 sound entries as `PL0001.SES`.
+- Test `g_halloween_pack_gets_the_same_slots` (needs `PL0011.ANN` in `KH1_TEST_DATA`).
+

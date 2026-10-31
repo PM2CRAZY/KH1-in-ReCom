@@ -23,6 +23,9 @@ pub const RECOM_EXE: &str = "KINGDOM HEARTS Re_Chain of Memories.exe";
 pub const SORA_ANN: &str = "PLAYER/0001/PL0001.ANN";
 /// Sora's model path inside `Recom.pkg`.
 pub const SORA_MDL: &str = "PLAYER/0001/PL0001.MDL";
+/// Sora's Halloween Town body (resource group 11): its motion pack and sound events.
+pub const HALLOWEEN_ANN: &str = "PLAYER/0011/PL0011.ANN";
+pub const HALLOWEEN_SES: &str = "PLAYER/0011/PL0011.SES";
 /// The Keyblade's (`CPlayerWeapon`, resource group 2) motion pack.
 pub const KEYBLADE_ANN: &str = "PLAYER/0002/PL0002.ANN";
 /// The Keyblade's model.

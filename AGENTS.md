@@ -11,6 +11,24 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 23: Guard and Counterattack in Halloween Town, version 0.9.1 (2026-10-31)
+
+> "check the trace, trying to use guard in battle freezes sora"
+
+- Trace 12 (Checked): Guard at frame 17, then the motion time stayed at 0 for 77 frames until
+  a hit. The KH1 step ran normally (1.0). The log names world 6 (Halloween Town).
+- Cause: in Halloween Town Sora uses resource group 11. `PL0011.ANN` lacked our appended clips
+  `p001_225` / `p001_226`, so rows 0x47 / 0x48 resolved to no clip. Checked (files + decomp: the
+  row's index from `0x1407C6300[player+0x398]`, `0x1401F7180`).
+- Fix (asset step only): `PL0011.ANN` extended with the same clips at the same slots (same
+  skeleton, Checked), and `PL0011.SES` with the same sounds. The DLL is unchanged apart from its
+  version. `docs/kh1-recom-assets.md` § Halloween Town's pack.
+- Also (owner's request, no code): `combo_master = on` in the owner's `kh1-recom.ini` for
+  testing.
+- Not seen in game.
+
+---
+
 ## Stage 22: KH1 Keyblade models, step 2 of the Keyblades, version 0.9.0 (2026-10-31)
 
 > "it all looks good continue" / swap timing: "When the menu closes" / memory: "Only the equipped

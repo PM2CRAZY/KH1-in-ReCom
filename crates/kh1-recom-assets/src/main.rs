@@ -70,6 +70,15 @@ fn run() -> Result<(), String> {
     let ann = install::read_recom(&arc, &keys, install::SORA_ANN).map_err(|e| format!("{}: {e}", install::SORA_ANN))?;
     let mdl = install::read_recom(&arc, &keys, install::SORA_MDL).map_err(|e| format!("{}: {e}", install::SORA_MDL))?;
     let ses = install::read_recom(&arc, &keys, install::SORA_SES).map_err(|e| format!("{}: {e}", install::SORA_SES))?;
+    // Sora's Halloween Town pack (group 11), extended with the same clips (`extend_costume_pack`).
+    let halloween = match arc.find(install::HALLOWEEN_ANN) {
+        Some(_) => Some(install::read_recom(&arc, &keys, install::HALLOWEEN_ANN).map_err(|e| format!("{}: {e}", install::HALLOWEEN_ANN))?),
+        None => None,
+    };
+    let halloween_ses = match arc.find(install::HALLOWEEN_SES) {
+        Some(_) => Some(install::read_recom(&arc, &keys, install::HALLOWEEN_SES).map_err(|e| format!("{}: {e}", install::HALLOWEEN_SES))?),
+        None => None,
+    };
     let (mset, mdls) = install::read_kh1(&game, keys.clone()).map_err(|e| format!("KH1 files: {e}"))?;
     // The Keyblade (CPlayerWeapon, resource group 2): converted when both files are there.
     let weapon = match (arc.find(install::KEYBLADE_ANN), arc.find(install::KEYBLADE_MDL)) {
@@ -131,18 +140,19 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
     // The runtime (crates/kh1-recom, win/motion.rs) looks for the manifest at the recom root.
-    let (ann_path, wep_path, man) = match out {
+    let (ann_path, wep_path, man, hw_dir) = match out {
         Some(p) => {
             let m = p.with_file_name(install::MANIFEST);
             let w = p.with_file_name("PL0002.ANN");
-            (p, w, m)
+            let h = p.with_file_name("PL0011.ANN");
+            (p, w, m, h)
         }
         None => {
             let m = match mod_dir {
                 Some(m) => m,
                 None => install::mod_path(&game).map_err(|e| e.to_string())?,
             };
-            (install::mod_file(&m, install::SORA_ANN), install::mod_file(&m, install::KEYBLADE_ANN), install::recom_dir(&m).join(install::MANIFEST))
+            (install::mod_file(&m, install::SORA_ANN), install::mod_file(&m, install::KEYBLADE_ANN), install::recom_dir(&m).join(install::MANIFEST), install::mod_file(&m, install::HALLOWEEN_ANN))
         }
     };
     if wep_path == ann_path {
@@ -153,6 +163,10 @@ fn run() -> Result<(), String> {
             write(&wep_path, &w.bytes)?;
         }
         write(&ann_path, &built.bytes)?;
+        match &halloween {
+            Some(h) => write(&hw_dir, &kh1_recom_assets::build::extend_costume_pack(&built, h).map_err(|e| format!("{}: {e}", install::HALLOWEEN_ANN))?)?,
+            None => println!("note: {} not in Recom.hed; Halloween Town keeps Re:CoM's pack", install::HALLOWEEN_ANN),
+        }
     } else {
         // Nothing new: Panacea serves Re:CoM's own files. Remove packs an earlier run left.
         for p in [&ann_path, &wep_path] {
@@ -173,6 +187,12 @@ fn run() -> Result<(), String> {
     let ses_path = ann_path.with_file_name("PL0001.SES");
     write(&ses_path, &kh1_recom_assets::ses::write(&sound))?;
     println!("wrote {} ({} KH1 clip entries: guard {:?}, counterattack {:?})", ses_path.display(), n, guard, counter);
+    // Halloween Town's sound events: Re:CoM's `PL0011.SES` with the same KH1 entries.
+    if let Some(hs) = &halloween_ses {
+        let mut hsound = kh1_recom_assets::ses::parse(hs).map_err(|e| format!("{}: {e}", install::HALLOWEEN_SES))?;
+        kh1_recom_assets::ses::add_kh1(&mut hsound, guard.as_deref(), counter.as_deref()).map_err(|e| e.to_string())?;
+        write(&hw_dir.with_file_name("PL0011.SES"), &kh1_recom_assets::ses::write(&hsound))?;
+    }
     // The Keyblade models, under the same root as the manifest (`<mod>/recom` or --out's folder).
     let root = man.parent().map(Path::to_path_buf).unwrap_or_default();
     for (m, c) in &keyblades {

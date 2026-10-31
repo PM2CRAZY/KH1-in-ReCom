@@ -375,6 +375,37 @@ pub fn build(inp: &Inputs, opt: &BuildOptions) -> Result<Built> {
     Ok(Built { ann, bytes, base_slots: base, changed, entries, weapon })
 }
 
+/// Sora's Halloween Town body pack (`PLAYER/0011/PL0011.ANN`) with the same new clips at the
+/// same slots as the extended `PL0001.ANN`.
+///
+/// - Why: in Halloween Town Re:CoM gives Sora group 11 (`PL0011.MDL` / `.ANN`), whose pack is a
+///   reduced copy of `PL0001.ANN`: its clips keep their `p001_NNN` names at the same slots,
+///   with empty slots between. Our action-table rows (Guard, Counterattack) name `p001_225` /
+///   `p001_226`, which the Halloween pack lacked, so the Guard never started there (owner's
+///   trace 12: motion time stuck at 0 in a Halloween Town battle).
+/// - Checked (files): the skeletons match: 135 bones, same names, rest pose within 0.06 mm.
+/// - Same slots, because Re:CoM's name lookup `0x1401A47E0` takes the index from the name's
+///   digits first, and the Keyblade plays Sora's clip index on its own pack (`0x1401F7180`).
+/// - Re:CoM's own slots are kept. Slots up to `PL0001`'s base are padded empty; ours are added
+///   after.
+pub fn extend_costume_pack(built: &Built, costume_ann: &[u8]) -> Result<Vec<u8>> {
+    let mut ann = Ann::parse(costume_ann)?;
+    let ours = &built.ann.slots[built.base_slots..];
+    if ann.slots.len() > built.base_slots {
+        return bad(format!("costume pack has {} slots, more than PL0001.ANN's {} (already extended?)", ann.slots.len(), built.base_slots));
+    }
+    let bones = built.ann.slots.iter().filter_map(|s| s.clip.as_ref()).map(|c| c.bones).next();
+    if let Some(c) = ann.slots.iter().filter_map(|s| s.clip.as_ref()).find(|c| Some(c.bones) != bones) {
+        return bad(format!("costume pack clip {} has {} bones, PL0001's have {:?}", c.name_str(), c.bones, bones));
+    }
+    while ann.slots.len() < built.base_slots {
+        ann.slots.push(Slot { name: [0; 16], clip: None });
+    }
+    ann.slots.extend(ours.iter().cloned());
+    ann.pad_tail_like_recom();
+    Ok(ann.to_bytes())
+}
+
 /// Largest mapped-bone position difference between KH1's pose at `t = 0` and `t = N` in model
 /// space, root travel included (a motion that ends in its start pose but has travelled, like
 /// ground swing 3, entry 100, is not a loop) (metres).
