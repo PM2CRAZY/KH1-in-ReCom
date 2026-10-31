@@ -481,3 +481,10 @@ Assumption: OpenKH's Mods Manager copies a `raw/…` asset name to `<mod_path>/r
 unchanged (check the built folder once). Panacea finds new names under `<mod_path>/recom` and
 `<mod_path>/recom/raw` at start-up (§ 8, Checked source), so the game must be restarted after
 installing.
+
+## In game, 0.9.0 (owner, 2026-10-31)
+
+- Owner: "perfect, everything is great". Checked (owner).
+- Log (Checked): the PLAYER table had 633 rows. Each equip (Three Wishes, Crabclaw,
+  Pumpkinhead, Diamond Dust, One-Winged Angel) queued its group, the weapon was rebuilt at camp
+  close with that group, and the previous group was unloaded. No fallback lines.
