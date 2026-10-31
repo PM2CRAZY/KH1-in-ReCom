@@ -11,6 +11,25 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 18: KH1's lunge distance uses the enemy's body radius, version 0.7.5 (2026-10-31)
+
+> "a then b then c" (owner: (a) the lunge distance, (b) KH1 hurtboxes on twins, (c) the
+> equipped Keyblade's size)
+
+- Finding (`hitbox-compare.md`): KH1's ground picker (`0x1402A7320`) subtracts each kind-0 lock
+  point's radius (`0x1402B04C0`: point `+0xC` × actor `+0x40`) before its 180 / 300 thresholds.
+  The mod used 0, so at 3.00–3.30 m from a Shadow it swung in place and missed where KH1 lunges.
+  Checked (decomp).
+- Asset step: `kh1-stats.json` format 2 adds each twin's lock radius from its `.mdls` part 4
+  (`CLS\x03` lock points, kind = byte 0 & 0xF). Checked (files): all 31 twins have one;
+  Shadow 30, Soldier 35, Large Body 100. The Screwdiver has four (170, 40, 40, 40); the first is
+  used (Assumption).
+- Runtime: Re:CoM's attack target becomes KH1's part with that radius (`win/attack.rs`
+  `attack_target`). Data only; no new hook.
+- Assumption: the twin's actor scale is 1.0. Not seen in game.
+
+---
+
 ## Stage 17: the Keyblade appears on Guard, version 0.7.4 (2026-10-31)
 
 > "when sora doesnt have his keyblade out and does guard, the keyblade should appear"

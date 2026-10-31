@@ -491,6 +491,9 @@ pub struct Kh1Stats {
     pub sora_strength: Vec<i32>,
     /// Re:CoM class name → its twin's record per Re:CoM world id 1..=13.
     pub enemies: Vec<(String, Vec<EnemyStats>)>,
+    /// Re:CoM class name → its twin's first kind-0 lock-point radius (KH1 units), the radius
+    /// KH1's ground picker subtracts (`0x1402A7320`). Absent in older files (format 1).
+    pub lock_radius: Vec<(String, f32)>,
 }
 
 impl Kh1Stats {
@@ -506,6 +509,10 @@ impl Kh1Stats {
         }
         self.enemies.iter().find(|(c, _)| c == class)?.1.get(world as usize - 1)
     }
+    /// The twin's lock-point radius (KH1 units) for a Re:CoM class.
+    pub fn lock_radius(&self, class: &str) -> Option<f32> {
+        self.lock_radius.iter().find(|(c, _)| c == class).map(|(_, r)| *r)
+    }
 }
 
 /// Reads `kh1-stats.json`.
@@ -519,6 +526,7 @@ pub fn parse_stats(text: &str) -> Result<Kh1Stats, String> {
         return Err(format!("`sora_strength` has {} levels, not 100", sora_strength.len()));
     }
     let mut enemies = Vec::new();
+    let mut lock_radius = Vec::new();
     for e in v.get("enemies").and_then(|e| e.as_array()).ok_or("no `enemies` array")? {
         let class = e.get("class").and_then(|c| c.as_str()).ok_or("enemy without `class`")?.to_string();
         let mut worlds = Vec::new();
@@ -543,9 +551,12 @@ pub fn parse_stats(text: &str) -> Result<Kh1Stats, String> {
         if worlds.len() != 13 {
             return Err(format!("{class}: {} worlds, not 13", worlds.len()));
         }
+        if let Some(r) = e.get("lock_radius").and_then(|r| r.as_f64()) {
+            lock_radius.push((class.clone(), r as f32));
+        }
         enemies.push((class, worlds));
     }
-    Ok(Kh1Stats { sora_strength, enemies })
+    Ok(Kh1Stats { sora_strength, enemies, lock_radius })
 }
 
 #[cfg(test)]

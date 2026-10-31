@@ -155,6 +155,32 @@ pub fn mdls_part(d: &[u8], k: usize) -> Option<&[u8]> {
     d.get(a..b)
 }
 
+/// The radii (KH1 units) of the model's kind-0 lock points, in file order: what KH1's ground
+/// picker subtracts from the distance to each point (`0x1402A7320` → `0x1402B0110` iterates the
+/// kind-0 points, `0x1402B04C0` returns point `+0xC` × actor `+0x40`). They are the collision
+/// block's (`.mdls` part 4, `CLS\x03`, counts at `+4..+7`, 0x14-byte entries from `+0x20`) last
+/// group; an entry's kind is byte 0 & 0xF. Checked (decomp + files).
+pub fn lock_radii(mdls: &[u8]) -> Result<Vec<f32>> {
+    let bad = |w: &str| Error::Format(format!("collision block: {w}"));
+    let c = mdls_part(mdls, 4).ok_or_else(|| bad("no part 4"))?;
+    if c.get(0..4) != Some(b"CLS\x03".as_slice()) {
+        return Err(bad("not CLS\\x03"));
+    }
+    let n = |i: usize| c[4 + i] as usize;
+    let first = 0x20 + (n(0) + n(1) + n(2)) * 0x14;
+    let mut out = Vec::new();
+    for i in 0..n(3) {
+        let e = c.get(first + i * 0x14..first + (i + 1) * 0x14).ok_or_else(|| bad("lock points past the end"))?;
+        if e[0] & 0xF == 0 {
+            out.push(f32::from_le_bytes(e[0xC..0x10].try_into().expect("4 bytes")));
+        }
+    }
+    if out.is_empty() {
+        return Err(bad("no kind-0 lock point"));
+    }
+    Ok(out)
+}
+
 /// Reads one record from a script.
 pub fn record(script: &[u8], at: u32, btltbl: &[u8]) -> Result<Record> {
     let at = at as usize;
@@ -235,7 +261,7 @@ fn rec_json(r: &Record) -> String {
 /// Builds `kh1-stats.json`. `read` gives a KH1 file by name.
 pub fn build_json(read: &mut dyn FnMut(&str) -> Result<Vec<u8>>, btltbl: &[u8], keyblade_strength: i32) -> Result<(String, usize)> {
     let strength = sora_strength(btltbl, keyblade_strength)?;
-    let mut s = String::from("{\n  \"format\": \"kh1-recom-assets stats 1\",\n");
+    let mut s = String::from("{\n  \"format\": \"kh1-recom-assets stats 2\",\n");
     s.push_str(&format!("  \"sora_strength\": [{}],\n", strength.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
     s.push_str(&format!(
         "  \"worlds\": [{}],\n  \"enemies\": [\n",
@@ -250,11 +276,14 @@ pub fn build_json(read: &mut dyn FnMut(&str) -> Result<Vec<u8>>, btltbl: &[u8], 
             let r = record(script, offset_for(t, w), btltbl).map_err(|e| Error::Format(format!("{}: {e}", t.model)))?;
             worlds.push(format!("      {}", rec_json(&r)));
         }
+        let radii = lock_radii(&mdls).map_err(|e| Error::Format(format!("{}: {e}", t.model)))?;
         s.push_str(&format!(
-            "    {{\"class\": \"{}\", \"kh1_model\": \"{}\", \"assumed\": {}, \"worlds\": [\n{}\n    ]}}{}\n",
+            "    {{\"class\": \"{}\", \"kh1_model\": \"{}\", \"assumed\": {}, \"lock_radius\": {}, \"lock_radii\": [{}], \"worlds\": [\n{}\n    ]}}{}\n",
             t.class,
             t.model,
             t.assumed,
+            radii[0],
+            radii.iter().map(|r| r.to_string()).collect::<Vec<_>>().join(", "),
             worlds.join(",\n"),
             if i + 1 < TWINS.len() { "," } else { "" }
         ));
@@ -281,6 +310,29 @@ mod tests {
         b[0x3AC0 + 1] = 5;
         b[0x3AC0 + 2] = 4; // level 4
         b
+    }
+
+    #[test]
+    fn lock_radii_are_the_kind_0_points_of_part_4() {
+        // Part table: 6 parts, part 4 at 0x40.
+        let mut d = vec![0u8; 0x40];
+        d[0..4].copy_from_slice(&6i32.to_le_bytes());
+        for i in 0..=6 {
+            let at = if i <= 4 { 0x40 } else { 0x40 + 0x20 + 5 * 0x14 };
+            d[4 + 4 * i..8 + 4 * i].copy_from_slice(&(at as i32).to_le_bytes());
+        }
+        let mut c = vec![0u8; 0x20 + 5 * 0x14];
+        c[0..4].copy_from_slice(b"CLS\x03");
+        c[4..8].copy_from_slice(&[1, 1, 0, 3]);
+        let lock = 0x20 + 2 * 0x14;
+        for (i, (kind, r)) in [(0u8, 30f32), (2, 10.0), (0, 40.0)].iter().enumerate() {
+            c[lock + i * 0x14] = *kind;
+            c[lock + i * 0x14 + 0xC..lock + i * 0x14 + 0x10].copy_from_slice(&r.to_le_bytes());
+        }
+        d.extend_from_slice(&c);
+        assert_eq!(lock_radii(&d).unwrap(), vec![30.0, 40.0]);
+        d[0x40] = b'X';
+        assert!(lock_radii(&d).is_err());
     }
 
     #[test]

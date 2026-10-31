@@ -199,7 +199,9 @@ pub(super) fn tick() {
 static TICK_LIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Re:CoM's attack target (`player+0x84C`) as a KH1 body part: its aim point (vtable `+0x50`, as
-/// Re:CoM's own row pick reads it). Assumption: radius 0 (Re:CoM's distances are centre to centre).
+/// Re:CoM's own row pick reads it), with the KH1 twin's lock-point radius (`kh1-stats.json`),
+/// which KH1's picker subtracts (`0x1402A7320`); 0 for enemies without a twin. Assumption: Re:CoM's
+/// aim point stands for KH1's lock point.
 pub(super) unsafe fn attack_target(pl: usize) -> Option<TargetPart> {
     let h: i32 = rd(pl + p::LOCK_TARGET);
     if h <= 0 {
@@ -213,7 +215,8 @@ pub(super) unsafe fn attack_target(pl: usize) -> Option<TargetPart> {
     let f: VecFn = std::mem::transmute_copy(&rd::<usize>(vt + 0x50));
     let mut out = [0f32; 4];
     f(obj, &mut out);
-    Some(TargetPart { owner: h as u32, centre: to_kh1(Vec3::new(out[0], out[1], out[2])), radius: 0.0 })
+    let radius = super::stats::lock_radius(obj).unwrap_or(0.0);
+    Some(TargetPart { owner: h as u32, centre: to_kh1(Vec3::new(out[0], out[1], out[2])), radius })
 }
 
 // ---- starting and ending swings (from `RecomHost`) ----

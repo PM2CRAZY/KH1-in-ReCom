@@ -117,8 +117,13 @@ fn stats_json_reads_the_asset_steps_format() {
     let rec = r#"{"hp": 12, "strength": 8, "defence": 8, "floor": 2, "cap": 300, "level": 6, "exp": 1, "resist": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]}"#;
     let worlds = vec![rec; 13].join(", ");
     let strength = (1..=100).map(|l| (6 + l).to_string()).collect::<Vec<_>>().join(", ");
-    let t = format!(r#"{{"format": "kh1-recom-assets stats 1", "sora_strength": [{strength}], "enemies": [{{"class": "CEnemyShadow", "worlds": [{worlds}]}}]}}"#);
+    let t = format!(r#"{{"format": "kh1-recom-assets stats 2", "sora_strength": [{strength}], "enemies": [{{"class": "CEnemyShadow", "lock_radius": 30, "lock_radii": [30, 30], "worlds": [{worlds}]}}]}}"#);
     let s = parse_stats(&t).unwrap();
+    assert_eq!(s.lock_radius("CEnemyShadow"), Some(30.0));
+    assert_eq!(s.lock_radius("CEnemySoldier"), None);
+    // Format 1 (no lock radius) still reads; the radius is then unknown.
+    let old = parse_stats(&t.replace(r#""lock_radius": 30, "#, "")).unwrap();
+    assert_eq!(old.lock_radius("CEnemyShadow"), None);
     assert_eq!(s.strength(1), Some(7));
     assert_eq!(s.strength(150), Some(106));
     assert_eq!(s.twin("CEnemyShadow", 1).unwrap().defence, 8);

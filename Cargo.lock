@@ -2382,7 +2382,7 @@ dependencies = [
 
 [[package]]
 name = "kh1-recom"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "kh1-core",
 ]

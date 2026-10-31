@@ -398,6 +398,9 @@ bones): local rotation (geodesic angle), translation and scale.
   Strength for levels 1..100 (decision 18) and the KH1 twin record of 31 Re:CoM enemy classes
   for each Re:CoM world (decision 21). Read from the player's `btltbl.bin` and the twins'
   `.mdls` (part 5, the AI script). Module `stats`; details in `recom-kh1-attack.md` § Damage.
+- Format 2 (0.7.5) adds per enemy `lock_radius` (its first kind-0 lock point's radius, KH1 units)
+  and `lock_radii` (all of them), read from the twin's `.mdls` part 4 (`stats::lock_radii`). The
+  runtime reads format 1 too (radius unknown, 0).
 - The local mod's `mod.yml` copies it like the other files.
 - Checked (files): the owner's install gives all 31 twins with valid records; the motion pack
   and manifest it rebuilt are byte-identical to the installed ones.

@@ -116,13 +116,28 @@ Steam bytes) that plays the same KH1 motion, with:
 - Hop row 2 needs KH1's obstacle probe `0x1402C6E70`. Not built yet: the probe returns "no wall"
   (Assumption, as kh1-core's default `World`).
 
-### Targets. Assumption
+### Targets
 
-KH1's picker gets Re:CoM's attack target `player+0x84C` as a body part. Its point is Re:CoM's own
-aim point (vtable `+0x50`, as Re:CoM's row pick reads it), with radius 0 (Re:CoM measures centre
-to centre). It counts as KH1's lock-on when Re:CoM's lock-on is on (M4's lock-on fields). Without
-a lock, KH1 scans every enemy part in its cones; here the scan sees only that target. M12
-(lock-on) owns the rest.
+- KH1's picker gets Re:CoM's attack target `player+0x84C` as a body part. Its point is Re:CoM's
+  own aim point (vtable `+0x50`, as Re:CoM's row pick reads it). Assumption: that point stands
+  for KH1's lock point.
+- **Radius (0.7.5):** the KH1 twin's lock-point radius, from `kh1-stats.json`.
+  - KH1's ground picker (`0x1402A7320`) measures gap = horizontal distance − the radius of
+    each kind-0 lock point (`0x1402B0110` iterates them, `0x1402B04C0` returns point `+0xC` ×
+    actor `+0x40`). Checked (decomp).
+  - The points are the last group of the model's collision block (`.mdls` part 4, `CLS\x03`).
+    Checked (files).
+  - Shadow: 30 (0.30 m), so KH1 lunges at a Shadow 2.10–3.30 m away. With radius 0 (before
+    0.7.5) the mod lunged at 1.80–3.00 m and swung in place at 3.00–3.30 m, where the swing can't
+    reach (`hitbox-compare.md`).
+  - Enemies without a twin keep radius 0.
+- Assumptions:
+  - The twin's actor scale (`+0x40`) is 1.0.
+  - The Screwdiver has four kind-0 points (170, 40, 40, 40). The mod's single target uses the
+    first.
+- It counts as KH1's lock-on when Re:CoM's lock-on is on (M4's lock-on fields). Without a lock,
+  KH1 scans every enemy part in its cones; here the scan sees only that target. M12 (lock-on)
+  owns the rest.
 
 ## The Keyblade volume
 

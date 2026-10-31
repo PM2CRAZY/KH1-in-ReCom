@@ -162,10 +162,19 @@ fn twin(enemy: usize) -> Option<(&'static str, &'static EnemyStats)> {
     if let Ok(mut g) = LOGGED.lock() {
         if g.len() < 64 && !g.iter().any(|(c, x)| *c == class && *x == w) {
             g.push((class, w));
-            log(&format!("stats: {class} in world {w}: KH1 HP {}, Defence {}, floor {} cap {}, level {}", t.hp, t.defence, t.min_damage, t.max_damage, t.level));
+            let r = STATS.get().and_then(|s| s.lock_radius(class));
+            log(&format!("stats: {class} in world {w}: KH1 HP {}, Defence {}, floor {} cap {}, level {}, lock radius {r:?}", t.hp, t.defence, t.min_damage, t.max_damage, t.level));
         }
     }
     Some((class, t))
+}
+
+/// The KH1 twin's lock-point radius (KH1 units) for this enemy, where its twin applies (KH1's
+/// ground picker subtracts it from the distance, `0x1402A7320`). Assumption: the twin's actor
+/// scale (KH1 actor `+0x40`) is 1.0.
+pub fn lock_radius(enemy: usize) -> Option<f32> {
+    let (class, _) = twin(enemy)?;
+    STATS.get()?.lock_radius(class)
 }
 
 /// Re:CoM's enemy stats init (`0x14017FF50(enemy, type, variant, …)`): at KH1, a twin's HP.

@@ -1,6 +1,6 @@
 [package]
 name = "kh1-recom"
-version = "0.7.4"
+version = "0.7.5"
 edition = "2021"
 description = "KH1 combat in Kingdom Hearts Re:Chain of Memories (PC, Steam): the DLL Panacea loads."
 license = "MIT OR Apache-2.0"
