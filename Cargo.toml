@@ -9,6 +9,7 @@ members = [
     "crates/kh1-playground",
     "crates/kh1-trace",
     "crates/kh1-recom-assets",
+    "crates/kh2-formats-lite",
 ]
 
 [profile.release]

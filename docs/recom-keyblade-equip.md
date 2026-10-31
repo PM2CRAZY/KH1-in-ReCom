@@ -21,7 +21,7 @@ or bytes read from the Steam exe, **Assumption**.
 | Its validation | 1..=0x18, not Soul Eater (0x12), with numbers in `kh1-stats.json`; else the Kingdom Key. The Kingdom Key is written as 0, so a save that never leaves it keeps the spare range all zero. | (ours, tested) |
 | Readers | the KH1 damage (`kh1_hit`) and the blade test (`win/attack.rs`) read it through `stats::equipped_weapon()` (one pointer read per hit). | — |
 | Spare range check | at the first camp open per session the log says whether `save + 0x246B ..= 0x2817` is all zero apart from our byte. | — |
-| Unlocked | `0x14015B3F0(kind)` or `0x14015B3F0(kind | 0x100)` ("obtained at least once", discovery state 2 or 3), called only when the collection pointer `0x14087A7E8` is set. The Kingdom Key is always listed; Soul Eater never. Only Keyblades with numbers in the stats file are listed (today kinds 1..0x11). | Checked (decomp + exe) |
+| Unlocked | `0x14015B3F0(kind)` or `0x14015B3F0(kind | 0x100)` ("obtained at least once", discovery state 2 or 3), called only when the collection pointer `0x14087A7E8` is set. The Kingdom Key is always listed; Soul Eater never. Only Keyblades with numbers in the stats file are listed (kinds 1..0x11 from KH1's rows, and from step 3 0x13..0x18 from KH2's, `recom-keyblade-models.md` § 12). | Checked (decomp + exe) |
 | Names | `0x140164CA0(&kind)`: message `[0x140528560 + kind × 4]` through `0x140240160(*(u64*)0x14087CD78, id)`; it reads only byte 0 for kinds below 0xDB. Re:CoM's own localized card names. The stats file's name is used if the message is empty. | Checked (decomp + exe) |
 | Riku's story | `0x1401AAAE0() != 0`, and the camp's own copy `camp+0x21BC`. | Checked (exe) |
 
@@ -90,8 +90,9 @@ highlighted Keyblade (save byte, sound 2, rows redrawn so the mark moves); up / 
 page up / down on pad bits 4 / 8 (`0x14029B2E0` repeat, `0x14029B2F0` fresh), with Re:CoM's
 ±8 and top-row rules. Any move plays sound 1.
 
-Values: Strength and Magic are the KH1 weapon row's bonuses ("+3"); reach is the blade span
-`|far − near| × fraction scale` over the Kingdom Key's ("x1.00"), a display figure only.
+Values: Strength and Magic are the KH1 weapon row's bonuses ("+3"; for the six KH2 Keyblades
+KH2's stat row's); reach is the blade span `|far − near| × fraction scale` over the Kingdom Key's
+("x1.00"), a display figure only.
 
 Differences from the entry-4 page, by design: no tab bar (`camp+0xC08`, sequences 0x14F..) and no
 `0x1400DEC60(camp, 1, 0)` side element (the Config page, whose states we run in, has neither); up

@@ -24,6 +24,10 @@ kh1-recom-build [--game <KH 1.5+2.5 folder>] [--mod-dir <mod_path>] [--out <file
 - `--game` defaults to `.`. It reads:
   - `Image/dt/Recom.hed/.pkg`: `PLAYER/0001/PL0001.ANN` and `.MDL`;
   - `Image/dt/kh1_*.hed/.pkg`: `xa_ex_0010.mset` and `.mdls`;
+  - `Image/dt/kh2_first..sixth.hed/.pkg` (KH2 FM, same format and key table): `03system.bin`,
+    `00objentry.bin`, `msg/us/sys.bar`, `obj/W_EX010.mdlx` and the six KH2 Keyblades'
+    `obj/W_EX010_*.mdlx` with their HD `-0.dds` (decision 25; skipped with a note when KH2's
+    archives are not there);
   - the key table from `KINGDOM HEARTS Re_Chain of Memories.exe` (or the KH1 exe).
 - It always writes `<mod_path>/recom/kh1-motions.json` (where the runtime, `crates/kh1-recom`
   `win/motion.rs`, looks first). When some KH1 motion needs a new slot, it also writes
@@ -39,6 +43,14 @@ kh1-recom-build [--game <KH 1.5+2.5 folder>] [--mod-dir <mod_path>] [--out <file
   on Re:CoM's own PL0002 (group 2). With `--out`, the `PLAYER/` and `raw/PLAYER/` folders go next
   to the pack. A Keyblade that can't be converted (e.g. a vertex on a joint outside 2–11) stops
   the step with its name. `--dry-run` converts and reports without writing.
+- The six Keyblades Re:CoM has beyond KH1's (cards 0x13..0x18: Star Seeker, Monochrome, Follow
+  the Wind, Hidden Dragon, Photon Debugger, Bond of Flame) come from KH2 FM: KH2's model
+  (`obj/W_EX010_*.mdlx` + its HD `.dds`), converted on the same PL0002 template to groups
+  38…43, and KH2's Strength and Magic, with a reach scaled from the KH2 model's blade
+  (`docs/recom-keyblade-models.md` § 12). Before converting, the step checks that KH2's own
+  Kingdom Key `W_EX010` lands on Re:CoM's PL0002 (every vertex within 0.5 mm of PL0002's on the
+  same bone; 0.077 mm on the owner's files) and that each KH2 Keyblade has `W_EX010`'s
+  skeleton; else it stops.
 - Manifest (format `kh1-recom-assets motions 2`; read by `crates/kh1-recom` `motions.rs`
   `parse_manifest`, which ignores unknown keys). Top level: `format`, `pack`, `base_slots` (161),
   `slot_count`, `pack_changed`, `fps` (60, the new clips), `kh1_entries` (118), `recom_entries`,
@@ -409,9 +421,16 @@ bones): local rotation (geodesic angle), translation and scale.
   for each Re:CoM world (decision 21). Read from the player's `btltbl.bin` and the twins'
   `.mdls` (part 5, the AI script). Module `stats`; details in `recom-kh1-attack.md` § Damage.
 - Format `stats 4` (Keyblade models): each `keyblades` row also has `group` (the Re:CoM PLAYER
-  resource group of its model: 2 for the Kingdom Key, 21–36 for cards 2–17) and `textures` (its
-  texture names, e.g. `["xw_ex_5160_0", "xw_ex_5160_1"]`). The runtime's parser ignores unknown
-  keys. Details: `docs/recom-keyblade-models.md`.
+  resource group of its model: 2 for the Kingdom Key, 21–36 for cards 2–17, 38–43 for cards
+  0x13–0x18) and `textures` (its texture names, e.g. `["xw_ex_5160_0", "xw_ex_5160_1"]`). The
+  runtime's parser ignores unknown keys. Details: `docs/recom-keyblade-models.md`.
+- KH2 rows (same format 4, no new required key): after the 17 KH1 rows, one per KH2 Keyblade
+  with `source` `"kh2"`, `kh2_item` / `kh2_stat` (KH2's item and stat-row ids), `model` (the
+  KH2 model, e.g. `"W_EX010_30"`), `blade_length` and `kh2_kingdom_key_blade_length` (metres,
+  for the record), `strength` / `magic` (KH2's), `blade_far` (scaled), and `radius`,
+  `blade_near`, `frac_scale`, `crit`, `crit_bonus`, `priority` copied from KH1's Kingdom Key
+  row; `group` / `textures` as above. Checked (run): the runtime's `parse_stats` and
+  `Models::from_stats` read the file the owner's PC built (23 Keyblades, 22 model groups).
 - Format 2 (0.7.5) adds per enemy `lock_radius` (its first kind-0 lock point's radius, KH1 units)
   and `lock_radii` (all of them), read from the twin's `.mdls` part 4 (`stats::lock_radii`). The
   runtime reads format 1 too (radius unknown, 0).

@@ -186,7 +186,8 @@ pub fn lock_radii(mdls: &[u8]) -> Result<Vec<f32>> {
 /// Checked (exe + decomp)), with their KH1 item ids. Matched by name; the item order and each row's Strength /
 /// Magic agree with KH1 FM's Keyblade list (e.g. Ultima Weapon +14 / +2, Oathkeeper +9 / +1,
 /// One-Winged Angel +8 / −2). Checked (files); the names themselves are an Assumption (KH1's
-/// item-name file not read). Decision 25: these 17 use KH1's rows and models.
+/// item-name file not read). Decision 25: these 17 use KH1's rows and models; the six Re:CoM
+/// has beyond them (0x13..=0x18) come from KH2 (`kh2_keyblades`, [`Kh2Row`]).
 pub const KH1_KEYBLADES: &[(u8, &str, u16)] = &[
     (1, "Kingdom Key", 0x51),
     (2, "Three Wishes", 0x57),
@@ -207,26 +208,56 @@ pub const KH1_KEYBLADES: &[(u8, &str, u16)] = &[
     (17, "One-Winged Angel", 0x66),
 ];
 
+/// A KH2 Keyblade's row (decision 25): its KH2 numbers and its blade's length against KH2's
+/// Kingdom Key's (`kh2_keyblades`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Kh2Row {
+    /// Item, stat row, Strength, Magic and model, from the player's KH2 files.
+    pub keyblade: crate::kh2_keyblades::Kh2Keyblade,
+    /// Its blade length and KH2's Kingdom Key's (metres, `kh2_keyblades::blade_length`).
+    pub blade_length: f32,
+    /// See `blade_length`.
+    pub kk_blade_length: f32,
+}
+
+fn model_fields(models: &[crate::keyblade::KeybladeModel], card: u8) -> String {
+    match models.iter().find(|m| m.card == card) {
+        Some(m) => format!(", \"group\": {}, \"textures\": [{}]", m.group, m.textures.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(", ")),
+        None => String::new(),
+    }
+}
+
 /// The `keyblades` array: each KH1 Keyblade's weapon row (`btltbl` weapon table, 0x58-byte rows;
-/// `kh1-formats` `btltbl::Weapon`), keyed by Re:CoM's card kind. A Keyblade with a model in
+/// `kh1-formats` `btltbl::Weapon`), keyed by Re:CoM's card kind, then the KH2 Keyblades of `kh2`
+/// (`source` `kh2`): KH2's Strength and Magic, `blade_far` scaled from the Kingdom Key's KH1
+/// row by the blade lengths (`kh2_keyblades::blade_far`), and the Kingdom Key's KH1 radius,
+/// `blade_near`, fraction scale, critical rate / bonus and priority. A Keyblade with a model in
 /// `models` also gets `group` (its Re:CoM PLAYER resource group) and `textures` (its texture
 /// names; `docs/recom-keyblade-models.md`).
-pub fn keyblades_json(t: &kh1_formats::btltbl::Btltbl, models: &[crate::keyblade::KeybladeModel]) -> Result<String> {
+pub fn keyblades_json(t: &kh1_formats::btltbl::Btltbl, models: &[crate::keyblade::KeybladeModel], kh2: &[Kh2Row]) -> Result<String> {
     let mut rows = Vec::new();
     for (idx, name, item) in KH1_KEYBLADES {
         let w = t.weapon_for_item(*item).map_err(|e| Error::Format(format!("{name}: {e}")))?;
-        let model = match models.iter().find(|m| m.card == *idx) {
-            Some(m) => format!(
-                ", \"group\": {}, \"textures\": [{}]",
-                m.group,
-                m.textures.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(", ")
-            ),
-            None => String::new(),
-        };
+        let model = model_fields(models, *idx);
         rows.push(format!(
             "    {{\"card\": {idx}, \"name\": \"{name}\", \"source\": \"kh1\", \"kh1_item\": {item}, \"model\": \"{}\", \"radius\": {}, \"blade_far\": {}, \"blade_near\": {}, \"frac_scale\": {}, \"strength\": {}, \"crit\": {}, \"crit_bonus\": {}, \"priority\": {}, \"magic\": {}{model}}}",
             w.model, w.radius, w.blade_far, w.blade_near, w.frac_scale, w.strength, w.crit, w.crit_bonus, w.priority, w.magic
         ));
+    }
+    if !kh2.is_empty() {
+        let kk = t.weapon_for_item(KH1_KEYBLADES[0].2).map_err(|e| Error::Format(format!("Kingdom Key: {e}")))?;
+        for r in kh2 {
+            let k = &r.keyblade;
+            if !(0x13..=0x18).contains(&k.card) {
+                return Err(Error::Format(format!("{}: card {:#x} is not one of the KH2 Keyblades", k.name, k.card)));
+            }
+            let far = crate::kh2_keyblades::blade_far(kk.blade_far, r.blade_length, r.kk_blade_length);
+            let model = model_fields(models, k.card);
+            rows.push(format!(
+                "    {{\"card\": {}, \"name\": \"{}\", \"source\": \"kh2\", \"kh2_item\": {}, \"kh2_stat\": {}, \"model\": \"{}\", \"blade_length\": {}, \"kh2_kingdom_key_blade_length\": {}, \"radius\": {}, \"blade_far\": {far}, \"blade_near\": {}, \"frac_scale\": {}, \"strength\": {}, \"crit\": {}, \"crit_bonus\": {}, \"priority\": {}, \"magic\": {}{model}}}",
+                k.card, k.name, k.item, k.stat, k.model, r.blade_length, r.kk_blade_length, kk.radius, kk.blade_near, kk.frac_scale, k.strength, kk.crit, kk.crit_bonus, kk.priority, k.magic
+            ));
+        }
     }
     Ok(format!("  \"keyblades\": [\n{}\n  ],\n", rows.join(",\n")))
 }
@@ -309,8 +340,8 @@ fn rec_json(r: &Record) -> String {
 }
 
 /// Builds `kh1-stats.json`. `read` gives a KH1 file by name; `models` the converted Keyblade
-/// models ([`keyblades_json`]).
-pub fn build_json(read: &mut dyn FnMut(&str) -> Result<Vec<u8>>, btltbl: &[u8], keyblade_strength: i32, models: &[crate::keyblade::KeybladeModel]) -> Result<(String, usize)> {
+/// models and `kh2` the KH2 Keyblades ([`keyblades_json`]).
+pub fn build_json(read: &mut dyn FnMut(&str) -> Result<Vec<u8>>, btltbl: &[u8], keyblade_strength: i32, models: &[crate::keyblade::KeybladeModel], kh2: &[Kh2Row]) -> Result<(String, usize)> {
     let strength = sora_strength(btltbl, keyblade_strength)?;
     let base = sora_strength(btltbl, 0)?;
     let parsed = kh1_formats::btltbl::Btltbl::parse(btltbl.to_vec()).map_err(|e| Error::Format(format!("btltbl.bin: {e}")))?;
@@ -318,7 +349,7 @@ pub fn build_json(read: &mut dyn FnMut(&str) -> Result<Vec<u8>>, btltbl: &[u8], 
     s.push_str(&format!("  \"sora_strength\": [{}],\n", strength.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
     // Without the Keyblade: the runtime adds the equipped one's Strength (decision 25).
     s.push_str(&format!("  \"sora_base_strength\": [{}],\n", base.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")));
-    s.push_str(&keyblades_json(&parsed, models)?);
+    s.push_str(&keyblades_json(&parsed, models, kh2)?);
     s.push_str(&format!(
         "  \"worlds\": [{}],\n  \"enemies\": [\n",
         RECOM_WORLDS.iter().map(|w| format!("\"{}\"", w.0)).collect::<Vec<_>>().join(", ")

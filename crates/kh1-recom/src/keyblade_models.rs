@@ -1,7 +1,8 @@
 //! The equipped Keyblade's model at the KH1 setting (decision 25, "Models"): the testable part.
 //! Windows side: `win::models`. Notes: `docs/recom-keyblade-models.md` § Runtime.
 //!
-//! - **Rows**: KH1's Keyblades are new resource groups (21..=36) of Re:CoM's own PLAYER resource
+//! - **Rows**: the converted Keyblades are new resource groups (`19 + card`: KH1's 21..=36, KH2's
+//!   38..=43, [`our_group_for_card`]) of Re:CoM's own PLAYER resource
 //!   table, each laid out as Re:CoM's Kingdom Key group 2 (`PL0002.RTM, .MDL, .ANN, .EET`, LINK
 //!   `"30509"`) with its own RTM and MDL. [`plan_table`] builds the extended copy from Re:CoM's
 //!   rows; the DLL installs it with one pointer write (`0x1407EBF28`).
@@ -37,10 +38,18 @@ pub mod kind {
 /// The group that ends Re:CoM's tables. Checked (exe: row 552 of the PLAYER table).
 pub const END: u16 = 0xFFFF;
 
-/// The groups the asset step may give a Keyblade: 21..=36 (`19 + card`, kh1-recom-assets
-/// `keyblade::group_for_card`). Re:CoM's PLAYER table uses 1, 2, 11–14, 101, 111, 201, 211,
-/// 301–307, 401–409, 451, 452, 458, then 1001 and up. Checked (exe).
-pub const OUR_GROUPS: std::ops::RangeInclusive<u16> = 21..=36;
+/// The group the asset step gives a Keyblade card (kh1-recom-assets `keyblade::group_for_card`):
+/// `19 + card` for every Keyblade Sora can hold but the Kingdom Key: KH1's cards 2..=0x11 →
+/// 21..=36, KH2's 0x13..=0x18 → 38..=43; Soul Eater (0x12) has none. Re:CoM's PLAYER table
+/// uses 1, 2, 11–14, 101, 111, 201, 211, 301–307, 401–409, 451, 452, 458, then 1001 and up,
+/// and `Recom.hed` has no `PLAYER/00GG` file for 15..=100. Checked (exe + files). `plan_table`
+/// refuses a group Re:CoM uses all the same.
+pub fn our_group_for_card(card: u16) -> Option<u16> {
+    match card {
+        2..=0x11 | 0x13..=crate::keyblades::LAST_KEYBLADE => Some(19 + card),
+        _ => None,
+    }
+}
 
 /// The Re:CoM group the weapon asks for, by player char (`0x1405A6910` = {0, 1, 11, …}, + 1).
 /// Chars 3..6 (Riku) draw their weapon from their own model. Checked (decomp + exe).
@@ -72,8 +81,8 @@ impl Models {
                 }
                 continue;
             }
-            if !OUR_GROUPS.contains(&g) {
-                return Err(format!("{}: group {g} is outside {}..={}", k.name, OUR_GROUPS.start(), OUR_GROUPS.end()));
+            if our_group_for_card(k.card) != Some(g) {
+                return Err(format!("{}: card {:#x} has group {g}, not {:?}", k.name, k.card, our_group_for_card(k.card)));
             }
             if groups.iter().any(|(c, x)| *x == g || *c == k.card) {
                 return Err(format!("{}: card {:#x} / group {g} given twice", k.name, k.card));
@@ -298,6 +307,57 @@ mod tests {
         assert!(Models::from_stats(&stats(vec![kb(2, Some(21)), kb(3, Some(21))])).is_err());
         assert!(Models::from_stats(&stats(vec![kb(1, Some(21))])).is_err());
         assert!(Models::from_stats(&stats(vec![kb(1, Some(2)), kb(2, Some(21))])).is_ok());
+    }
+
+    #[test]
+    fn kh2_keyblades_get_groups_38_to_43() {
+        assert_eq!(our_group_for_card(2), Some(21));
+        assert_eq!(our_group_for_card(0x11), Some(36));
+        assert_eq!(our_group_for_card(0x12), None, "Soul Eater");
+        assert_eq!(our_group_for_card(0x13), Some(38));
+        assert_eq!(our_group_for_card(0x18), Some(43));
+        assert_eq!(our_group_for_card(0x19), None);
+        assert_eq!(our_group_for_card(1), None, "the Kingdom Key is Re:CoM's group 2");
+        // All 22 converted Keyblades: KH1's 16 and KH2's 6.
+        let all: Vec<Keyblade> = std::iter::once(kb(1, Some(2))).chain((2..=0x11).chain(0x13..=0x18).map(|c| kb(c, Some(19 + c)))).collect();
+        let m = Models::from_stats(&stats(all)).unwrap().unwrap();
+        assert_eq!(m.groups.len(), 22);
+        assert_eq!(m.our_groups(), (21..=36).chain(38..=43).collect::<Vec<u16>>());
+        assert_eq!(m.group_of(0x16), Some(41));
+        assert_eq!(m.card_of(43), Some(0x18));
+        assert_eq!(m.wanted(2, true, true, 0x13), Some(38));
+        assert_eq!(m.wanted(12, true, true, 0x18), Some(43), "Halloween Town too");
+        // A KH2 card with a KH1-range group, Soul Eater, or group 37: refused.
+        assert!(Models::from_stats(&stats(vec![kb(0x13, Some(21))])).is_err());
+        assert!(Models::from_stats(&stats(vec![kb(0x12, Some(37))])).is_err());
+        assert!(Models::from_stats(&stats(vec![kb(0x13, Some(37))])).is_err());
+        // The table gets them after Re:CoM's rows, each laid out as group 2.
+        let (rows, names) = recom_rows();
+        let name = |p: u64| names.iter().find(|(q, _)| *q == p).map(|(_, s)| s.to_string());
+        let t = plan_table(&rows, name, &m.our_groups()).unwrap();
+        assert_eq!(t.len(), rows.len() + 5 * 22);
+        let g43: Vec<&PlannedRow> = t.iter().filter(|r| r.group == 43).collect();
+        assert_eq!(g43[0].name, RowName::Own("PLAYER/0043/PL0043.RTM".into()));
+        assert_eq!(g43[1].name, RowName::Own("PLAYER/0043/PL0043.MDL".into()));
+    }
+
+    /// A KH2 row as the asset step writes it (`source` `kh2`, extra keys the parser ignores).
+    #[test]
+    fn kh2_rows_parse() {
+        let row = r#"{"card": 24, "name": "Bond of Flame", "source": "kh2", "kh2_item": 498, "kh2_stat": 141, "model": "W_EX010_K0", "blade_length": 0.9100403, "kh2_kingdom_key_blade_length": 0.77902657, "radius": 40, "blade_far": -4.322252, "blade_near": 0, "frac_scale": 0.79999995, "strength": 4, "crit": 20, "crit_bonus": 0, "priority": 30, "magic": 4, "group": 43, "textures": ["w_ex010_k0_0"]}"#;
+        let text = format!("{{\"sora_strength\": [{}], \"keyblades\": [{row}], \"enemies\": []}}", vec!["7"; 100].join(", "));
+        let s = crate::attack::parse_stats(&text).unwrap();
+        let k = s.keyblade(0x18).unwrap();
+        assert_eq!((k.source.as_str(), k.model.as_str(), k.weapon.strength, k.magic, k.group), ("kh2", "W_EX010_K0", 4, 4, Some(43)));
+        assert_eq!((k.weapon.radius, k.weapon.blade_near, k.weapon.crit, k.weapon.crit_bonus, k.weapon.priority), (40.0, 0.0, 20, 0, 30));
+        assert!((k.weapon.blade_far - -4.322252).abs() < 1e-6);
+        assert_eq!(k.textures, vec!["w_ex010_k0_0".to_string()]);
+        let m = Models::from_stats(&s).unwrap().unwrap();
+        assert_eq!(m.group_of(0x18), Some(43));
+        // The camp page lists it once earned, and the save byte keeps it.
+        assert_eq!(crate::keyblades::unlocked([1, 0x18], |c| c == 0x18), vec![1, 0x18]);
+        assert_eq!(crate::keyblades::equipped_card(0x18, |c| s.keyblade(c).is_some()), 0x18);
+        assert_eq!(crate::keyblades::save_byte_for(0x18), 0x18);
     }
 
     #[test]

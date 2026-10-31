@@ -2,7 +2,8 @@
 //! and Re:CoM's archives) and writes `<mod>/recom/kh1-motions.json` (the KH1 entry → Re:CoM
 //! slot map) and, when some KH1 motion is not in Re:CoM, `<mod>/recom/PLAYER/0001/PL0001.ANN`
 //! and `<mod>/recom/PLAYER/0002/PL0002.ANN` (both extended) into Panacea's Re:CoM mod folder.
-//! It also converts KH1's Keyblades into Re:CoM weapon models (`PLAYER/00GG/PL00GG.MDL` and
+//! It also converts KH1's Keyblades, and the six KH2 ones Re:CoM has beyond KH1's (from the
+//! player's KH2 FM archives), into Re:CoM weapon models (`PLAYER/00GG/PL00GG.MDL` and
 //! `raw/PLAYER/00GG/PL00GG.RTM`, `docs/recom-keyblade-models.md`) and writes `kh1-stats.json`.
 
 use std::path::{Path, PathBuf};
@@ -12,9 +13,10 @@ use std::time::Instant;
 use kh1_recom_assets::ann::Ann;
 use kh1_recom_assets::build::{build, BuildOptions, Inputs, RECOM_SORA_SLOTS};
 use kh1_recom_assets::install;
-use kh1_recom_assets::keyblade::{convert, group_for_card, Converted, KeybladeModel};
+use kh1_recom_assets::keyblade::{convert, convert_kh2, group_for_card, kh2_template_distance, Converted, KeybladeModel, KH2_TEMPLATE_MATCH};
+use kh1_recom_assets::kh2_keyblades;
 use kh1_recom_assets::mdl::Mdl;
-use kh1_recom_assets::stats::KH1_KEYBLADES;
+use kh1_recom_assets::stats::{Kh2Row, KH1_KEYBLADES};
 
 const USAGE: &str = "usage: kh1-recom-build [--game <KH 1.5+2.5 folder>] [--mod-dir <Panacea mod_path>] [--out <file.ANN>]
                        [--loop E,E..] [--once E,E..] [--dry-run]
@@ -128,7 +130,17 @@ fn run() -> Result<(), String> {
     }
     // KH1's Keyblades as Re:CoM weapon models (decision 25).
     let t2 = Instant::now();
-    let keyblades = convert_keyblades(&game, keys.clone(), pl0002_mdl.as_deref())?;
+    let mut keyblades = convert_keyblades(&game, keys.clone(), pl0002_mdl.as_deref())?;
+    // The six from KH2 (decision 25): KH2's models, Strength and Magic, reach from the blade.
+    let (kh2_rows, kh2_models) = kh2_keyblades_step(&game, keys.clone(), pl0002_mdl.as_deref())?;
+    for r in &kh2_rows {
+        let k = &r.keyblade;
+        println!(
+            "KH2 Keyblade card {:#x} {}: item {:#x}, stat row {} (Strength +{}, Magic +{}), obj/{}.mdlx, blade {:.4} m (Kingdom Key {:.4} m)",
+            k.card, k.name, k.item, k.stat, k.strength, k.magic, k.model, r.blade_length, r.kk_blade_length
+        );
+    }
+    keyblades.extend(kh2_models);
     for (m, c) in &keyblades {
         match c {
             Some(c) => println!("Keyblade card {} → group {}: {} (MDL {} bytes, RTM {} bytes)", m.card, m.group, c.report.line(), c.mdl.len(), c.rtm.len()),
@@ -205,7 +217,7 @@ fn run() -> Result<(), String> {
     // KH1 stats (decisions 12, 18, 21, 25): the enemy twins' records, Sora's Strength, the
     // Keyblades (with their model groups).
     let models: Vec<KeybladeModel> = keyblades.iter().map(|k| k.0.clone()).collect();
-    let (stats, n) = kh1_stats(&game, keys, &models)?;
+    let (stats, n) = kh1_stats(&game, keys, &models, &kh2_rows)?;
     let sp = man.with_file_name(install::STATS);
     std::fs::write(&sp, &stats).map_err(|e| format!("{}: {e}", sp.display()))?;
     println!("wrote {} ({} KH1 enemy twins, {} bytes)", sp.display(), n, stats.len());
@@ -240,14 +252,62 @@ fn convert_keyblades(game: &Path, keys: kh1_formats::egs::KeyTable, pl0002: Opti
     Ok(out)
 }
 
-fn kh1_stats(game: &std::path::Path, keys: kh1_formats::egs::KeyTable, models: &[KeybladeModel]) -> Result<(String, usize), String> {
+/// A Keyblade's model entry and its conversion (None: Re:CoM's own PL0002).
+type ModelOut = (KeybladeModel, Option<Converted>);
+
+/// The six KH2 Keyblades (`kh2_keyblades::KH2_KEYBLADES`): their items, stat rows and models from
+/// the player's KH2 files, each model's blade length, and (with Re:CoM's PL0002.MDL) the models
+/// converted on it. KH2's Kingdom Key must match PL0002 first (`kh2_template_distance`), and
+/// every KH2 Keyblade must have its skeleton. Without KH2's archives there are no KH2 rows.
+fn kh2_keyblades_step(game: &Path, keys: kh1_formats::egs::KeyTable, pl0002: Option<&[u8]>) -> Result<(Vec<Kh2Row>, Vec<ModelOut>), String> {
+    let inst = match install::kh2(game, keys) {
+        Ok(i) => i,
+        Err(e) => {
+            println!("note: KH2's archives not read ({e}); the KH2 Keyblades are not built");
+            return Ok((Vec::new(), Vec::new()));
+        }
+    };
+    let read = |n: &str| inst.read(n).map_err(|e| format!("KH2 {n}: {e}"));
+    let found = kh2_keyblades::find(&read("03system.bin")?, &read("00objentry.bin")?, &read(kh2_keyblades::SYS_BAR)?).map_err(|e| e.to_string())?;
+    let kk = &found[0];
+    let kk_mdlx = read(&kk.file())?;
+    let reference = kh2_keyblades::reference_skeleton(&kk_mdlx).map_err(|e| e.to_string())?;
+    let kk_len = kh2_keyblades::blade_length(&kk_mdlx).map_err(|e| e.to_string())?;
+    let template = match pl0002 {
+        Some(b) => {
+            let t = Mdl::parse(b).map_err(|e| format!("{}: {e}", install::KEYBLADE_MDL))?;
+            let d = kh2_template_distance(&t, &kk_mdlx).map_err(|e| e.to_string())?;
+            println!("KH2's Kingdom Key ({}) on Re:CoM's PL0002: every vertex within {:.3} mm of PL0002's on the same bone", kk.model, d * 1000.0);
+            if d > KH2_TEMPLATE_MATCH {
+                return Err(format!("KH2's Kingdom Key is {:.3} mm from Re:CoM's PL0002 (more than {:.1} mm): the KH2 bone mapping does not hold for these files", d * 1000.0, KH2_TEMPLATE_MATCH * 1000.0));
+            }
+            Some(t)
+        }
+        None => None,
+    };
+    let mut rows = Vec::new();
+    let mut models = Vec::new();
+    for k in &found[1..] {
+        let (mdlx, assets, _) = inst.read_full(&k.file()).map_err(|e| format!("{} ({}): {e}", k.name, k.file()))?;
+        let len = kh2_keyblades::blade_length(&mdlx).map_err(|e| format!("{}: {e}", k.name))?;
+        rows.push(Kh2Row { keyblade: k.clone(), blade_length: len, kk_blade_length: kk_len });
+        if let Some(t) = &template {
+            let group = group_for_card(k.card).ok_or_else(|| format!("{}: no group for card {:#x}", k.name, k.card))?;
+            let c = convert_kh2(t, &k.model, &mdlx, &assets, &reference).map_err(|e| format!("{} ({}): {e}", k.name, k.file()))?;
+            models.push((KeybladeModel { card: k.card, group, textures: c.textures.clone() }, Some(c)));
+        }
+    }
+    Ok((rows, models))
+}
+
+fn kh1_stats(game: &std::path::Path, keys: kh1_formats::egs::KeyTable, models: &[KeybladeModel], kh2: &[Kh2Row]) -> Result<(String, usize), String> {
     let inst = install::kh1(game, keys).map_err(|e| format!("KH1 files: {e}"))?;
     let btl = inst.read("btltbl.bin").map_err(|e| format!("btltbl.bin: {e}"))?;
     let parsed = kh1_formats::btltbl::Btltbl::parse(btl.clone()).map_err(|e| format!("btltbl.bin: {e}"))?;
     // The Kingdom Key (item 0x51): its weapon row's Strength (+0x30).
     let kk = parsed.weapon_for_item(0x51).map_err(|e| format!("Kingdom Key: {e}"))?.strength as i32;
     let mut read = |name: &str| inst.read(name).map_err(|e| kh1_recom_assets::Error::Format(format!("{name}: {e}")));
-    kh1_recom_assets::stats::build_json(&mut read, &btl, kk, models).map_err(|e| e.to_string())
+    kh1_recom_assets::stats::build_json(&mut read, &btl, kk, models, kh2).map_err(|e| e.to_string())
 }
 
 fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {

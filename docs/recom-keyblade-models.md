@@ -3,7 +3,8 @@
 Decision 25 ("Models"): the equipped Keyblade shows KH1's model at the KH1 setting, through new
 resource groups in Re:CoM's PLAYER resource table, picked when Sora's weapon is built. §§ 1–9 cover the
 **asset side** (formats, conversion, output); § 10 the **DLL side** (table copy, group pick,
-loading, weapon rebuild at camp close) and § 11 the install layout.
+loading, weapon rebuild at camp close) and § 11 the install layout. § 12 covers the six
+Keyblades that come from **KH2** (step 3: models, Strength and Magic, reach).
 
 Steam addresses only (image base 0x140000000). Tags: **Checked (exe)** = bytes of
 `recomsteam.exe`, **Checked (decomp)** = Ghidra C of that exe, **Checked (files)** = the owner's
@@ -193,10 +194,22 @@ against the owner's `Recom.hed`). So **21–36 are free**.
 | 15 | Ultima Weapon | xw_ex_5160 | 34 | 2 | 85 920 | 133 344 |
 | 16 | Diamond Dust | xw_ex_5190 | 35 | 2 | 76 192 | 133 344 |
 | 17 | One-Winged Angel | xw_ex_5200 | 36 | 2 | 76 992 | 133 344 |
+| 0x12 | Soul Eater | — (Riku's, not for Sora) | none (37 unused) | — | — | — |
+| 0x13 | Star Seeker | KH2 `W_EX010_30` | 38 | 1 (512×256) | 69 056 | 33 920 |
+| 0x14 | Monochrome | KH2 `W_EX010_60` | 39 | 1 (512×256) | 74 176 | 33 920 |
+| 0x15 | Follow the Wind | KH2 `W_EX010_70` | 40 | 1 (512×256) | 71 808 | 33 920 |
+| 0x16 | Hidden Dragon | KH2 `W_EX010_40` | 41 | 1 (512×256) | 72 800 | 33 920 |
+| 0x17 | Photon Debugger | KH2 `W_EX010_90` | 42 | 1 (512×256) | 60 016 | 33 920 |
+| 0x18 | Bond of Flame | KH2 `W_EX010_K0` | 43 | 1 (512×256) | 74 464 | 33 920 |
 
-`group = 19 + card` for cards 2–17 (`keyblade::group_for_card`). The model names come from KH1's
-weapon table (`btltbl.bin`, items of `stats::KH1_KEYBLADES`); the step writes `group` and
-`textures` into each `kh1-stats.json` `keyblades` row (format `stats 4`).
+`group = 19 + card` for cards 2–17 and 0x13–0x18 (`keyblade::group_for_card`; the DLL's
+`keyblade_models::our_group_for_card` requires exactly that). 38–43 were re-checked for step 3:
+no row of the PLAYER table (552 rows, pointer at `0x1407EBF28`) has a group in 30..50, and
+`Recom.hed` (12 689 entries) has no `PLAYER/00GG/PL00GG.*` for G = 15..100 with any of the 11
+extensions the table uses (ANN ASD BIN CAP EET MDL RSD RTM SES SND TXA). Checked (exe + files).
+The KH1 model names come from KH1's weapon table (`btltbl.bin`, items of `stats::KH1_KEYBLADES`),
+the KH2 ones from KH2's tables (§ 12); the step writes `group` and `textures` into each
+`kh1-stats.json` `keyblades` row (format `stats 4`).
 
 **The Kingdom Key keeps Re:CoM's PL0002** (as asked). Found while checking it: KH1 PC's own
 Kingdom Key is not quite Re:CoM's. Its cvbl re-tessellates the flat cut-out parts on `k9` and `k1`
@@ -247,7 +260,9 @@ Test data: `KH1_TEST_DATA/keyblades/` holds the files as the extractor writes th
 (`PLAYER_0002_PL0002.{MDL,RTM}` + `PLAYER_0002_PL0002.RTM__w_ex010_01_tm2.dds`, optionally
 PL0011/PL0101/PL0001/PL0012 for the round trips; per Keyblade `xw_ex_5NN0.wpn`, its
 `.assets.txt` (`name<TAB>tag<TAB>size`) and the assets as `xw_ex_5NN0.wpn__<name without '-'>`),
-plus `KH1_TEST_DATA/btltbl.bin`. The tests skip when it is missing.
+plus `KH1_TEST_DATA/btltbl.bin`. The tests skip when it is missing. The KH2 Keyblades' tests
+(§ 12.6) read `KH1_TEST_DATA/kh2/` (`03system.bin`, `00objentry.bin`, `msg_us_sys.bar`, and per
+Keyblade `obj_W_EX010*.mdlx`, `.assets.txt`, `__0.dds`).
 
 ## 8. Output, and Panacea's HD route
 
@@ -298,7 +313,8 @@ the resource table (the DLL's job).
 ## 10. Runtime (DLL): `crates/kh1-recom/src/keyblade_models.rs` (rules, tested) and `src/win/models.rs`
 
 At `combat = kh1`, in Sora's story, Sora's weapon shows the equipped Keyblade (card 1 = Re:CoM's
-group 2, cards 2–17 = groups 21–36 from `kh1-stats.json` format 4, `group` per row). At
+group 2, cards 2–17 = groups 21–36 and cards 0x13–0x18 = groups 38–43, from `kh1-stats.json`
+format 4, `group` per row; nothing in the DLL counts them). At
 `combat = recom` or in Riku's story every path below hands Re:CoM its own values.
 
 ### 10.1 What Re:CoM does (the facts the runtime stands on)
@@ -347,7 +363,7 @@ Re:CoM's `0x1401A4E70` with:
 | category ≠ 1, group not 2 / 12, owner not CPlayerSora | Re:CoM's (unchanged) |
 | `combat = recom`, or Riku's story (`0x1401AAAE0`) | Re:CoM's 2 / 12 (Halloween too) |
 | KH1, Sora's story, Kingdom Key equipped | 2, in every world (Halloween Town too, owner) |
-| KH1, Sora's story, card 2–17 | its group 21–36 |
+| KH1, Sora's story, card 2–17 or 0x13–0x18 | its group 21–36 / 38–43 |
 | KH1, a card without a converted model, or a format 1–3 stats file | Re:CoM's (logged once) |
 | the wanted group's RTM / MDL / ANN not found, or still queued | Re:CoM's this time; the group is queued (logged once per group) |
 
@@ -403,8 +419,9 @@ follows the player's WeaponR matrix pointer).
 `win/attack.rs` reads the weapon's bones 2 and 3 through `0x1402ABB20` (bone index × 0xE0 into the
 actor's matrices, which come from the MDL's skeleton). Every converted MDL carries PL0002's 12
 bones, names, parents and rest matrices byte for byte, bone 2 = `wep0`, bone 3 = `k9`. Checked
-(files: test `d_all_seventeen_convert`, all 17). The blade length comes from the equipped
-Keyblade's KH1 row, as before.
+(files: test `d_all_seventeen_convert`, all 17; `c_all_six_convert` for the KH2 ones). The
+blade length comes from the equipped Keyblade's row, as before (KH2 Keyblades: the Kingdom Key's
+KH1 row with `blade_far` scaled by the KH2 blade, § 12.4).
 
 ### 10.7 Addresses (Steam; first bytes checked at start, pointers at install)
 
@@ -440,8 +457,9 @@ Per frame: nothing. The wrappers run per room / battle build, per weapon build, 
 
 ### 10.8 In-game test, in priority order
 
-1. Log: `keyblades: models in: PLAYER table 633 rows (553 Re:CoM's + 80 for groups [21..36])`.
-   No `no model swap` line.
+1. Log: `keyblades: models in: PLAYER table 633 rows (553 Re:CoM's + 80 for groups [21..36])`
+   (with the KH2 Keyblades, step 3: `663 rows (553 Re:CoM's + 110 for groups [21, …, 36, 38,
+   …, 43])`). No `no model swap` line.
 2. KH1, Sora's story, equip Three Wishes, close the camp: the Keyblade changes (draw it with an
    attack); log `rebuilt at camp close with group 21`. No crash on the close or on the next swing.
 3. The blade test and damage with it (hits land along the new blade; Strength from its KH1 row).
@@ -463,24 +481,218 @@ The asset step writes, under `<mod_path>/recom/` (or next to `--out`):
 
 | file | where Panacea must find it | how |
 |---|---|---|
-| `PLAYER/00GG/PL00GG.MDL` (GG = 21..36) | `<mod_path>/recom/PLAYER/00GG/PL00GG.MDL` | loose file |
+| `PLAYER/00GG/PL00GG.MDL` (GG = 21..36, 38..43) | `<mod_path>/recom/PLAYER/00GG/PL00GG.MDL` | loose file |
 | `raw/PLAYER/00GG/PL00GG.RTM` | `<mod_path>/recom/raw/PLAYER/00GG/PL00GG.RTM` | a whole plain PKG entry with its HD `.dds` (§ 8) |
 | `kh1-stats.json` (format `stats 4`, with `group` / `textures`) | `<mod_path>/recom/kh1-stats.json` | as before |
 | `PLAYER/0002/PL0002.ANN` (extended) | as before | as before |
 
 For the local OpenKH mod (`mods/Recom/PM2CRAZY/KH1-in-ReCom/`, whose `mod.yml` lists each file
-with `method: copy`), put the 32 files in the mod folder under the same relative paths and add:
+with `method: copy`), put the files in the mod folder under the same relative paths and add:
 
 ```yaml
 - {name: PLAYER/0021/PL0021.MDL, method: copy, source: [{name: PLAYER/0021/PL0021.MDL}]}
 - {name: raw/PLAYER/0021/PL0021.RTM, method: copy, source: [{name: raw/PLAYER/0021/PL0021.RTM}]}
 # … the same two lines for 0022, 0023, …, 0036 (16 groups, 32 entries)
+# step 3 (KH2 Keyblades): the same two lines for 0038, 0039, …, 0043 (6 groups, 12 entries;
+# there is no 0037)
 ```
+
+The new `kh1-stats.json` (with the six KH2 rows) replaces the old one; without it the DLL never
+asks for groups 38–43 and the six are not listed.
 
 Assumption: OpenKH's Mods Manager copies a `raw/…` asset name to `<mod_path>/recom/raw/…`
 unchanged (check the built folder once). Panacea finds new names under `<mod_path>/recom` and
 `<mod_path>/recom/raw` at start-up (§ 8, Checked source), so the game must be restarted after
 installing.
+
+## 12. The six KH2 Keyblades (step 3)
+
+Decision 25: Star Seeker (card 0x13), Monochrome (0x14), Follow the Wind (0x15), Hidden Dragon
+(0x16), Photon Debugger (0x17) and Bond of Flame (0x18) come from KH2 FM, read from the player's
+own `kh2_*` archives: KH2's model, KH2's Strength and Magic; reach measured from the KH2 model's
+blade; radius, critical rate / bonus and priority are the Kingdom Key's (KH1 row). Keyblade
+abilities are not included. Soul Eater (0x12) is Riku's and gets nothing.
+
+Code: `crates/kh2-formats-lite` (KH2 readers, ported from KH2-Combat-in-KH1's `kh2-formats`,
+Apache-2.0, after OpenKH; licence and changes in its `lib.rs`), `kh1-recom-assets`
+`kh2_keyblades.rs` (items, stats, models, blade length, reach) and `keyblade::convert_kh2`,
+`check_kh2_skeleton`, `kh2_template_distance`, `kh2_facing`. The archives are read with
+`kh1-formats`' `egs::Install::with_archives(…, KH2_ARCHIVES)`. Tests:
+`crates/kh1-recom-assets/tests/kh2_keyblades.rs` (`KH1_TEST_DATA/kh2/`, skipped without it),
+`keyblade_models::tests::kh2_*` in `kh1-recom`.
+
+Tags as above; **Checked (decomp)** here also means the KH2 FM Steam decomp
+(`decomps\steam\kh2\`, exe SHA-256 `9002b2de…49ed`).
+
+### 12.1 Where the numbers are (KH2 FM Steam)
+
+| what | where | tag |
+|---|---|---|
+| Archives | `Image/dt/kh2_first..sixth.hed/.pkg`, same layout and key table as KH1's / Re:CoM's | Checked (files) |
+| Names | `msg/us/sys.bar` (US English; `msg/jp/sys.bar` is not in the owner's Steam archives). An item's name is message `item +8` | Checked (files) |
+| Items | `03system.bin` BAR entry `item`: `u32 version, u32 count` (535), 24-byte rows from `+8`. Found by id: `0x1403E39A0` walks the rows comparing the u16 at `+0`. `+2` type (2 = Keyblade), `+4` weapon number, `+8` name | Checked (decomp + files) |
+| Stat id | for item types 2..0xD the u16 at `+6` (`0x1403E3EF0` → `0x14041E8F0`) | Checked (decomp) |
+| Stat rows | right after the items (`0x1403E39E0`: `items + 8 + count × 0x18`), `u32 count` (151) at `+4`, 16-byte rows from `+8`, bsearch on the u16 id (`0x14041E8F0`) | Checked (decomp + files) |
+| Strength / Magic | stat row `+4` / `+5`: the equipment screen compares `+4 / +5 / +6 / +7` against the character's `+0x188 / +0x18A / +0x18C / +0x18E` (`0x1402FCC80`, `0x1402FD050`, `0x1402FCD30`, `0x1402FCBD0`); Strength, Magic, Defence, AP in OpenKH's names | Checked (decomp) / the names: OpenKH + Kingdom Key = +3 / +1 |
+| Model | `03system.bin` `went`: word 1 = 70 (base Sora's list), object id = word `70 + weapon number`; `00objentry.bin`: the object's model name (`+8`, 32 bytes). Gives `W_EX010` Kingdom Key, `_10` Oathkeeper, `_20` Oblivion, `_N0` Ultima Weapon | Checked (files) / the exe's use of `went`: not traced, Assumption |
+| Mesh + HD | `obj/<model>.mdlx` (BAR: model type 4, textures type 7); one HD asset `-0.dds` per file (512×256 A8R8G8B8, the same format as Re:CoM's own `w_ex010_01_tm2.dds`, alpha 0..255) | Checked (files) |
+
+On the owner's files (03system.bin 109 168 bytes, SHA-256 `fd4b8469…`; `item` entry at file
+offset `0x1087C`):
+
+| card | Keyblade | item id (row at file) | stat id (row at file) | Strength | Magic | weapon no. → object | model |
+|---|---|---|---|---|---|---|---|
+| — | Kingdom Key (reference) | 0x29 (`0x132CC`) | 80 (`0x13ED4`) | 3 | 1 | 1 → 0x67 | `W_EX010` |
+| 0x13 | Star Seeker | 0x1E0 (`0x13314`) | 123 (`0x14164`) | 3 | 1 | 4 → 0x769 | `W_EX010_30` |
+| 0x14 | Monochrome | 0x1E5 (`0x1335C`) | 128 (`0x141B4`) | 3 | 2 | 7 → 0x76C | `W_EX010_60` |
+| 0x15 | Follow the Wind | 0x1E6 (`0x13374`) | 129 (`0x141C4`) | 3 | 1 | 8 → 0x76D | `W_EX010_70` |
+| 0x16 | Hidden Dragon | 0x1E1 (`0x1332C`) | 124 (`0x14174`) | 2 | 2 | 5 → 0x76A | `W_EX010_40` |
+| 0x17 | Photon Debugger | 0x1E8 (`0x133A4`) | 131 (`0x141E4`) | 3 | 2 | 10 → 0x76F | `W_EX010_90` |
+| 0x18 | Bond of Flame | 0x1F2 (`0x1347C`) | 141 (`0x14284`) | 4 | 4 | 20 → 0x779 | `W_EX010_K0` |
+
+The asset step finds each by its English name (`kh2_keyblades::find`, case-insensitive; a
+second Keyblade row with the same name must agree) and stops when one is missing. The card ↔ name
+pairs are Re:CoM's own Keyblade names at `0x1405060F0` (kinds 0x12..0x18 = Soul Eater, Star
+Seeker, Monochrome, Follow the Wind, Hidden Dragon, Photon Debugger, Bond of Flame). Checked
+(exe). The Strength / Magic bytes are the stat row's as read; whether KH2 adds anything else to
+them in play (e.g. an ability) is not looked at.
+
+### 12.2 The bone mapping and its evidence
+
+KH2's Keyblades are **already on Re:CoM's Keyblade skeleton**. Checked (files):
+
+- All seven `.mdlx` (`W_EX010` and the six) have 12 bones with the same parents and the same
+  bind values: bone 0 rotation (0, 3π/2, 3π/2) at (−59.7, 108.0, −2.5), bone 1 identity under it, bone 2 rotation (π, 0, π), and bones 3..11 a chain
+  along +x with lengths 21.107, 6.722, 2.954, 2.908, 3.116, 2.979, 3.163, 3.000, 3.262.
+- Re:CoM's PL0002 `k9 … k1` (bones 3..11) have identity rest rotations and the same lengths
+  × 0.01 (W_EX010: differences ≤ 4.9e-7 m; the six equal W_EX010's to 1e-4). PL0002's bones 0..2 differ from KH2's (Re:CoM's rest pose),
+  which does not matter: vertices are stored in their own bone's space, and PL0002.ANN poses
+  bones 1..11 itself.
+- **KH2's Kingdom Key `W_EX010` is Re:CoM's PL0002 mesh.** Every KH2 corner, in its bone's
+  space × 0.01, lies within **0.077 mm** of a PL0002 vertex on the same bone; with UVs, within
+  0.0003. Its two groups are 322 + 70 triangles, PL0002's list A + list B. 202 of the 322 opaque
+  triangles are PL0002's corner for corner; the other 120 have every corner on a PL0002 list-A
+  vertex (Square's strips cut some faces along the other diagonal). All 70 of the translucent
+  group are PL0002's list B.
+
+So the mapping is the identity: **KH2 bone j = Re:CoM bone j** (2 = `wep0`, the blade and
+guard; 3..11 = `k9 … k1`, the keychain), positions × 0.01, same axes, UVs as they are (KH2's
+`u, v` / 4096, origin top left, Re:CoM's convention). The grip needs no transform: the blade's
+frame is bone 2's in both, and every KH2 Keyblade has the Kingdom Key's bone 2. All six use only
+bones 2..11 (Star Seeker and Bond of Flame 2, 3, 5, 7, 9, 11; Monochrome no bone 10; the rest
+all ten). Why one bone-space mesh fits every KH2 Keyblade: KH2 poses all of base Sora's
+Keyblades with one weapon moveset (`03system.bin` `wmst`, per moveset and hand, not per
+Keyblade; KH2-Combat-in-KH1's `objentry.rs`). Checked (files) / KH2's own posing: from that
+project's notes.
+
+The asset step re-checks this on every run and stops otherwise: `kh2_template_distance` (KH2's
+Kingdom Key on the player's PL0002, ≤ 0.5 mm), `check_kh2_skeleton` (each Keyblade's 12 bones
+equal `W_EX010`'s to 1e-4, bones 3..11 equal PL0002's rest × 100), and a vertex on a bone
+outside 2..11 is refused (no remap). No Keyblade needed anything else; none was refused.
+
+### 12.3 Conversion rules (`keyblade::convert_kh2`; the rest is shared with KH1's, § 5)
+
+| step | rule | tag |
+|---|---|---|
+| mesh | the `.mdlx` model's groups, read as KH2 draws them (VIF unpack into VU memory, index list, bone-local vertices); strips kept as the index list makes them (`StripTriangle`, a new strip at a `0x10` entry after a drawing one and at each packet) | Checked (files: W_EX010 = PL0002) |
+| bones, units | bone j → bone j, × 0.01, same axes | Checked (files, 12.2) |
+| list A / B | B = the groups KH2 draws in its alpha phase (group attribute bit 0, OpenKH `DrawAlphaPhase`); A = the rest. Reproduces PL0002's split on W_EX010 (322 / 70, the 70 corner for corner). The KH1 rule (any texel with alpha < 255) would move 8 W_EX010 triangles that Square keeps in list A, so it is not used here | Checked (files) |
+| list A with alpha | KH2's opaque-phase groups touch semi-transparent texels on some Keyblades (Star Seeker 35 triangles, Monochrome 29, Hidden Dragon 14, Follow the Wind 2, the Kingdom Key 8; the build log's "touch alpha < 255"). Re:CoM's list A packets have PRIM 0x7C (alpha blending on, § 1.3), as Square's PL0002 does with its 8 | Checked (files) / how they look in Re:CoM: Assumption |
+| facing | KH2 strip flag `0x20` → Re:CoM `0x20`, `0x30` → 0 (`kh2_facing`). On W_EX010's 202 shared list-A triangles 174 agree with Square's PL0002 flags, 28 don't; on the flat two-sided keychain (list B) 37 / 33 | Checked (files) / the PC's use of the flag: Assumption (§ 1.3) |
+| part 1 | every triangle again, as PL0002 | follows PL0002 |
+| textures | the HD asset `-<texture index>.dds` (one per file, `-0.dds`), unchanged, as `<model in lower case>_0_tm2.dds`; the TIM2 fallback from it (256×128) | Re:CoM loads A8R8G8B8: Checked (decomp) |
+| names | `w_ex010_30_0`, `w_ex010_60_0`, `w_ex010_70_0`, `w_ex010_40_0`, `w_ex010_90_0`, `w_ex010_k0_0`: none is among Re:CoM's 1 649 texture names (case-insensitive, up to the dot; Re:CoM has `w_ex010_01`, `w_ex020_00/01`, `w_ex030_01`, `w_ex200_00/01`) | Checked (files: all RTMs of all resource tables in the owner's Recom.pkg) |
+| Bond of Flame | five groups: the blade (opaque) and four translucent keychain groups with priorities 1..4; groups 1/3 and 2/4 have the same outline (bounds, UV box) but not the same triangles (positions and UVs differ, 2/4 the windings too). All go to list B in file order | Checked (files) / that they are the charm's two sides, and how they blend in Re:CoM: Assumption |
+
+### 12.4 Reach (`kh2_keyblades::blade_length`, `blade_far`)
+
+- **Blade length** L = how far the model reaches from bone 2 along the blade: `−min x` of the
+  bone-2 vertices × 0.01 (the keychain hangs on +x, bone 3 at +x 0.211 m; the blade runs along
+  −x). KH2's Kingdom Key: **0.7790 m**, the same as Re:CoM's PL0002 (same mesh). Checked (files).
+- **Rule** (the owner's): `blade_far = KH1 Kingdom Key's blade_far (−3.7) × L / L(KH2 Kingdom
+  Key)`; `blade_near` 0, fraction scale 0.8 and radius 40 are the Kingdom Key's KH1 row, so the
+  hit spheres span `|blade_far| × 0.8` along `wep0 → k9` as for KH1's Keyblades (§ 10.6).
+- **Why this is well founded**, Checked (files): KH1's own weapon rows track their models the
+  same way. Each KH1 Keyblade's `|blade_far|` is within 0.13 of its tip's distance from `wep0`
+  over `|wep0 → k9|` (0.2111 m), Olympia aside (3.69 vs 3.5):
+
+  | KH1 Keyblade | tip / `|wep0→k9|` | `blade_far` |
+  |---|---|---|
+  | Kingdom Key | 3.691 | −3.7 |
+  | Three Wishes / Crabclaw / Pumpkinhead / Fairy Harp | 3.698 / 3.837 / 4.623 / 3.248 | −3.8 / −3.9 / −4.6 / −3.3 |
+  | Wishing Star / Spellbinder / Metal Chocobo / Olympia | 3.230 / 3.690 / 5.052 / 3.688 | −3.3 / −3.7 / −5.1 / −3.5 |
+  | Lionheart / Lady Luck / Divine Rose / Oathkeeper | 4.613 / 3.759 / 3.267 / 3.851 | −4.6 / −3.7 / −3.3 / −3.8 |
+  | Oblivion / Ultima Weapon / Diamond Dust / One-Winged Angel | 4.911 / 5.520 / 3.922 / 5.124 | −4.9 / −5.6 / −3.8 / −5.2 |
+
+  and KH2's Kingdom Key reaches as far as KH1's (3.691). So scaling KH1's Kingdom Key by the KH2
+  blade's length is the same as measuring each KH2 blade the way KH1's rows follow theirs. The
+  values are kept exact (not rounded to KH1's 0.1 steps).
+- Not KH1: KH2's own hit shapes (its weapon collision) are not used; the owner chose KH1's
+  shape with this reach.
+
+### 12.5 The six (owner's files; `kh1-stats.json` rows, `source` `kh2`)
+
+| card | Keyblade | group | Strength | Magic | blade L (m) | `blade_far` | page "Reach" | triangles (A / B) |
+|---|---|---|---|---|---|---|---|---|
+| 0x13 | Star Seeker | 38 | +3 | +1 | 1.0345 | −4.9131 | x1.33 | 524 (470 / 54) |
+| 0x14 | Monochrome | 39 | +3 | +2 | 0.7786 | −3.6980 | x1.00 | 564 (522 / 42) |
+| 0x15 | Follow the Wind | 40 | +3 | +1 | 1.0397 | −4.9382 | x1.33 | 558 (522 / 36) |
+| 0x16 | Hidden Dragon | 41 | +2 | +2 | 0.8997 | −4.2732 | x1.15 | 554 (488 / 66) |
+| 0x17 | Photon Debugger | 42 | +3 | +2 | 0.7779 | −3.6944 | x1.00 | 482 (482 / 0) |
+| 0x18 | Bond of Flame | 43 | +4 | +4 | 0.9100 | −4.3223 | x1.17 | 586 (540 / 46) |
+
+All rows: radius 40, `blade_near` 0, fraction scale 0.8, crit 20, crit bonus 0, priority 30
+(KH1's Kingdom Key row, read from the player's `btltbl.bin`). Strength is added to Sora's KH1 base
+Strength as for KH1's Keyblades (`strength_with`). The rows also carry `kh2_item`, `kh2_stat`,
+`model`, `blade_length` and `kh2_kingdom_key_blade_length` for the record.
+
+### 12.6 Validation
+
+- Tests (`tests/kh2_keyblades.rs`, the owner's files): the seven items, stat rows and models
+  (12.1); W_EX010 = PL0002 (12.2: 0.077 mm, lists, facing); all six convert with PL0002's
+  skeleton byte for byte, bones 2..11 only, MDL read back and re-written byte for byte, part 1 with
+  every triangle, UVs within 0..1, unique texture names, HD texture copied unchanged, TIM2 256×128,
+  the raw RTM entry laid out as Panacea reads it; the stats rows. `kh1-recom`:
+  `keyblade_models::tests::kh2_keyblades_get_groups_38_to_43`, `kh2_rows_parse`.
+- Owner's PC (2026-10-31, Linux build of `kh1-recom-build`): `--game . --out
+  kh1-playground/build-out/PL0001.ANN` converted 22 Keyblades in 0.9 s (4.5 s the whole step) and
+  wrote `PLAYER/0038..0043/PL00GG.MDL` + `raw/PLAYER/0038..0043/PL00GG.RTM`. The 36 files of the
+  0.9.0 run (motion packs, SES, manifest, the 16 KH1 Keyblades) came out byte-identical; only
+  `kh1-stats.json` changed (the six rows appended). The runtime's `parse_stats` and
+  `Models::from_stats` read that file: 23 Keyblades, model groups 21..36 and 38..43, camp-page
+  values as in 12.5. Checked (run).
+
+### 12.7 Runtime
+
+No new hook, address or code path. Generalised, with tests: `keyblade_models::OUR_GROUPS`
+(21..=36) became `our_group_for_card` (`19 + card` for cards 2..=0x11 and 0x13..=0x18; Soul
+Eater none), which `Models::from_stats` requires of every row. The table extension (`plan_table`,
+now 110 rows for 22 groups), the pick, the load and unload, the camp list (`unlocked`, every
+card with numbers, 1..=0x18 but Soul Eater), the save byte (1..=0x18) and the rebuild at camp
+close already took any group from `kh1-stats.json`. Checked (code + tests).
+
+### 12.8 Assumptions and what to see in game
+
+Assumptions: the six render like the KH1 ones through the same route (raw RTM with HD, list A /
+B, facing flag); Bond of Flame's four translucent keychain groups blend acceptably in Re:CoM's
+list B; KH2's semi-transparent edges in list A look right; the trail length on longer blades
+(§ 9.6); the KH2 names are in `msg/us/sys.bar` on every install language.
+
+In-game checklist (KH1 setting, Sora's story; files of this run installed):
+
+1. Log: `keyblades: models in: PLAYER table 663 rows (553 Re:CoM's + 110 for groups [21, …, 36,
+   38, …, 43])`.
+2. Camp → Keyblades: each of the six earned shows with Re:CoM's card name; Strength / Magic /
+   Reach as in 12.5 (e.g. Bond of Flame +4 / +4 / x1.17).
+3. Equip each, close the camp: `rebuilt at camp close with group 38..43`; the KH2 model in
+   Sora's hand, grip and blade where the Kingdom Key's are, keychain hanging and swinging from the
+   pommel.
+4. HD texture (not the 256-colour TIM2); Bond of Flame's charm and the translucent keychains;
+   both sides of flat parts.
+5. Swing at a twin enemy: hits reach along the whole blade (Star Seeker / Follow the Wind about a
+   third further than the Kingdom Key); damage follows the new Strength.
+6. Room change, battle, save / load, Halloween Town: the equipped KH2 Keyblade stays.
+7. Back to a KH1 Keyblade or the Kingdom Key: `group 38..43 unloaded`.
 
 ## In game, 0.9.0 (owner, 2026-10-31)
 

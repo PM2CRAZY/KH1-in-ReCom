@@ -11,6 +11,36 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 24: the six KH2 Keyblades, step 3 of the Keyblades, version 0.10.0 (2026-10-31)
+
+> "Besides soul eater, every other keyblade should be from KH2 … pull the stats/models (not
+> including keyblade abilities) from KH2" / "Measured reach, KK rest" / "perfect, everything is
+> great, lets move on" (decision 25)
+
+- New crate `kh2-formats-lite`, ported from KH2-Combat-in-KH1's `kh2-formats` (after OpenKH),
+  credited in its `lib.rs`: KH2 archives (`kh1-formats` `egs` now opens `kh2_*`), `.mdlx`
+  models and skeletons, `03system.bin`'s items and stats, `00objentry.bin`, `sys.bar` names.
+- KH2 data (Checked, decomp + files):
+  - Items: `03system.bin` `item` at `0x1087C`, 535 × 24 bytes; stat id at `+6`
+    (`0x1403E3EF0`).
+  - Stat rows after them, 16 bytes; `+4` / `+5` compared with a character's `+0x188` /
+    `+0x18A` (`0x1402FCC80`, `0x1402FD050`). Calling them Strength / Magic follows OpenKH's
+    names, and the Kingdom Key's +3 / +1.
+  - Models via `went` → `00objentry.bin`: Star Seeker `W_EX010_30`, Monochrome `_60`,
+    Follow the Wind `_70`, Hidden Dragon `_40`, Photon Debugger `_90`, Bond of Flame `_K0`.
+- Converter: KH2's Kingdom Key mesh is Re:CoM's PL0002 within 0.077 mm on the same bones, and
+  all six have PL0002's 12-bone skeleton. So the mapping is the identity (× 0.01, same axes), and
+  the asset step checks it on every run. Groups 38..43 (card + 19).
+- Numbers: KH2 Strength / Magic; reach = KH1 Kingdom Key's −3.7 × blade length ÷ KH2 Kingdom
+  Key's 0.779 m (KH1's own Keyblades follow their models within 0.13 by the same rule, except
+  Olympia); the rest the Kingdom Key's KH1 row.
+- Runtime: the group rule `our_group_for_card` covers cards 2..0x11 and 0x13..0x18 (Soul Eater
+  none); 110 table rows. No new hook.
+- Assumptions: the facing flag mapping; list-A triangles on semi-transparent texels; Bond of
+  Flame's charm blending; the HD raw route and trail length (carried over). Not seen in game.
+
+---
+
 ## Stage 23: Guard and Counterattack in Halloween Town, version 0.9.1 (2026-10-31)
 
 > "check the trace, trying to use guard in battle freezes sora"

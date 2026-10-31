@@ -10,7 +10,9 @@
 //! - [`mdl`]: Re:CoM's `.MDL` (skeleton for the motions; the whole file read and written);
 //! - [`rtm`]: Re:CoM's texture packs (`.RTM`) and their 8-bit TIM2s;
 //! - [`texture`]: DDS decoding, downscale and 256-colour quantising;
-//! - [`keyblade`]: KH1 Keyblades (`.wpn` + HD `.cvbl` / `.dds`) → Re:CoM weapon models;
+//! - [`keyblade`]: KH1 Keyblades (`.wpn` + HD `.cvbl` / `.dds`) and KH2 ones (`.mdlx` + HD `.dds`)
+//!   → Re:CoM weapon models;
+//! - [`kh2_keyblades`]: the six KH2 Keyblades' items, stats, models and reach (decision 25);
 //! - [`convert`]: KH1 pose (via `kh1-anim`) → Re:CoM bones → clip;
 //! - [`build`]: the whole pack + manifest from the four input files;
 //! - [`install`]: finding the files in the player's install and the Panacea mod folder;
@@ -29,6 +31,7 @@ pub mod convert;
 pub mod flip;
 pub mod install;
 pub mod keyblade;
+pub mod kh2_keyblades;
 pub mod matching;
 pub mod math;
 pub mod mdl;

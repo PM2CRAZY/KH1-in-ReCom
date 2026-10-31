@@ -2,3 +2,4 @@
 local/
 target/
 *.exe
+/target-wt*

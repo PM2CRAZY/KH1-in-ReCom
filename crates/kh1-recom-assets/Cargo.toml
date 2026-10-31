@@ -19,3 +19,4 @@ path = "src/flip_main.rs"
 [dependencies]
 kh1-formats = { path = "../kh1-formats" }
 kh1-anim = { path = "../kh1-anim" }
+kh2-formats-lite = { path = "../kh2-formats-lite" }

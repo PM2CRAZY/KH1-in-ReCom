@@ -1,8 +1,9 @@
 //! The equipped Keyblade's model at the KH1 setting (decision 25, "Models"). Pure rules:
 //! `crate::keyblade_models`. Notes: `docs/recom-keyblade-models.md` § Runtime.
 //!
-//! - **Rows**: an extended copy of Re:CoM's PLAYER resource table (its 552 rows, then our groups
-//!   21..=36 laid out as its Kingdom Key group 2), installed with one checked pointer write at
+//! - **Rows**: an extended copy of Re:CoM's PLAYER resource table (its 552 rows, then our groups,
+//!   `19 + card` from `kh1-stats.json`: KH1's Keyblades 21..=36, KH2's 38..=43, each laid out as
+//!   its Kingdom Key group 2), installed with one checked pointer write at
 //!   `0x1407EBF28`. Re:CoM's own loader (`0x14023BF70`) loads our groups from it.
 //! - **Load**: Re:CoM's "queue the player's group" (`0x140211AA0`, room and battle builders)
 //!   gets a wrapper that also queues the equipped Keyblade's group with Re:CoM's own call

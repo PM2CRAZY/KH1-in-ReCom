@@ -1,0 +1,10 @@
+[package]
+name = "kh2-formats-lite"
+description = "Readers for the few KINGDOM HEARTS II FINAL MIX (PC) files the asset step needs: BAR containers, MDLX Keyblade models (skeleton, mesh, textures), 03system.bin items and equipment stats, 00objentry.bin, sys.bar names. Reads the user's own install; ships no game data."
+version = "0.1.0"
+edition = "2021"
+# Ported from the owner's KH2-Combat-in-KH1 `kh2-formats` (Apache-2.0), whose layouts follow
+# OpenKH (Apache-2.0). See src/lib.rs.
+license = "Apache-2.0"
+
+[dependencies]

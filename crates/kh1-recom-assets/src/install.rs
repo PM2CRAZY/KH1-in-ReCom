@@ -6,6 +6,8 @@
 //!   exe (any 1.5+2.5 exe carries it). Checked (files): PL0001.ANN/MDL decode to the sizes the
 //!   index gives.
 //! - KH1: `Image/dt/kh1_*.hed` / `.pkg` (`kh1_formats::egs::Install`), `xa_ex_0010.mset/.mdls`.
+//! - KH2 FM: `Image/dt/kh2_first..sixth.hed` / `.pkg`, same format and key table, for the six
+//!   KH2 Keyblades (decision 25; `kh2_keyblades`). Checked (files: the owner's Steam install).
 //! - Panacea (`OpenKh.Research.Panacea`, `OpenKH.cpp`): reads `panacea_settings.txt` from the
 //!   game folder (`mod_path=` line; default `./mod`), appends `/recom` for Re:CoM, and serves
 //!   `<mod_path>/recom/<archive path>` in place of the archive file (`Panacea.cpp`
@@ -65,6 +67,11 @@ pub fn read_recom(arc: &Archive, keys: &KeyTable, name: &str) -> Result<Vec<u8>>
 /// KH1's installed archives (any KH1 file by name).
 pub fn kh1(game: &Path, keys: KeyTable) -> Result<Install> {
     Ok(Install::with_keys(game, keys)?)
+}
+
+/// KH2 FM's installed archives (any KH2 file by name, e.g. `obj/W_EX010.mdlx`).
+pub fn kh2(game: &Path, keys: KeyTable) -> Result<Install> {
+    Ok(Install::with_archives(game, keys, &kh1_formats::egs::KH2_ARCHIVES)?)
 }
 
 /// Sora's per-motion sound events in `Recom.pkg`.

@@ -38,6 +38,9 @@ const PASS_COUNT: usize = 10;
 
 /// KH1's archive stems under `Image/dt/`, in the game's order.
 pub const KH1_ARCHIVES: [&str; 5] = ["kh1_first", "kh1_second", "kh1_third", "kh1_fourth", "kh1_fifth"];
+/// KH2 FM's archive stems under `Image/dt/` (same layout and cipher; read for the KH2 Keyblades,
+/// decision 25). Checked (files: the owner's Steam install).
+pub const KH2_ARCHIVES: [&str; 6] = ["kh2_first", "kh2_second", "kh2_third", "kh2_fourth", "kh2_fifth", "kh2_sixth"];
 
 /// The KH1 executable's file name in the game folder.
 pub const KH1_EXE: &str = "KINGDOM HEARTS FINAL MIX.exe";
@@ -432,14 +435,20 @@ impl Install {
     /// Opens the game folder with a key table found elsewhere (any 1.5+2.5 exe carries it).
     /// Archives other than `kh1_first` that are missing are skipped.
     pub fn with_keys(root: impl AsRef<Path>, keys: KeyTable) -> Result<Install> {
+        Self::with_archives(root, keys, &KH1_ARCHIVES)
+    }
+
+    /// Opens the archive pairs `stems` (e.g. [`KH2_ARCHIVES`]) under `Image/dt/` as one install.
+    /// The first must be there; later ones that are missing are skipped.
+    pub fn with_archives(root: impl AsRef<Path>, keys: KeyTable, stems: &[&str]) -> Result<Install> {
         let root = root.as_ref().to_path_buf();
         let dt = root.join("Image").join("dt");
         let mut archives = Vec::new();
-        for stem in KH1_ARCHIVES {
+        for (i, stem) in stems.iter().enumerate() {
             let hed = dt.join(format!("{stem}.hed"));
             if !hed.is_file() {
-                if stem == KH1_ARCHIVES[0] {
-                    return bad(format!("{} not found (not a KH1 FM PC install?)", hed.display()));
+                if i == 0 {
+                    return bad(format!("{} not found (not a KH 1.5+2.5 PC install?)", hed.display()));
                 }
                 continue;
             }

@@ -71,7 +71,7 @@ pub struct Converted {
 pub struct Report {
     /// The KH1 model name.
     pub model: String,
-    /// cvbl meshes.
+    /// cvbl meshes (KH1) or mdlx groups (KH2).
     pub meshes: usize,
     /// cvbl vertices read.
     pub cvbl_vertices: usize,
@@ -97,17 +97,22 @@ pub struct Report {
     pub uv_range: (f32, f32, f32, f32),
     /// Triangles that span more than one bone.
     pub mixed_bone_triangles: usize,
+    /// List-A triangles that touch a texel with alpha < 255 (none by the KH1 rule; KH2's
+    /// opaque-phase groups can have some, e.g. 8 on KH2's Kingdom Key, all of which Square's
+    /// PL0002 keeps in list A too).
+    pub alpha_in_a: usize,
 }
 
 impl Report {
     /// One line for the build log.
     pub fn line(&self) -> String {
         format!(
-            "{}: {} cvbl meshes, {} triangles (list A {}, list B {} of which {} translucent), joints {:?}, {} textures {:?}, uv {:.3}..{:.3} × {:.3}..{:.3}",
+            "{}: {} meshes, {} triangles (list A {} of which {} touch alpha < 255, list B {} of which {} translucent), joints {:?}, {} textures {:?}, uv {:.3}..{:.3} × {:.3}..{:.3}",
             self.model,
             self.meshes,
             self.triangles,
             self.list_a,
+            self.alpha_in_a,
             self.list_b,
             self.translucent,
             self.joints,
@@ -350,7 +355,7 @@ fn template_gif(t: &Mdl) -> Result<((u32, u32), (u32, u32))> {
 /// Converts one KH1 Keyblade. `template` is Re:CoM's own `PL0002.MDL`; `wpn` the KH1 file and
 /// `assets` its HD assets; `model` the KH1 model name (`xw_ex_5030`), which names the textures.
 pub fn convert(template: &Mdl, model: &str, wpn: &[u8], assets: &[HdAsset]) -> Result<Converted> {
-    let ((g6, r6), (g10, r10)) = template_gif(template)?;
+    template_gif(template)?;
     let w = Wpn::parse(wpn)?;
     let mut rep = Report { model: model.to_string(), ..Default::default() };
     for mesh in &w.model()?.meshes {
@@ -368,29 +373,41 @@ pub fn convert(template: &Mdl, model: &str, wpn: &[u8], assets: &[HdAsset]) -> R
     let slots: Vec<u32> = cv.meshes.iter().map(|m| m.texture).collect::<BTreeSet<_>>().into_iter().collect();
     let slot_to_tex = |s: u32| slots.iter().position(|&x| x == s).unwrap() as u32;
     let tris = read_triangles(&cv, &slot_to_tex, &mut rep)?;
+    let mut textures = Vec::new();
+    for (n, &slot) in slots.iter().enumerate() {
+        let a = find(assets, &w.texture_name(slot))?;
+        textures.push((texture_name(model, n)?, a.data.clone()));
+    }
+    // List B: a translucent cvbl mesh, or a texel with alpha < 255 under the triangle.
+    assemble(template, rep, tris, textures, |t, img| t.translucent || min_alpha(img, t) < 255)
+}
+
+/// The parts every conversion shares: the textures (TIM2 + HD), the lists, the packets, part 1,
+/// the bounds and the file. `in_b` says whether a triangle goes to list B (it sees the
+/// triangle's decoded HD texture).
+fn assemble(template: &Mdl, mut rep: Report, tris: Vec<Tri>, textures_in: Vec<(String, Vec<u8>)>, in_b: impl Fn(&Tri, &Image) -> bool) -> Result<Converted> {
+    let ((g6, r6), (g10, r10)) = template_gif(template)?;
     if tris.is_empty() {
-        return bad(format!("{model}: no triangles"));
+        return bad(format!("{}: no triangles", rep.model));
     }
     let mut textures = Vec::new();
     let mut images = Vec::new();
     let mut hd = Vec::new();
     let mut rtm = Rtm { entries: Vec::new() };
-    for (n, &slot) in slots.iter().enumerate() {
-        let a = find(assets, &w.texture_name(slot))?;
-        let img = decode_dds(&a.data).map_err(|e| crate::Error::Format(format!("{}: {e}", a.name)))?;
-        let name = texture_name(model, n)?;
+    for (name, data) in textures_in {
+        let img = decode_dds(&data).map_err(|e| crate::Error::Format(format!("{name}: {e}")))?;
         let small = downscale_to(&img, TIM2_MAX);
         let ps2 = Image { w: small.w, h: small.h, px: small.px.iter().map(|c| [c[0], c[1], c[2], ps2_alpha(c[3])]).collect() };
         let (pal, idx) = quantise(&ps2);
         rtm.entries.push(RtmEntry::new(&name, tim2_indexed8(ps2.w as u16, ps2.h as u16, &idx, &pal)?)?);
         rep.texture_sizes.push((img.w, img.h, ps2.w, ps2.h));
-        hd.push((hd_name(&name), a.data.clone()));
+        hd.push((hd_name(&name), data));
         textures.push(name);
         images.push(img);
     }
     // Lists.
     let mut uv = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
-    let mut in_b = Vec::with_capacity(tris.len());
+    let mut b_of = Vec::with_capacity(tris.len());
     for t in &tris {
         for v in &t.v {
             uv = (uv.0.min(v.uv[0]), uv.1.max(v.uv[0]), uv.2.min(v.uv[1]), uv.3.max(v.uv[1]));
@@ -398,18 +415,21 @@ pub fn convert(template: &Mdl, model: &str, wpn: &[u8], assets: &[HdAsset]) -> R
         if t.v.iter().any(|v| v.bone != t.v[0].bone) {
             rep.mixed_bone_triangles += 1;
         }
-        let b = t.translucent || min_alpha(&images[t.tex as usize], t) < 255;
+        let img = images.get(t.tex as usize).ok_or_else(|| crate::Error::Format(format!("{}: texture {} of {}", rep.model, t.tex, images.len())))?;
         rep.translucent += t.translucent as usize;
-        in_b.push(b);
+        let b = in_b(t, img);
+        rep.alpha_in_a += (!b && min_alpha(img, t) < 255) as usize;
+        b_of.push(b);
     }
     rep.uv_range = uv;
     rep.triangles = tris.len();
-    let a_tris: Vec<&Tri> = tris.iter().zip(&in_b).filter(|(_, b)| !**b).map(|(t, _)| t).collect();
-    let b_tris: Vec<&Tri> = tris.iter().zip(&in_b).filter(|(_, b)| **b).map(|(t, _)| t).collect();
+    let a_tris: Vec<&Tri> = tris.iter().zip(&b_of).filter(|(_, b)| !**b).map(|(t, _)| t).collect();
+    let b_tris: Vec<&Tri> = tris.iter().zip(&b_of).filter(|(_, b)| **b).map(|(t, _)| t).collect();
     rep.list_a = a_tris.len();
     rep.list_b = b_tris.len();
     // Group by texture (one texture per packet), keeping source order within a texture.
-    let by_tex = |v: &[&Tri]| -> Vec<Vec<Tri>> { (0..slots.len() as u32).flat_map(|k| segments(&v.iter().copied().filter(|t| t.tex == k).collect::<Vec<_>>())).collect() };
+    let n_tex = textures.len() as u32;
+    let by_tex = |v: &[&Tri]| -> Vec<Vec<Tri>> { (0..n_tex).flat_map(|k| segments(&v.iter().copied().filter(|t| t.tex == k).collect::<Vec<_>>())).collect() };
     let list_a = packets(&by_tex(&a_tris), FMT_TEXTURED, g6, r6);
     let list_b = packets(&by_tex(&b_tris), FMT_TEXTURED, g6, r6);
     let all: Vec<&Tri> = tris.iter().collect();
@@ -444,14 +464,137 @@ pub fn convert(template: &Mdl, model: &str, wpn: &[u8], assets: &[HdAsset]) -> R
     Ok(Converted { mdl, rtm: rtm.write(), textures, hd, report: rep })
 }
 
+/// KH2 Keyblades (decision 25): a KH2 FM `obj/W_EX010_*.mdlx` → the same Re:CoM layout.
+/// Notes: `docs/recom-keyblade-models.md` § 12.
+///
+/// - **Skeleton**: KH2's Keyblades carry PL0002's 12 bones (root, grip, blade bone 2, keychain
+///   3..11, the chain's lengths × 0.01 equal PL0002's to 1e-6 m). KH2's Kingdom Key
+///   `W_EX010`'s mesh, in bone space × 0.01, *is* Re:CoM's PL0002 mesh (every corner within
+///   0.08 mm of a PL0002 vertex on the same bone, UVs within 0.0003; 322 + 70 triangles as
+///   PL0002's lists). So KH2 bone `j` = Re:CoM bone `j`, positions × 0.01, same axes, UVs as
+///   they are. Checked (files). Every converted Keyblade must have W_EX010's skeleton exactly
+///   ([`check_kh2_skeleton`]): KH2 poses all of base Sora's Keyblades with the same weapon
+///   moveset, so the same bone-space mesh sits in the hand the same way.
+/// - **Lists**: list B = the groups KH2 draws in its alpha phase (group attribute bit 0,
+///   `DrawAlphaPhase` in OpenKH's names); list A = the rest. On W_EX010 this gives PL0002's
+///   lists exactly ([`KH2_LIST_B`]).
+/// - **Facing**: KH2's strip flags `0x20` / `0x30` (the two windings) → Re:CoM `0x20` / 0
+///   ([`kh2_facing`]): of W_EX010's 202 list-A triangles that PL0002 has corner for corner, 174
+///   carry the facing this gives, 28 the other (list B, the flat keychain: 33 / 37). The PC's
+///   use of the flag is an Assumption (§ 1.3).
+/// - **Textures**: the HD asset `-<texture index>.dds` of the `.mdlx` (A8R8G8B8, 512×256 on the
+///   six), named `<model in lower case>_<n>` (`w_ex010_30_0`); none of Re:CoM's 1649 texture
+///   names (Checked (files)).
+pub const KH2_LIST_B: u32 = 1;
+
+/// Re:CoM's facing flag for a KH2 strip flag (`0x20` / `0x30`).
+pub fn kh2_facing(flag: u8) -> u32 {
+    if flag == 0x30 {
+        0
+    } else {
+        0x20
+    }
+}
+
+/// Bone positions of two KH2 skeletons agree to this (KH2 units, cm) and rotations to this
+/// (radians).
+const KH2_BONE_EPS: f32 = 1e-4;
+
+/// Checks a KH2 Keyblade skeleton: 12 bones, each with the same parent, scale, rotation and
+/// translation as `reference` (KH2's Kingdom Key `W_EX010`), and the keychain bones 3..11
+/// equal to the template's (PL0002) rest locals × 100 (identity rotation, same translation).
+pub fn check_kh2_skeleton(bones: &[kh2_formats_lite::skeleton::Bone], reference: &[kh2_formats_lite::skeleton::Bone], template: &Mdl) -> Result<()> {
+    if bones.len() != 12 || reference.len() != 12 {
+        return bad(format!("{} bones (reference {}), not PL0002's 12", bones.len(), reference.len()));
+    }
+    for (i, (b, r)) in bones.iter().zip(reference).enumerate() {
+        let near = |a: [f32; 3], c: [f32; 3]| (0..3).all(|k| (a[k] - c[k]).abs() <= KH2_BONE_EPS);
+        if b.parent != r.parent || !near(b.scale, r.scale) || !near(b.rotation, r.rotation) || !near(b.translation, r.translation) {
+            return bad(format!("bone {i} differs from the Kingdom Key's (W_EX010): {b:?} vs {r:?}"));
+        }
+    }
+    let rest = &template.parts[0].rest;
+    for (i, b) in bones.iter().enumerate().skip(3) {
+        let m: Vec<f32> = rest[i].iter().map(|x| f32::from_bits(*x)).collect();
+        let ident = (0..3).all(|r| (0..3).all(|c| (m[4 * r + c] - if r == c { 1.0 } else { 0.0 }).abs() < 1e-6));
+        let t_ok = (0..3).all(|k| (m[12 + k] * 100.0 - b.translation[k]).abs() <= 1e-3);
+        let r_ok = b.rotation.iter().all(|x| x.abs() <= KH2_BONE_EPS) && b.parent == i as i16 - 1;
+        if !(ident && t_ok && r_ok) {
+            return bad(format!("keychain bone {i}: KH2 t {:?} r {:?}, PL0002 rest {:?}", b.translation, b.rotation, m));
+        }
+    }
+    Ok(())
+}
+
+/// How far KH2's Kingdom Key (`W_EX010.mdlx`), in bone space × 0.01, is from the template
+/// (Re:CoM's PL0002): the largest distance (metres) from a KH2 corner to the nearest template
+/// vertex on the same bone. The asset step requires it to be small ([`KH2_TEMPLATE_MATCH`])
+/// before converting any KH2 Keyblade: it is the evidence that KH2's bone `j` is Re:CoM's bone
+/// `j` with the same axes and units (0.08 mm on the owner's files). Checked (files).
+pub fn kh2_template_distance(template: &Mdl, kingdom_key_mdlx: &[u8]) -> Result<f32> {
+    let m = kh2_formats_lite::mdlx::parse(kingdom_key_mdlx).map_err(|e| crate::Error::Format(format!("W_EX010: {e}")))?;
+    let p0 = &template.parts[0];
+    let ours: Vec<(usize, [f32; 3])> = p0.list_a.iter().chain(p0.list_b.iter().flatten()).flat_map(|p| p.verts.iter().map(|v| (v.bone(), v.pos()))).collect();
+    let mut worst = 0f32;
+    for v in m.groups.iter().flat_map(|g| g.triangles.iter().flatten()) {
+        let p = v.position.map(|x| x * 0.01);
+        let d = ours.iter().filter(|(b, _)| *b == v.bone as usize).map(|(_, q)| ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()).fold(f32::INFINITY, f32::min);
+        worst = worst.max(d);
+    }
+    Ok(worst)
+}
+
+/// The most [`kh2_template_distance`] may be (0.5 mm).
+pub const KH2_TEMPLATE_MATCH: f32 = 0.0005;
+
+/// Converts one KH2 Keyblade. `template` is Re:CoM's own `PL0002.MDL`; `mdlx` the KH2 file and
+/// `assets` its HD assets; `model` the KH2 model name (`W_EX010_30`), which names the textures
+/// (in lower case); `reference` KH2's Kingdom Key skeleton (`W_EX010.mdlx`).
+pub fn convert_kh2(template: &Mdl, model: &str, mdlx: &[u8], assets: &[HdAsset], reference: &[kh2_formats_lite::skeleton::Bone]) -> Result<Converted> {
+    template_gif(template)?;
+    let kh2 = |e: kh2_formats_lite::Error| crate::Error::Format(format!("{model}: {e}"));
+    let bones = kh2_formats_lite::skeleton::parse_skeleton(mdlx).map_err(kh2)?;
+    check_kh2_skeleton(&bones, reference, template).map_err(|e| crate::Error::Format(format!("{model}: {e}")))?;
+    let m = kh2_formats_lite::mdlx::parse(mdlx).map_err(kh2)?;
+    let lower = model.to_ascii_lowercase();
+    let mut rep = Report { model: lower.clone(), meshes: m.groups.len(), ..Default::default() };
+    // Textures: those the groups use, in index order.
+    let used: Vec<usize> = m.groups.iter().map(|g| g.texture).collect::<BTreeSet<_>>().into_iter().collect();
+    let tex_of = |t: usize| used.iter().position(|&x| x == t).unwrap() as u32;
+    let mut tris = Vec::new();
+    for (gi, g) in m.groups.iter().enumerate() {
+        for t in &g.strip_triangles {
+            let mut v = [Vtx { pos: [0.0; 3], uv: [0.0; 2], bone: 0 }; 3];
+            for (k, c) in t.v.iter().enumerate() {
+                let bone = c.bone as u32;
+                rep.joints.insert(bone);
+                if !JOINTS.contains(&bone) {
+                    return bad(format!("{model}: group {gi}: vertex on bone {bone}, outside 2..11 (no Re:CoM bone; not remapped)"));
+                }
+                rep.cvbl_vertices += 1;
+                v[k] = Vtx { pos: c.position.map(|x| x * 0.01), uv: c.uv, bone };
+            }
+            tris.push(Tri { v, facing: kh2_facing(t.flag), tex: tex_of(g.texture), strip: (gi << 20) | t.strip, pos: t.pos, translucent: g.attributes & KH2_LIST_B != 0 });
+        }
+    }
+    let mut textures = Vec::new();
+    for (n, &t) in used.iter().enumerate() {
+        let a = find(assets, &format!("-{t}.dds"))?;
+        textures.push((texture_name(&lower, n)?, a.data.clone()));
+    }
+    assemble(template, rep, tris, textures, |t, _| t.translucent)
+}
+
 /// Re:CoM resource group for a Keyblade card kind: the Kingdom Key (1) stays on Re:CoM's own
-/// group 2 (PL0002); kinds 2..=17 go to groups 21..=36, which Re:CoM's PLAYER resource table
-/// (`0x1408055D0`, 552 rows) doesn't use (it has 1, 2, 11–14, 101, 111, 201, 211, 301–307,
-/// 401–409, 451, 452, 458, 1001 and up). Checked (exe).
+/// group 2 (PL0002); every other Keyblade Sora can hold gets `19 + card`: KH1's (2..=0x11) groups
+/// 21..=36, KH2's (0x13..=0x18) groups 38..=43. Soul Eater (0x12, Riku's) has none, so 37 stays
+/// unused. Re:CoM's PLAYER resource table (`0x1408055D0`, 552 rows) uses 1, 2, 11–14, 101, 111,
+/// 201, 211, 301–307, 401–409, 451, 452, 458, then 1001 and up, and `Recom.hed` has no
+/// `PLAYER/00GG/PL00GG.*` for G = 15..100 (11 extensions). Checked (exe + files).
 pub fn group_for_card(card: u8) -> Option<u16> {
     match card {
         1 => Some(2),
-        2..=17 => Some(19 + card as u16),
+        2..=0x11 | 0x13..=0x18 => Some(19 + card as u16),
         _ => None,
     }
 }
@@ -501,9 +644,15 @@ mod tests {
         assert_eq!(group_for_card(1), Some(2));
         assert_eq!(group_for_card(2), Some(21));
         assert_eq!(group_for_card(17), Some(36));
-        assert_eq!(group_for_card(18), None);
+        assert_eq!(group_for_card(0x12), None, "Soul Eater");
+        assert_eq!(group_for_card(0x13), Some(38));
+        assert_eq!(group_for_card(0x18), Some(43));
+        assert_eq!(group_for_card(0x19), None);
+        assert_eq!(group_for_card(0), None);
         assert_eq!(resource_path(21, "MDL"), "PLAYER/0021/PL0021.MDL");
         assert_eq!(texture_name("xw_ex_5200", 1).unwrap(), "xw_ex_5200_1");
+        assert_eq!(kh2_facing(0x20), 0x20);
+        assert_eq!(kh2_facing(0x30), 0);
         assert_eq!(hd_name("w_ex010_01"), "w_ex010_01_tm2.dds");
     }
 

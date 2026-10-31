@@ -490,7 +490,8 @@ pub fn kh1_damage(m: &Moveset, kh1_row: usize, strength: i32, weapon: &WeaponDat
 pub struct Keyblade {
     pub card: u16,
     pub name: String,
-    /// Where its numbers and model come from: `kh1` (KH1's weapon row), later `kh2`.
+    /// Where its numbers and model come from: `kh1` (KH1's weapon row and model) or `kh2` (KH2's
+    /// model, Strength and Magic, reach from its blade, the rest the Kingdom Key's KH1 row).
     pub source: String,
     pub model: String,
     pub weapon: WeaponData,
