@@ -188,6 +188,10 @@ At KH1 setting:
     - It is equipped from a **new top-level camp menu entry**, shown only at the KH1 setting and
       drawn by Re:CoM's own menu code. Keyblade abilities are not included.
     - The 16 Keyblades KH1 has use KH1's weapon rows and KH1's models.
+    - (Card names corrected 2026-10-31: the six are Star Seeker, Total Eclipse, Midnight Roar,
+      Maverick Flare, Two Become One and Bond of Flame. KH2 has Star Seeker, Two Become One and
+      Bond of Flame; the other three exist in neither game and keep KH2 placeholders for now:
+      owner, "for right now the placeholder models are fine".)
     - Star Seeker, Monochrome, Follow the Wind, Hidden Dragon, Photon Debugger and Bond of Flame
       come from **KH2** (the player's KH2 files): KH2's model, Strength and Magic. Reach is
       measured from the KH2 model's blade length; radius, critical rate / bonus and priority are

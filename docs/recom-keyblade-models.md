@@ -199,7 +199,7 @@ against the owner's `Recom.hed`). So **21–36 are free**.
 | 0x14 | Monochrome | KH2 `W_EX010_60` | 39 | 1 (512×256) | 74 176 | 33 920 |
 | 0x15 | Follow the Wind | KH2 `W_EX010_70` | 40 | 1 (512×256) | 71 808 | 33 920 |
 | 0x16 | Hidden Dragon | KH2 `W_EX010_40` | 41 | 1 (512×256) | 72 800 | 33 920 |
-| 0x17 | Photon Debugger | KH2 `W_EX010_90` | 42 | 1 (512×256) | 60 016 | 33 920 |
+| 0x17 | Two Become One | KH2 `W_EX010_P0` | 42 | 1 (512×256) | see build log | 33 920 |
 | 0x18 | Bond of Flame | KH2 `W_EX010_K0` | 43 | 1 (512×256) | 74 464 | 33 920 |
 
 `group = 19 + card` for cards 2–17 and 0x13–0x18 (`keyblade::group_for_card`; the DLL's
@@ -547,7 +547,7 @@ offset `0x1087C`):
 | 0x14 | Monochrome | 0x1E5 (`0x1335C`) | 128 (`0x141B4`) | 3 | 2 | 7 → 0x76C | `W_EX010_60` |
 | 0x15 | Follow the Wind | 0x1E6 (`0x13374`) | 129 (`0x141C4`) | 3 | 1 | 8 → 0x76D | `W_EX010_70` |
 | 0x16 | Hidden Dragon | 0x1E1 (`0x1332C`) | 124 (`0x14174`) | 2 | 2 | 5 → 0x76A | `W_EX010_40` |
-| 0x17 | Photon Debugger | 0x1E8 (`0x133A4`) | 131 (`0x141E4`) | 3 | 2 | 10 → 0x76F | `W_EX010_90` |
+| 0x17 | Two Become One | 0x21F | 148 | 5 | 4 | | `W_EX010_P0` |
 | 0x18 | Bond of Flame | 0x1F2 (`0x1347C`) | 141 (`0x14284`) | 4 | 4 | 20 → 0x779 | `W_EX010_K0` |
 
 The asset step finds each by its English name (`kh2_keyblades::find`, case-insensitive; a
@@ -638,7 +638,7 @@ outside 2..11 is refused (no remap). No Keyblade needed anything else; none was 
 | 0x14 | Monochrome | 39 | +3 | +2 | 0.7786 | −3.6980 | x1.00 | 564 (522 / 42) |
 | 0x15 | Follow the Wind | 40 | +3 | +1 | 1.0397 | −4.9382 | x1.33 | 558 (522 / 36) |
 | 0x16 | Hidden Dragon | 41 | +2 | +2 | 0.8997 | −4.2732 | x1.15 | 554 (488 / 66) |
-| 0x17 | Photon Debugger | 42 | +3 | +2 | 0.7779 | −3.6944 | x1.00 | 482 (482 / 0) |
+| 0x17 | Two Become One | 42 | +5 | +4 | 0.8870 | −4.2129 | x1.14 | 568 (526 / 42) |
 | 0x18 | Bond of Flame | 43 | +4 | +4 | 0.9100 | −4.3223 | x1.17 | 586 (540 / 46) |
 
 All rows: radius 40, `blade_near` 0, fraction scale 0.8, crit 20, crit bonus 0, priority 30
@@ -700,3 +700,22 @@ In-game checklist (KH1 setting, Sora's story; files of this run installed):
 - Log (Checked): the PLAYER table had 633 rows. Each equip (Three Wishes, Crabclaw,
   Pumpkinhead, Diamond Dust, One-Winged Angel) queued its group, the weapon was rebuilt at camp
   close with that group, and the previous group was unloaded. No fallback lines.
+
+## Correction: Re:CoM's real card names (0.11.1, owner 2026-10-31)
+
+- The strings at `0x1405060F0` are the exe's internal names, not the names the cards show.
+  Re:CoM's own card names (`0x140164CA0`, shown on the camp page) for kinds 0x14..0x17 are Total
+  Eclipse, Midnight Roar, Maverick Flare and Two Become One. The names are from the owner's camp
+  page and Re:CoM's list; the exact message ids are not read.
+- Owner: Star Seeker and Bond of Flame were the right Keyblades. Two Become One wasn't (it had
+  KH2's Photon Debugger), but KH2 has it.
+- Card 0x17 now takes **KH2's Two Become One**: item 0x21F, stat row 148, Strength +5,
+  Magic +4, model `W_EX010_P0`, blade 0.887 m → reach −4.213 (x1.14). It maps like the others:
+  bones {2, 3, 5, 7, 9, 11}, 568 triangles. Checked (files).
+  - Its UVs reach 1.00024, one step of KH2's 1/4096 fixed point past the edge. They are kept
+    as KH2 stores them.
+- Total Eclipse (0x14), Midnight Roar (0x15) and Maverick Flare (0x16) exist in neither KH1 nor
+  KH2. For now they keep the KH2 placeholders Monochrome, Follow the Wind and Hidden Dragon:
+  their models and numbers. Owner: "for right now the placeholder models are fine".
+  `kh2_keyblades::RECOM_NAMES` marks them.
+

@@ -11,6 +11,21 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 26: Two Become One from KH2, version 0.11.1 (2026-10-31)
+
+> "star seeker and bond of flame are correct. two become one is the wrong keyblade, but the
+> correct keyblade exists in KH2. the rest of the keyblades do not exist inside of KH2 or KH1,
+> but for right now the placeholder models are fine"
+
+- Finding: the exe's strings at `0x1405060F0` are internal names. The cards Re:CoM shows for
+  kinds 0x14..0x17 are Total Eclipse, Midnight Roar, Maverick Flare and Two Become One.
+- Card 0x17 now converts KH2's Two Become One (item 0x21F, stat 148, Strength +5, Magic +4,
+  `W_EX010_P0`, reach x1.14) in group 42. Checked (files). 0x14..0x16 keep their KH2
+  placeholders. Asset step only; the DLL is unchanged apart from its version.
+- Not seen in game.
+
+---
+
 ## Stage 25: enemy reactions to Guard, version 0.11.0 (2026-10-31)
 
 > decision 27: "Fly back, hurt enemies" / "Flinch" / "Include them" / default "On"

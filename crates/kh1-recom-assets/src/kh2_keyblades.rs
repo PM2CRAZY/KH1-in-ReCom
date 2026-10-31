@@ -23,16 +23,35 @@ use kh2_formats_lite::{bar::Bar, msg::Messages, objentry, skeleton::Bone, system
 
 use crate::{bad, Result};
 
-/// Re:CoM's Keyblade card kinds that come from KH2, with Re:CoM's (and KH2's) English names.
-/// The kinds are the order of Re:CoM's Keyblade names at `0x1405060F0` (Soul Eater 0x12 is
-/// not for Sora). Checked (exe).
+/// Re:CoM's Keyblade card kinds that take a KH2 Keyblade, and the KH2 Keyblade's English name.
+///
+/// - The strings at `0x1405060F0` are the exe's internal names, not the cards' names. The
+///   cards Re:CoM shows (its own messages, `0x140164CA0`) are, for kinds 0x14..0x17: Total
+///   Eclipse, Midnight Roar, Maverick Flare and Two Become One. Owner, 2026-10-31, from the
+///   camp page: Star Seeker and Bond of Flame were right, Two Become One wasn't.
+/// - Two Become One (0x17) is KH2's own Keyblade of that name.
+/// - Total Eclipse, Midnight Roar and Maverick Flare exist in neither KH1 nor KH2. They keep
+///   KH2 placeholders (Monochrome, Follow the Wind, Hidden Dragon), models and numbers, for now
+///   (owner: "for right now the placeholder models are fine").
+/// - Soul Eater (0x12) is not for Sora.
 pub const KH2_KEYBLADES: [(u8, &str); 6] = [
     (0x13, "Star Seeker"),
     (0x14, "Monochrome"),
     (0x15, "Follow the Wind"),
     (0x16, "Hidden Dragon"),
-    (0x17, "Photon Debugger"),
+    (0x17, "Two Become One"),
     (0x18, "Bond of Flame"),
+];
+
+/// Re:CoM's card names for [`KH2_KEYBLADES`] (what the camp page shows), and whether the KH2
+/// Keyblade only stands in for a Keyblade neither KH1 nor KH2 has.
+pub const RECOM_NAMES: [(u8, &str, bool); 6] = [
+    (0x13, "Star Seeker", false),
+    (0x14, "Total Eclipse", true),
+    (0x15, "Midnight Roar", true),
+    (0x16, "Maverick Flare", true),
+    (0x17, "Two Become One", false),
+    (0x18, "Bond of Flame", false),
 ];
 
 /// The KH2 message file holding the item names (US English; the names are matched in it).

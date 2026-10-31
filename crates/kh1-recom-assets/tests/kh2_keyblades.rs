@@ -89,7 +89,7 @@ fn a_the_six_and_their_kh2_numbers() {
             (0x14, "Monochrome", 0x1E5, 128, 3, 2, "W_EX010_60"),
             (0x15, "Follow the Wind", 0x1E6, 129, 3, 1, "W_EX010_70"),
             (0x16, "Hidden Dragon", 0x1E1, 124, 2, 2, "W_EX010_40"),
-            (0x17, "Photon Debugger", 0x1E8, 131, 3, 2, "W_EX010_90"),
+            (0x17, "Two Become One", 0x21F, 148, 5, 4, "W_EX010_P0"),
             (0x18, "Bond of Flame", 0x1F2, 141, 4, 4, "W_EX010_K0"),
         ]
     );
@@ -175,7 +175,10 @@ fn c_all_six_convert() {
         let drawn = |l: &[MeshPacket]| l.iter().flat_map(|p| p.verts.iter()).filter(|v| v.draws()).count();
         assert_eq!(drawn(&m.parts[0].list_a) + drawn(m.parts[0].list_b.as_deref().unwrap_or(&[])), r.triangles);
         assert_eq!(drawn(&m.parts[1].list_a), r.triangles);
-        assert!(r.uv_range.0 >= 0.0 && r.uv_range.1 <= 1.0 && r.uv_range.2 >= 0.0 && r.uv_range.3 <= 1.0, "uv {:?}", r.uv_range);
+        // KH2's own UVs, kept as they are: Two Become One's reach 1.00024 (one step of KH2's
+        // 1/4096 fixed point past the edge).
+        let edge = 1.0 + 1.0 / 2048.0;
+        assert!(r.uv_range.0 >= 0.0 && r.uv_range.1 <= edge && r.uv_range.2 >= 0.0 && r.uv_range.3 <= edge, "uv {:?}", r.uv_range);
         for name in &c.textures {
             assert!(names.insert(name.clone()), "texture name {name} twice");
         }
