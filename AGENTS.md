@@ -11,6 +11,21 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 20: the stance idle after Guard and Counterattack in the field, version 0.8.1 (2026-10-31)
+
+> "when sora guards out of combat, the animation needs to smoothly go into the correct idle"
+> (owner's video: the Guard ends in the battle crouch, then the field idle pops in)
+
+- Re:CoM's idle choice `0x1401E6AC0`: the stance idle (row 0x2A, `p001_031`) in battle stance,
+  or when the previous or current row is 0x24–0x25 or a swing row 0x30–0x33 (or the current row
+  is 0x2A); else the field idle (row 1). Checked (decomp).
+- Our KH1-only rows (Guard, Counterattack, appended after 0x47) end in the battle stance like
+  Re:CoM's swings, but the rule didn't count them, so a field Guard went to the field idle.
+  `rows::row_for` now counts them as swing rows. Test added.
+- Not seen in game.
+
+---
+
 ## Stage 19: Keyblades at the KH1 setting, step 1 (owning and equipping), version 0.8.0 (2026-10-31)
 
 > "a. Besides soul eater, every other keyblade should be from KH2 … incorporated NATIVELY in this

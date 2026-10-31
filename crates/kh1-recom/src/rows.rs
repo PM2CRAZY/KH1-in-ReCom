@@ -87,6 +87,11 @@ impl Extension {
     pub fn count(&self) -> usize {
         self.rows.iter().flatten().count()
     }
+
+    /// Whether `row` is one of our appended KH1-only rows (Guard, Counterattack).
+    pub fn has_row(&self, row: i32) -> bool {
+        self.rows.iter().flatten().any(|&r| r as i32 == row)
+    }
 }
 
 /// What the row picker reads from the player.
@@ -115,7 +120,10 @@ impl Stance {
 pub fn row_for(req: u16, s: &Stance, ext: &Extension) -> Option<(u32, bool)> {
     let r = match req {
         request::IDLE => {
-            if s.idle_battle() {
+            // Our KH1-only rows (Guard, Counterattack) end in the battle stance like Re:CoM's swing
+            // rows, so `0x1401E6AC0`'s rule counts them as swing rows: the stance idle 0x2A after
+            // them, as after a swing (owner, 2026-10-31: the field Guard snapped to the field idle).
+            if s.idle_battle() || ext.has_row(s.row) || ext.has_row(s.prev_row) {
                 row::STANCE_IDLE
             } else {
                 row::IDLE
@@ -183,6 +191,16 @@ mod tests {
         let field = Stance { flag_418_2: true, ..Default::default() };
         let ext = Extension::default();
         assert_eq!(row_for(0, &field, &ext), Some((row::IDLE, false)));
+        // After the Guard or Counterattack row (ours), the stance idle, as after a swing.
+        let both = Extension::plan(|_| true);
+        let guard = both.get(GUARD).expect("guard row");
+        let after_guard = Stance { row: guard as i32, ..field };
+        assert_eq!(row_for(0, &after_guard, &both), Some((row::STANCE_IDLE, false)));
+        let after_guard_prev = Stance { prev_row: guard as i32, row: row::IDLE as i32, ..field };
+        assert_eq!(row_for(0, &after_guard_prev, &both), Some((row::STANCE_IDLE, false)));
+        let counter = both.get(COUNTERATTACK).expect("counterattack row");
+        assert_eq!(row_for(0, &Stance { row: counter as i32, ..field }, &both), Some((row::STANCE_IDLE, false)));
+        assert_eq!(row_for(0, &field, &both), Some((row::IDLE, false)), "a plain field idle stays Re:CoM's");
         assert_eq!(row_for(1, &field, &ext), Some((row::WALK, false)));
         assert_eq!(row_for(2, &field, &ext), Some((row::RUN, false)));
         let b = Stance { flag_418_2: false, ..Default::default() };
