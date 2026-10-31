@@ -279,6 +279,23 @@ unless tagged.
 - Note to re-check: Stage 9 found the roll's `0x140297F30(Sora, 12)` leaves damage on (no-flinch
   only); this research reads flag 0x80 as no damage too (`0x1402BEEE0`). The roll is unchanged.
 
+### The Keyblade on Guard (0.7.4; owner: "when sora doesnt have his keyblade out and does guard, the keyblade should appear")
+
+- **Re:CoM** (Checked, decomp + exe):
+  - Sora's vtable (`0x1405A9938`) `+0xF8` = `0x1401F5D30` draws the Keyblade. It calls the
+    weapon's `0x140225240(weapon, 1)`, which, only if the blade is put away (`weapon+0x154 & 1`),
+    shows it and plays the `kb_appear` effect. Then it clears `player+0x418 & 2`.
+  - `+0x100` = `0x1401F5480` puts it away (`weapon+0x154 |= 1`, `player+0x418 |= 2`).
+  - The swing init `0x1401F0F70` ends by calling `+0xF8` with 1.
+  - Re:CoM puts the blade away at state and action changes: leaving the Battle state
+    (`0x1401EA310`, always), leaving the Field state (`0x1401EA3A0`, when bit variable 1 is set),
+    carry `0x1401F1670`, the ledge climb `0x1401F2C20`, and others.
+- **The mod:** the Guard start calls `0x1401F5D30(Sora, 1)`, as a swing does. Re:CoM's own rules
+  put it away. Byte-checked callee.
+- **KH1** (Assumption, from playing KH1; not checked in the decomp): Sora always holds the
+  Keyblade, in towns too. Matching that at the KH1 setting is a scope question for the owner,
+  not done.
+
 ### Guard sounds (0.7.2; owner: "Re:CoM's sounds now")
 
 Research notes `guard-counter-sounds.md` (kept with the decomp tools).

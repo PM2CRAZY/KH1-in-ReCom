@@ -238,6 +238,10 @@ pub trait Host {
     fn set_untouchable(&mut self, _on: bool) {}
     /// Re:CoM's guard spark and its clink at the guarded point (once per guard success).
     fn guard_clink(&mut self) {}
+    /// Re:CoM's own "draw the Keyblade" (Sora's vtable `+0xF8` = `0x1401F5D30` with 1, as the
+    /// swing init `0x1401F0F70` calls it): the `kb_appear` effect when it was put away. Re:CoM's
+    /// own rules put it away again (state terms, carry, climb).
+    fn draw_weapon(&mut self) {}
     /// Whether Re:CoM can play this KH1 row (its attack row exists).
     fn row_available(&mut self, _kh1_row: usize) -> bool {
         true
@@ -992,6 +996,7 @@ impl Kh1Sora {
                 self.target_yaw = d.yaw();
                 // `0x1402A3980` for row 0x3D: the Guard motion (its repel is M5's attack object).
                 self.clashed = false;
+                h.draw_weapon();
                 self.play(crate::rows::GUARD as u32 | req::ACTION, 0.0);
                 self.append(req::RELEASE | request::IDLE as u32, 0.0);
                 ev.push(Event::Guarded);

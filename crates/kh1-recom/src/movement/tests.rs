@@ -79,6 +79,7 @@ struct FakeRecom {
     block_next: bool,
     untouchable: bool,
     clinks: u32,
+    draws: u32,
 }
 
 impl FakeRecom {
@@ -108,6 +109,7 @@ impl FakeRecom {
             block_next: false,
             untouchable: false,
             clinks: 0,
+            draws: 0,
         }
     }
 
@@ -231,6 +233,9 @@ impl Host for FakeRecom {
     }
     fn guard_clink(&mut self) {
         self.clinks += 1;
+    }
+    fn draw_weapon(&mut self) {
+        self.draws += 1;
     }
     fn set_untouchable(&mut self, on: bool) {
         self.untouchable = on;
@@ -766,6 +771,7 @@ fn guard_success_recoils_and_offers_the_counterattack_from_frame_12() {
         step_with_target(&mut p, Pad { square: k == 4, ..Default::default() });
     }
     assert_eq!(p.ours.rec.head(), crate::rows::GUARD);
+    assert_eq!(p.recom.draws, 1, "Guard draws the Keyblade through Re:CoM's own function, once");
     // The guard object (and Re:CoM's body guard) is live on frames 10–36 of the Guard motion.
     let mut live_from = None;
     for k in 0..20 {

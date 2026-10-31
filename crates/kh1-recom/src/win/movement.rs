@@ -130,8 +130,11 @@ const LEDGE_CLIMB_CHECK: u32 = 0x001E_8C00;
 const LEDGE_CLIMB_INIT: u32 = 0x001F_2C20;
 const LEDGE_HANG_CHECK: u32 = 0x001E_8420;
 const LEDGE_HANG_INIT: u32 = 0x001F_26A0;
+/// `CPlayerSora`'s "draw the Keyblade" (vtable `+0xF8`; Checked (exe: `0x1405A9A30` holds it)).
+const SHOW_WEAPON: u32 = 0x001F_5D30;
 
 pub(super) type PlayerFn = unsafe extern "win64" fn(usize);
+type ShowFn = unsafe extern "win64" fn(usize, i32);
 type ClassFn = unsafe extern "win64" fn(usize) -> u64;
 pub(super) type InitFn = unsafe extern "win64" fn(usize, i32) -> u64;
 pub(super) type MotionFn = unsafe extern "win64" fn(usize, i32, i32, u64, i32, i32, i32);
@@ -515,6 +518,10 @@ impl Host for RecomHost {
             let f: u32 = rd(self.pl + p::FLAGS_418);
             wr(self.pl + p::FLAGS_418, if on { f | 1 } else { f & !1 });
         }
+    }
+
+    fn draw_weapon(&mut self) {
+        unsafe { func::<ShowFn>(SHOW_WEAPON)(self.pl, 1) }
     }
 
     fn guard_clink(&mut self) {

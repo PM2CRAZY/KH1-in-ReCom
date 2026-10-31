@@ -11,6 +11,23 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 17: the Keyblade appears on Guard, version 0.7.4 (2026-10-31)
+
+> "when sora doesnt have his keyblade out and does guard, the keyblade should appear"
+
+- The Guard start calls Re:CoM's own "draw the Keyblade", `0x1401F5D30(Sora, 1)` (Sora's
+  vtable `+0xF8`, as the swing init `0x1401F0F70` calls it). It plays `kb_appear` only when the
+  blade was put away. Re:CoM's own rules put it away again. New byte-checked callee. Checked
+  (exe + decomp).
+- Owner's trace 10 (0.7.2): 2 of 4 Guards blocked. The 2 that didn't were hit on Guard frame 4
+  (startup) and frame 55 (after the motion), outside KH1's live frames 10–36. Checked (trace +
+  files). The window stays KH1's.
+- Owner: Sora is at max level, so the 300-damage hits (KH1's cap, Strength 51) are right.
+- Assumption: KH1's Sora always holds the Keyblade. Not built; to ask.
+- Not seen in game.
+
+---
+
 ## Stage 16: KH1 model writer, the flip test's step 1, version 0.7.3 (2026-10-30)
 
 > "would it not be easier to just bring all the maps and unique enemies/bosses into KH1 as a mod
