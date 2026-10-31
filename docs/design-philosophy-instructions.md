@@ -226,6 +226,17 @@ At KH1 setting:
     - **bosses and duels included**.
     Research: `guard-enemy-reactions.md` (kept with the decomp tools).
 
+28. Turned-back shots (owner, 2026-10-31): a shot Sora's Guard sends back must do damage
+    ("it sends it back but doesnt do any damage. make that do damage").
+29. M6, battles at the KH1 setting (owner, 2026-10-31, "go ahead"):
+    - **Re:CoM's separate battle rooms stay** (field contact → battle instance, as Re:CoM).
+    - **No deck in battle at KH1**: no card drawing, no card UI. Sora still collects cards (drops,
+      rewards, shops), so switching back to Re:CoM combat works.
+    - **Enemies don't play cards at KH1.**
+    - **Several enemies can attack at the same time, exactly as in KH1** (no card-battle turn
+      taking).
+    - Re:CoM's events, scripts and bosses must still get every value they read (the main risk).
+
 ## Known open design questions (ask the owner, don't guess)
 
 - Revisit later: party, progression.
