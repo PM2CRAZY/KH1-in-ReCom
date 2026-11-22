@@ -1,5 +1,8 @@
 # Build bot: on every push to `testing`, run the tests, build the Windows DLL (MinGW, the same
-# toolchain as tools/build-win.sh) and commit it to openkh/kh1-recom.dll on `testing`.
+# toolchain as tools/build-win.sh), commit it to openkh/kh1-recom.dll on `testing`, and publish the
+# GitHub Release `v<VERSION>-<commit>` with KH1-in-ReCom.zip (mod.yml + the DLL), the archive
+# OpenKH's "Install a new mod" → "Select and install Mod Archive" takes. Every build gets its own
+# release; the newest is marked latest.
 name: build
 on:
   push:
@@ -35,3 +38,29 @@ jobs:
           git commit -m "build: kh1-recom.dll $(cat VERSION) [skip ci]"
           git checkout -- . && git pull --rebase origin testing
           git push origin HEAD:testing
+      - name: OpenKH zip
+        run: |
+          set -euo pipefail
+          # mod.yml at the zip's root and the one file its assets name. A fixed name, so installing
+          # a newer zip replaces the same mod folder.
+          zip -X -q KH1-in-ReCom.zip mod.yml openkh/kh1-recom.dll README.md
+          unzip -l KH1-in-ReCom.zip
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          sha=$(git rev-parse --short=7 HEAD)
+          tag="v$version-$sha"
+          {
+            echo "KH1 Combat in Re:CoM **$version** (commit \`$sha\`)."
+            echo
+            echo "## Install with OpenKH (Re:CoM selected)"
+            echo
+            echo "- From GitHub: Mods → **Install a new mod** → \`${{ github.repository }}\` → tick it → **Build**."
+            echo "- Or from the zip: download **KH1-in-ReCom.zip** below → **Install a new mod** → **Select and install Mod Archive** → tick it → **Build**. To update, install the newer zip the same way."
+            echo
+            echo "Then start Re:CoM: the title builds the KH1 files by itself. Requirements: see README.md."
+          } > notes.md
+          gh release create "$tag" --target "$(git rev-parse HEAD)" --title "$version ($sha)" --notes-file notes.md --latest KH1-in-ReCom.zip
