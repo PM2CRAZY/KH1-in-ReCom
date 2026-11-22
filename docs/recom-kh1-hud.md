@@ -944,6 +944,20 @@ optional key: the format stays 3): the panel (`UK_uibin_cut.bin`'s `cut_fra_a` f
 2026-11-01). KH1's rules and the DLL side: `recom-m7-command-menu.md` § 7.12. Checked (decomp +
 files + offline render).
 
+**The pad in use** (a tester with an Xbox pad saw the PlayStation glyphs). Re:CoM's own button
+glyphs follow its pad type: the controller config (`0x14034E930` → `0x14083F574`) `+0x1C`, which
+`0x140349120` reads to fill its glyphs from `0xE3F0` (type 1), `0xE410` (2) or `0xE430` (3), each
+set Square's place, Triangle's, Cross's, Circle's; any type other than 2 and 3 reads as 1
+(Checked (exe): `sites::COMMAND_MENU_CHECKED`). In `Icon.tm2`, `0xE3F0..` are the Xbox X / Y / A / B
+and `0xE430..` a generic pad's left / top / bottom / right (Checked (files)).
+- Asset step (`shortcut::pad_glyphs`): 8 more groups after every other group (no group before them
+  moves), type 1's Triangle / Square / Cross / Circle places, then type 3's; `kh1-hud.json`
+  `"shortcut": {…, "pads": <first>}` (optional: older manifests have none).
+- DLL (`ShortcutGroups::glyph`, `win::command_menu::PAD_TYPE` = `0x14083F590`): the panel's glyphs
+  and the context tab's Triangle are picked by the pad type when they are made (type 2, or no
+  `"pads"`: the PlayStation groups as before). With the keyboard in use the pad type's glyphs stay
+  (Re:CoM shows the bound keys; not done here).
+
 ## Combat = Re:CoM: Re:CoM's HUD (0.102.3)
 
 Owner, 2026-11-04: "with combat set to RE:CoM the hud should also go back to the normal positioning".

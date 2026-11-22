@@ -1595,7 +1595,8 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
         None => None,
     };
     // Stage 7.12: KH1's shortcut panel (with the menu: its words are the menu's).
-    let shortcut_built = match src.menu.as_ref().and_then(|ms| ms.cut.map(|c| (c, ms.icon))) {
+    let shortcut_icon = src.menu.as_ref().and_then(|ms| ms.icon);
+    let mut shortcut_built = match src.menu.as_ref().and_then(|ms| ms.cut.map(|c| (c, ms.icon))) {
         Some((cut, icon)) => Some(shortcut::build(cut, &mut atlas, p0_whole, mp[0], icon, &mut groups)?),
         None => None,
     };
@@ -1653,9 +1654,17 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
         let inputs = ring::Inputs { objs, it5, it7, back, mp: mp_q, charge: charge_q, black, div };
         groups.extend(ring::groups(&inputs, &mut ring_stats)?);
     }
+    let ring_end = groups.len();
+    // The other pad types' button glyphs (the shortcut panel's and the context tab's), after
+    // every other group so no group before them moves.
+    if let Some(sc) = shortcut_built.as_mut() {
+        if sc.icons {
+            sc.pads = shortcut::pad_glyphs(&mut atlas, shortcut_icon, &mut groups)?;
+        }
+    }
     let groups_total = groups.len();
     // The ring's straight pieces, before they get boxes of their own (`ring::lift_straights`).
-    let straights = ring::straight_marks(&groups[ring_first..], &[it5, it7]);
+    let straights = ring::straight_marks(&groups[ring_first..ring_end], &[it5, it7]);
     let mut raw = vec![it5, it6, it7, p0, p0_whole];
     raw.extend(&faces);
     raw.extend(&mp);
@@ -1663,7 +1672,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
     raw.extend(party5);
     let refit = fit_layouts(&mut atlas, &groups, &raw);
     split_raw(&mut atlas, &mut groups, &raw);
-    ring::lift_straights(&mut atlas, &mut groups[ring_first..], &straights)?;
+    ring::lift_straights(&mut atlas, &mut groups[ring_first..ring_end], &straights)?;
     let packed = build_atlas(&atlas, langs.len())?;
     let base = seqd(&groups, &packed, false)?;
     let hd = seqd(&groups, &packed, true)?;
@@ -2435,6 +2444,15 @@ pub mod shortcut {
 
     /// The glyphs' `FontIcon.inf` records, in the groups' order.
     pub const GLYPH_CODES: [u16; 4] = [ICON_TRIANGLE, ICON_SQUARE, ICON_CROSS, ICON_CIRCLE];
+    /// The other pad types' glyphs, in [`GLYPH_CODES`]' order (Triangle's place, Square's, Cross's,
+    /// Circle's). Re:CoM's controller config (`0x14034E930` → `0x14083F574`) `+0x1C` is the pad
+    /// type; `0x140349120` fills its button glyphs from `0xE3F0` (type 1), `0xE410` (type 2, the
+    /// PlayStation set above) or `0xE430` (type 3), each set Square's place, Triangle's, Cross's,
+    /// Circle's (Checked (exe)). `Icon.tm2`: `0xE3F0..` the Xbox X / Y / A / B, `0xE430..` a
+    /// generic pad's left / top / bottom / right (Checked (files)).
+    pub const PAD_CODES: [[u16; 4]; 2] = [[0xE3F1, 0xE3F0, 0xE3F2, 0xE3F3], [0xE431, 0xE430, 0xE432, 0xE433]];
+    /// The pad glyph groups ([`pad_glyphs`]): pad type 1's four, then type 3's.
+    pub const PAD_COUNT: usize = 8;
     /// `cut_ico_a / b / c`'s places (the DLL's `crate::command_menu::shortcut::GLYPH_AT`).
     pub const GLYPH_AT: [(i32, i32); 3] = [(91, 23), (91, 45), (91, 67)];
 
@@ -2445,6 +2463,29 @@ pub mod shortcut {
         pub first: usize,
         /// The glyph groups hold the PC's button art.
         pub icons: bool,
+        /// The other pad types' glyph groups' first ([`pad_glyphs`]), when built.
+        pub pads: Option<usize>,
+    }
+
+    /// One glyph's group: the cell drawn 16 × 19 at its own origin (as the context tab's Triangle).
+    fn glyph_group(atlas: &mut Atlas, hd: Pic) -> Group {
+        let (w, h) = (hd.w / 2, hd.h / 2);
+        let item = atlas.add(menu::half(&hd), vec![hd], 2);
+        menu::held1(vec![Piece { item, uv: [0, 0, w as i32, h as i32], rect: menu::tab::TRIANGLE_RECT, colour: 0x8080_8080, grad: 0 }])
+    }
+
+    /// The other pad types' glyphs ([`PAD_CODES`]), [`PAD_COUNT`] groups appended to `groups`;
+    /// their first, or None without `Icon.tm2`.
+    pub(crate) fn pad_glyphs(atlas: &mut Atlas, icon: Option<[&[u8]; 2]>, groups: &mut Vec<Group>) -> Result<Option<usize>> {
+        let Some([tm2, inf]) = icon else { return Ok(None) };
+        let pic = menu::tim2_rgba(tm2)?;
+        let cells = PAD_CODES.iter().flatten().map(|&c| menu::icon_cell(&pic, inf, c)).collect::<Result<Vec<Pic>>>()?;
+        let first = groups.len();
+        for hd in cells {
+            groups.push(glyph_group(atlas, hd));
+        }
+        debug_assert_eq!(groups.len() - first, PAD_COUNT);
+        Ok(Some(first))
     }
 
     /// Builds the panel's groups (appended to `groups`): `p0` an atlas item of `uitex.bin`'s
@@ -2475,17 +2516,12 @@ pub mod shortcut {
         let icons = pics.is_some();
         for k in 0..GLYPH_CODES.len() {
             match &pics {
-                Some(p) => {
-                    let hd = p[k].clone();
-                    let (w, h) = (hd.w / 2, hd.h / 2);
-                    let item = atlas.add(menu::half(&hd), vec![hd], 2);
-                    groups.push(menu::held1(vec![Piece { item, uv: [0, 0, w as i32, h as i32], rect: menu::tab::TRIANGLE_RECT, colour: 0x8080_8080, grad: 0 }]));
-                }
+                Some(p) => groups.push(glyph_group(atlas, p[k].clone())),
                 None => groups.push(held(&[vec![]])),
             }
         }
         debug_assert_eq!(groups.len() - first, g::COUNT);
-        Ok(Built { first, icons })
+        Ok(Built { first, icons, pads: None })
     }
 }
 
@@ -2877,7 +2913,14 @@ pub fn manifest_json(b: &Built, langs: &[String], sources: &[(&str, String)], re
         let _ = writeln!(s, "  \"target\": {{\"first\": {t}}},");
     }
     if let Some(sc) = &b.shortcut {
-        let _ = writeln!(s, "  \"shortcut\": {{\"first\": {}, \"icons\": {}}},", sc.first, sc.icons);
+        match sc.pads {
+            Some(p) => {
+                let _ = writeln!(s, "  \"shortcut\": {{\"first\": {}, \"icons\": {}, \"pads\": {p}}},", sc.first, sc.icons);
+            }
+            None => {
+                let _ = writeln!(s, "  \"shortcut\": {{\"first\": {}, \"icons\": {}}},", sc.first, sc.icons);
+            }
+        }
     }
     if let Some(mn) = &b.menu {
         let words = mn.words.iter().map(|(l, w)| format!("\"{l}\": [{}]", w.iter().map(|(id, g)| format!("[{id}, {g}]")).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join(", ");

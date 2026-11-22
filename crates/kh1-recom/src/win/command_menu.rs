@@ -86,6 +86,15 @@ const POINT_TRIANGLE: u32 = 0x0029_B550;
 /// Re:CoM's confirm button (u16, PS2 order; `0x140346BB0` returns it, `sites::COMMAND_MENU_CHECKED`):
 /// the shortcut panel's third glyph.
 const CONFIRM_KEY: u32 = 0x0083_F3F0;
+/// Re:CoM's pad type (u16; its controller config `0x14083F574` (`0x14034E930`) `+0x1C`): the
+/// button glyph set `0x140349120` shows (1 Xbox, 2 PlayStation, 3 a generic pad;
+/// `sites::COMMAND_MENU_CHECKED`). The shortcut panel's and the context tab's glyphs follow it.
+const PAD_TYPE: u32 = 0x0083_F590;
+
+/// Re:CoM's pad type now ([`PAD_TYPE`]).
+unsafe fn pad_type() -> u16 {
+    rd::<u16>(base() + PAD_TYPE as usize)
+}
 /// CGimmickDoor's type getter (its vtable `+0x28`); the others are `mov eax, imm32; ret`.
 const DOOR_TYPE: u32 = 0x001B_8A10;
 const SEQ_CTRL_VTABLE: u32 = 0x0060_7340;
@@ -537,9 +546,10 @@ impl Ui {
         let confirm = if cm::shortcut::confirm_is_circle(rd::<u16>(base() + CONFIRM_KEY as usize)) { g::CIRCLE } else { g::CROSS };
         let mut glyphs = [0; 3];
         if sg.icons {
+            let pad = pad_type();
             for (k, grp) in [g::TRIANGLE, g::SQUARE, confirm].into_iter().enumerate() {
                 let (x, y) = at::GLYPH_AT[k];
-                glyphs[k] = self.kh1_ctrl(PRIORITY_ROOT, o.0 + x, o.1 + y + cm::tab::GLYPH_DY, 1.0, &[(sg.first + grp, None)]).unwrap_or(0);
+                glyphs[k] = self.kh1_ctrl(PRIORITY_ROOT, o.0 + x, o.1 + y + cm::tab::GLYPH_DY, 1.0, &[(sg.glyph(grp, pad), None)]).unwrap_or(0);
                 colour(glyphs[k], one);
             }
         }
@@ -591,7 +601,11 @@ impl Ui {
         }
         self.clear_tab();
         let mut ctrls = Vec::new();
-        let tri = g.tab_icon.then_some(g.first + kh::menu::TRIANGLE);
+        // The Triangle of the pad in use (the Xbox Y, ...): the shortcut panel's glyph groups.
+        let tri = g.tab_icon.then(|| match super::kh1_hud::manifest().and_then(|m| m.shortcut).filter(|sg| sg.icons && sg.pads.is_some()) {
+            Some(sg) if pad_type() != 2 => sg.glyph(kh::shortcut::TRIANGLE, pad_type()),
+            _ => g.first + kh::menu::TRIANGLE,
+        });
         let word = g.word(lang, t.name);
         for (k, grp) in [Some(g.first + kh::menu::TAB), tri, word].into_iter().enumerate() {
             let c = grp.and_then(|grp| self.kh1_ctrl(PRIORITY_ROOT, at[k].0, at[k].1, 1.0, &[(grp, None)])).unwrap_or(0);

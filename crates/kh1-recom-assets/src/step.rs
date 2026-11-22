@@ -1419,10 +1419,14 @@ fn kh1_hud_build(game: &Path, keys: kh1_formats::egs::KeyTable, arc: &kh1_format
     }
     match &b.shortcut {
         Some(sc) => println!(
-            "KH1 HUD: shortcut panel (M7 stage 7.12) from group {}: {} (picture 0's frame, picture 1's title); button glyphs {}",
+            "KH1 HUD: shortcut panel (M7 stage 7.12) from group {}: {} (picture 0's frame, picture 1's title); button glyphs {}{}",
             sc.first,
             kh::CUT,
-            if sc.icons { "Triangle / Square / Cross / Circle from Theater's Icon.tm2" } else { "MISSING (no Icon.tm2 / FontIcon.inf): the panel shows without them" }
+            if sc.icons { "Triangle / Square / Cross / Circle from Theater's Icon.tm2" } else { "MISSING (no Icon.tm2 / FontIcon.inf): the panel shows without them" },
+            match sc.pads {
+                Some(p) => format!("; the other pad types' (Xbox Y / X / A / B, the generic pad's) from group {p}"),
+                None => String::new(),
+            }
         ),
         None => println!("note: KH1 HUD: no shortcut panel (no {} or no command menu look): the DLL's shortcuts cast without a panel", kh::CUT),
     }
