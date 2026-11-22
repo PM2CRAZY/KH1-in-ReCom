@@ -309,6 +309,54 @@ impl Pic {
         }
         p
     }
+    /// A copy resampled to `w`×`h` by area averaging: each texel is the mean of the source area
+    /// it covers, colour weighted by alpha (clear texels add no colour), as [`Pic::bilinear`].
+    fn resampled(&self, w: usize, h: usize) -> Pic {
+        let (sx, sy) = (self.w as f64 / w as f64, self.h as f64 / h as f64);
+        // Each output column's / row's source spans: (source index, coverage).
+        let spans = |n: usize, s: f64, max: usize| -> Vec<Vec<(usize, f64)>> {
+            (0..n)
+                .map(|i| {
+                    let (a, b) = (i as f64 * s, (i + 1) as f64 * s);
+                    let mut v = Vec::new();
+                    let mut k = a.floor() as usize;
+                    while (k as f64) < b && k < max {
+                        let c = (b.min(k as f64 + 1.0) - a.max(k as f64)).max(0.0);
+                        if c > 0.0 {
+                            v.push((k, c));
+                        }
+                        k += 1;
+                    }
+                    v
+                })
+                .collect()
+        };
+        let (xs, ys) = (spans(w, sx, self.w), spans(h, sy, self.h));
+        let mut p = Pic::blank(w, h);
+        for (j, yrow) in ys.iter().enumerate() {
+            for (i, xcol) in xs.iter().enumerate() {
+                let (mut acc, mut area) = ([0f64; 4], 0f64);
+                for &(y, cy) in yrow {
+                    for &(x, cx) in xcol {
+                        let t = self.px[y * self.w + x];
+                        let a = t[3] as f64 * cx * cy;
+                        for c in 0..3 {
+                            acc[c] += t[c] as f64 * a;
+                        }
+                        acc[3] += a;
+                        area += cx * cy;
+                    }
+                }
+                p.px[j * w + i] = if acc[3] <= 0.0 || area <= 0.0 {
+                    [0; 4]
+                } else {
+                    let c = |k: usize| (acc[k] / acc[3]).round().clamp(0.0, 255.0) as u8;
+                    [c(0), c(1), c(2), (acc[3] / area).round().clamp(0.0, 255.0) as u8]
+                };
+            }
+        }
+        p
+    }
     /// A copy whose clear texels take the colour of the covered texels beside them (`passes`
     /// texels deep; alpha unchanged). The PC atlas is filtered: a clear texel's colour (black or
     /// white in the pictures) leaked into the edges of the art as a dark or light fringe, which
@@ -385,6 +433,36 @@ pub struct Source {
     pub scale: usize,
 }
 
+/// KH1 FM PC's own scale of its HUD pictures over the PS2 ones (the faces, pictures 1..7).
+const HD_SCALE: usize = 2;
+/// KH1 FM PC's scale of picture 0 (the LOCK ON! plate / shortcut panel frame).
+const HD_SCALE_PLATE: usize = 4;
+
+/// The PC texture at a whole multiple of the PS2 picture, at most `max` (KH1 FM PC's own scale
+/// for that picture). A replaced (texture mod) PC texture may be any size, e.g. Sora's face at
+/// 1200×400 over the PS2's 192×64 (6.25×), Donald's at 8×: it is resampled to the nearest whole
+/// scale, capped at `max` (the PC atlas then stays the stock 2048 × 1024; a texture mod's 4×-8×
+/// pictures made a 2048 × 4096 atlas per language that crashed Re:CoM on load), its height kept
+/// in proportion. A stock one (a whole multiple, at most `max`) is returned as it is.
+fn fit_hd(ps2: &Pic, hd: Pic, max: usize) -> Pic {
+    if ps2.w == 0 || hd.w == 0 || (hd.w % ps2.w == 0 && hd.w / ps2.w <= max && hd.h >= ps2.h * (hd.w / ps2.w)) {
+        return hd;
+    }
+    let r = hd.w as f64 / ps2.w as f64;
+    let s = (r.round() as usize).clamp(1, max.max(1));
+    let w = ps2.w * s;
+    let h = ((hd.h as f64 * w as f64 / hd.w as f64).round() as usize).max(ps2.h * s);
+    hd.resampled(w, h)
+}
+
+/// [`fit_hd`] for a picture's language copies, all at one size: a texture mod may replace some
+/// languages' copies only, so each copy is brought to the largest copy's size.
+fn fit_all(ps2: &Pic, per: Vec<Pic>, max: usize) -> Vec<Pic> {
+    let per: Vec<Pic> = per.into_iter().map(|p| fit_hd(ps2, p, max)).collect();
+    let Some(big) = per.iter().max_by_key(|p| p.w * p.h).map(|p| (p.w, p.h)) else { return per };
+    per.into_iter().map(|p| if (p.w, p.h) == big { p } else { p.resampled(big.0, big.1) }).collect()
+}
+
 fn hd_scale(ps2: &Pic, hd: &Pic) -> Result<usize> {
     let s = hd.w / ps2.w.max(1);
     if s == 0 || hd.w != ps2.w * s || hd.h < ps2.h * s {
@@ -438,7 +516,7 @@ pub fn face_section(sec: &[u8], at: usize, assets: &[HdAsset]) -> Result<Source>
     let ps2 = Pic { w, h, px };
     let name = format!("-{:x}.dds", at + 0x410);
     let a = assets.iter().find(|a| a.name.eq_ignore_ascii_case(&name)).ok_or_else(|| crate::Error::Format(format!("mdls: no PC face texture {name}")))?;
-    let hd = from_pc(&decode_dds(&a.data)?);
+    let hd = fit_hd(&ps2, from_pc(&decode_dds(&a.data)?), HD_SCALE);
     let scale = hd_scale(&ps2, &hd)?;
     Ok(Source { ps2, hd, scale })
 }
@@ -1335,6 +1413,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
             let hd = uitex_asset(src.uitex_hd, data, l)?.ok_or_else(|| crate::Error::Format(format!("uitex.bin: no PC texture for picture {i} (-{data:x}.dds)")))?;
             per.push(hd);
         }
+        let per = fit_all(&ps2, per, HD_SCALE);
         let scale = hd_scale(&ps2, &per[0])?;
         if per.iter().any(|p| p.w != per[0].w || p.h != per[0].h) {
             return bad(format!("uitex.bin: picture {i}'s language textures differ in size"));
@@ -1554,6 +1633,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
         for l in langs {
             per.push(uitex_asset(src.uitex_hd, data, l)?.ok_or_else(|| crate::Error::Format(format!("uitex.bin: no PC texture for picture {i}")))?);
         }
+        let per = fit_all(&ps2, per, HD_SCALE);
         let scale = hd_scale(&ps2, &per[0])?;
         // FM's context tab draws from picture 2's PC-only rows (`0x140278B40`): kept whole.
         if i == 2 {
@@ -1577,6 +1657,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
         for l in langs {
             per.push(uitex_asset(src.uitex_hd, data, l)?.ok_or_else(|| crate::Error::Format(format!("uitex.bin: no PC texture for picture {i}")))?);
         }
+        let per = fit_all(&ps2, per, HD_SCALE_PLATE);
         let scale = hd_scale(&ps2, &per[0])?;
         let whole: Vec<Pic> = per.iter().map(|p| p.crop(0, 0, 128 * scale, 128 * scale)).collect();
         let whole = if whole.iter().all(|p| *p == whole[0]) { vec![whole[0].clone()] } else { whole };
@@ -1615,6 +1696,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
             }
             let ps2 = Pic { w: 128, h: 128, px: t.pixels.clone() };
             let hd = uitex_asset(src.uitex_hd, data, langs[0])?.ok_or_else(|| crate::Error::Format(format!("uitex.bin: no PC texture for picture {i}")))?;
+            let hd = fit_hd(&ps2, hd, HD_SCALE);
             let scale = hd_scale(&ps2, &hd)?;
             let item = atlas.add(ps2, vec![hd.crop(0, 0, 128 * scale, 128 * scale)], scale);
             cursor_item = Some(item);
@@ -2307,6 +2389,15 @@ pub mod menu {
         sub_list(&mag.objs, groups);
         // FM's context tab: picture 2's PC-only rows, one atlas item a UV rect.
         debug_assert_eq!(groups.len() - first, g::TAB);
+        // The tab's pieces are made at KH1 FM PC's 2×: a texture mod's picture 2 at another whole
+        // scale (e.g. 4×, 512 × 768) is resampled to 2× first.
+        let pic2_2x;
+        let (pic2, s2) = if s2 > 2 {
+            pic2_2x = pic2.resampled(pic2.w * 2 / s2, pic2.h * 2 / s2);
+            (&pic2_2x, 2)
+        } else {
+            (pic2, s2)
+        };
         if s2 != 2 || pic2.h < 175 * s2 || pic2.w < 128 * s2 {
             return bad(format!("uitex.bin picture 2's PC texture is {}×{}: not KH1 FM PC's 256 × 384 with the context tab's rows", pic2.w, pic2.h));
         }
@@ -3175,5 +3266,56 @@ mod tests {
             std::fs::write(o.join("UK_kh1hud.imz"), &b.imz_hd[4]).unwrap();
             std::fs::write(o.join("kh1-hud.json"), manifest_json(&b, &langs.map(String::from), &[], None)).unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod hd_fit_tests {
+    use super::*;
+
+    fn solid(w: usize, h: usize, c: [u8; 4]) -> Pic {
+        Pic { w, h, px: vec![c; w * h] }
+    }
+
+    #[test]
+    fn a_stock_texture_is_kept_as_it_is() {
+        let ps2 = solid(192, 64, [1, 2, 3, 128]);
+        let hd = solid(384, 128, [9, 8, 7, 128]);
+        assert_eq!(fit_hd(&ps2, hd.clone(), HD_SCALE), hd);
+        // Picture 0 at KH1 FM PC's 4× stays 4×.
+        let (p0, hd0) = (solid(128, 128, [0; 4]), solid(512, 512, [5, 5, 5, 128]));
+        assert_eq!(fit_hd(&p0, hd0.clone(), HD_SCALE_PLATE), hd0);
+    }
+
+    #[test]
+    fn a_texture_mod_face_is_fitted_to_the_stock_scale() {
+        // A texture mod's Sora face: 1200×400 over the PS2's 192×64 (6.25×).
+        let ps2 = solid(192, 64, [0; 4]);
+        let hd = fit_hd(&ps2, solid(1200, 400, [200, 100, 50, 128]), HD_SCALE);
+        assert_eq!((hd.w, hd.h), (384, 128));
+        assert_eq!(hd_scale(&ps2, &hd).unwrap(), 2);
+        assert!(hd.px.iter().all(|p| *p == [200, 100, 50, 128]));
+        // Donald's / Goofy's at 8×, the uitex pictures at 4× and picture 2 (with its PC-only rows).
+        let f = fit_hd(&solid(48, 48, [0; 4]), solid(384, 384, [1; 4]), HD_SCALE);
+        assert_eq!((f.w, f.h), (96, 96));
+        let p2 = fit_hd(&solid(128, 128, [0; 4]), solid(512, 768, [1; 4]), HD_SCALE);
+        assert_eq!((p2.w, p2.h), (256, 384));
+    }
+
+    #[test]
+    fn language_copies_end_at_one_size() {
+        // A texture mod that replaced some languages' copies only.
+        let ps2 = solid(128, 128, [0; 4]);
+        let per = fit_all(&ps2, vec![solid(512, 512, [1; 4]), solid(256, 256, [2; 4]), solid(300, 300, [3; 4])], HD_SCALE);
+        assert!(per.iter().all(|p| (p.w, p.h) == (256, 256)));
+    }
+
+    #[test]
+    fn resampling_weights_colour_by_alpha() {
+        // Half clear (black), half opaque red: the mean keeps the red, alpha halves.
+        let mut p = solid(2, 1, [0, 0, 0, 0]);
+        p.px[1] = [255, 0, 0, 128];
+        let r = p.resampled(1, 1);
+        assert_eq!(r.px[0], [255, 0, 0, 64]);
     }
 }

@@ -70,6 +70,15 @@ Steam addresses (image base 0x140000000), both exes. Tags: **Checked (decomp)**,
 - **Atlas:** KH1's pictures 5, 6, 7 and the three faces, PS2 and PC; and KH1's arcs baked: the
   asset step runs KH1's own fan (`0x14026B790`, vertices `0x14026E450`) over the ring textures
   and stores each piece a frame needs (§ H2). One texel of gap (two on PC) around each box.
+- **Texture mods** (`fit_hd`, `fit_all`): a KH1 texture mod may replace the PC pictures at any
+  size (a tester's: Sora's face 1200 × 400 over the PS2's 192 × 64 = 6.25×, Donald's / Goofy's
+  8×, `uitex.bin` pictures 4×, picture 7 replaced for some languages only). Each PC picture is
+  resampled (area average, colour weighted by alpha) to KH1 FM PC's own scale for it: 2×, picture
+  0 4×. Before: the step refused a non-whole scale and skipped the whole HUD; kept at the mod's
+  scales the PC atlas was 2048 × 4096 a language and Re:CoM crashed after the title (exe
+  `0x1403440AC`, null write). After: the stock 2048 × 1024. Stock pictures are untouched: the
+  step's output on stock files is byte for byte unchanged. Checked (files: stock and texture-mod
+  installs; in game on the texture-mod install).
 - **DLL** (`kh1_hud`, `win/kh1_hud.rs`): reads `kh1-hud.json` (refuses another format or group
   count) after the MP bar and command menu install; at each player gauge's init (the MP bar's
   wrapper `0x140208360`) checks once that Re:CoM's 2D registry holds `kh1hud:00` with the
