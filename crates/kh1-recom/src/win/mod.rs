@@ -11,6 +11,7 @@ mod crash;
 mod d2;
 mod damage;
 mod damage_cap;
+mod dark_points;
 mod deck;
 mod drops;
 mod effects;
@@ -38,6 +39,7 @@ mod mp;
 mod mp_bar;
 mod notices;
 mod revenge;
+mod riku_skin;
 mod kh1_enemy;
 mod kh1_thrown;
 mod kh1_cure;
@@ -120,6 +122,7 @@ pub(crate) fn set_item(item: crate::menu::Item, v: usize) {
     let when = match item.effect() {
         crate::menu::Effect::Now => "now",
         crate::menu::Effect::NextBattle => "from the next battle",
+        crate::menu::Effect::NextRoom => "from the next room",
     };
     log(&format!("kh1 entry: {} = {shown} ({when})", item.key()));
     match item {
@@ -133,6 +136,12 @@ pub(crate) fn set_item(item: crate::menu::Item, v: usize) {
         Item::AutoCamera => camera::set_auto(s.auto_camera),
         Item::GuardReactions => attack::set_guard_reactions(s.guard_reactions),
         Item::RevengeValue => revenge::set_enabled(s.boss_revenge),
+        // Fork: Riku's Costume: Re:CoM's char -> group entries now; the next player build shows it.
+        // SAFETY: two checked writes of Re:CoM's static tables (the camp: no player is being built).
+        Item::Costume => unsafe {
+            riku_skin::apply(base(), s.riku_dark_skin);
+            riku_skin::costume_chosen(base());
+        },
         // Read by each KH1 frame (`movement::run_frame`, `stick_class`).
         Item::RunSpeed | Item::JumpHeight | Item::AirSpeed => movement::set_speeds(crate::movement::speeds::Speeds { run: s.run_speed, jump: s.jump_height, air: s.air_speed }),
         Item::DodgeRoll => {
@@ -286,6 +295,8 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
         hook::Hook { site: site("avoid init (0x1401F10C0)"), ours: movement::avoid_init as *const () as usize, original: &movement::ORIG_AVOID_INIT },
         hook::Hook { site: site("jump exe (action 7)"), ours: movement::jump_exe as *const () as usize, original: &movement::ORIG_JUMP_EXE },
         hook::Hook { site: site("CPlayerSora avoid exe (action 6)"), ours: movement::avoid_exe as *const () as usize, original: &movement::ORIG_AVOID_EXE },
+        hook::Hook { site: site("CPlayerRiku avoid exe (action 6)"), ours: movement::riku_avoid_exe as *const () as usize, original: &movement::ORIG_RIKU_AVOID_EXE },
+        hook::Hook { site: site("CPlayerDRiku avoid exe (action 6)"), ours: movement::driku_avoid_exe as *const () as usize, original: &movement::ORIG_DRIKU_AVOID_EXE },
         hook::Hook { site: site("CPlayerSora glide exe (action 8)"), ours: movement::glide_exe as *const () as usize, original: &movement::ORIG_GLIDE_EXE },
     ];
     // SAFETY: the targets' bytes are checked again inside, before anything is written.
@@ -296,6 +307,10 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
         movement::set_abilities(s.abilities);
         abilities::set_ini(&s.abilities);
         movement::set_mode(s.combat == settings::Mode::Kh1);
+        movement::set_riku(s.riku_kh1_movement);
+        if s.riku_kh1_movement {
+            log("riku: riku_kh1_movement = on: at combat = kh1, Riku in Reverse/Rebirth moves with KH1's movement (testing)");
+        }
         log(&format!(
             "movement: KH1 handlers in Re:CoM's actions 2/3/4, 6, 7, 8 ({}); abilities {:?}; dodge_roll = {} ({}); run_speed = {}, jump_height = {}, air_speed = {}",
             if s.combat == settings::Mode::Kh1 { "on: combat = kh1" } else { "pass-through: combat = recom" },
@@ -324,6 +339,8 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
     if movement::installed() {
         fx::preload(recom_bases(dirs).into_iter().map(|b| b.join(crate::fx::MANIFEST)).find(|p| p.is_file()).as_deref());
     }
+    // Riku's Dark Form skin (fork): its groups' rows go in the same table.
+    riku_skin::preload(recom_bases(dirs).into_iter().map(|b| b.join(kh1_recom_assets::riku_skin::MANIFEST)).find(|p| p.is_file()).as_deref());
     install_attack(base, s, stats_file.as_deref(), bar_file.as_deref(), menu_file.as_deref(), hud_file.as_deref(), sound_file.as_deref());
     // M13 stage 2: KH1's system bank also carries the KH1 effects' sounds, so it is read even
     // without the KH1 command menu look; then KH1's own SCD banks.

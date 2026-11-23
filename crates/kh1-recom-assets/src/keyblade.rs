@@ -625,6 +625,15 @@ pub fn new_resource_names() -> Vec<String> {
             out.push(format!("raw/{}", resource_path(g, "EFF")));
         }
     }
+    // Riku's Dark Form skin groups (fork, `riku_skin`).
+    for &(_, _, g) in &crate::riku_skin::SKIN_GROUPS {
+        for ext in ["MDL", "ANN", "EET", "SES"] {
+            out.push(resource_path(g, ext));
+        }
+        for ext in ["RTM", "TXA"] {
+            out.push(format!("raw/{}", resource_path(g, ext)));
+        }
+    }
     out
 }
 
@@ -684,7 +693,9 @@ mod tests {
     fn new_names_are_not_in_recom_hed() {
         let names = new_resource_names();
         // 16 KH1 groups (21..=36) with four files, 6 KH2 groups (38..=43) with two.
-        assert_eq!(names.len(), 16 * 4 + 6 * 2);
+        // 16 KH1 groups (21..=36) with four files, 6 KH2 groups (38..=43) with two, Riku's two
+        // skin groups (121, 131) with six.
+        assert_eq!(names.len(), 16 * 4 + 6 * 2 + 2 * 6);
         assert!(names.contains(&"PLAYER/0021/PL0021.MDL".to_string()) && names.contains(&"raw/PLAYER/0036/PL0036.EFF".to_string()));
         assert!(names.contains(&"raw/PLAYER/0043/PL0043.RTM".to_string()) && !names.contains(&"PLAYER/0043/PL0043.EET".to_string()));
         assert!(!names.iter().any(|n| n.contains("/0037/") || n.contains("/0002/")));

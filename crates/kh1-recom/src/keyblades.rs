@@ -144,6 +144,32 @@ pub mod top {
     pub const KH1_ENTRIES: i32 = 9;
     /// The KH1 list on screen, top to bottom: the camp index in each slot.
     pub const KH1_ORDER: [i32; KH1_ENTRIES as usize] = [DECKS, ABILITIES, CUSTOMIZE, 1, 2, 3, 4, 5, SETTINGS];
+    /// Riku's list (fork, 0.154.1; owner 2026-11-22: "colocar uma nova opção no menu chamada
+    /// Costumes"): his Customize in Review Decks' place, Re:CoM's World Map .. D Report, Costumes
+    /// (one more of Re:CoM's entry buttons at camp index 7), Settings.
+    pub const COSTUMES: i32 = 7;
+    pub const RIKU_EXTRA: [i32; 1] = [COSTUMES];
+    pub const RIKU_ENTRIES: i32 = 8;
+    pub const RIKU_ORDER: [i32; RIKU_ENTRIES as usize] = [DECKS, 1, 2, 3, 4, 5, COSTUMES, SETTINGS];
+
+    /// The order on screen of a list with entries of ours (camp index per slot), None for
+    /// Re:CoM's seven where they are.
+    pub fn order(l: Layout) -> Option<&'static [i32]> {
+        match l {
+            Layout::Kh1 => Some(&KH1_ORDER),
+            Layout::Riku => Some(&RIKU_ORDER),
+            _ => None,
+        }
+    }
+
+    /// Our extra entry buttons of a list, in camp index order.
+    pub fn extras(l: Layout) -> &'static [i32] {
+        match l {
+            Layout::Kh1 => &EXTRA,
+            Layout::Riku => &RIKU_EXTRA,
+            _ => &[],
+        }
+    }
 
     /// Which top list the camp shows.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,14 +180,30 @@ pub mod top {
         Settings,
         /// The owner's nine.
         Kh1,
+        /// Riku's story at Combat = KH1 with `riku_kh1_movement` (fork branch, 0.150.0; fork owner
+        /// 2026-11-22: "poderia substituir o Review Decks quando a gameplay do KH1 estiver ativa,
+        /// IGUAL a do Sora"): Re:CoM's seven where they are, entry 0 (Review Decks) relabelled
+        /// Customize (his L1 shortcuts), Settings opening the short list.
+        Riku,
     }
 
     /// The list for this camp. `direct_map` = `camp+0x20A4` (the camp never shows the list);
     /// `kh1_pages` = Combat = KH1 and the stats file lists Keyblades (the KH1 pages' condition
     /// since 0.8.0: without the asset step's numbers they have nothing to show).
-    pub fn layout(story: Story, direct_map: bool, combat_kh1: bool, kh1_pages: bool) -> Layout {
-        if direct_map || story == Story::Riku {
+    ///
+    /// `riku_settings` (fork testing, `riku_kh1_movement` on): Riku's story gets the Settings list
+    /// too ([`super::sub::RIKU_SETTINGS_ROWS`]), so its Combat and Movement pages reach him.
+    pub fn layout(story: Story, direct_map: bool, combat_kh1: bool, kh1_pages: bool, riku_settings: bool) -> Layout {
+        if direct_map {
             Layout::Recom
+        } else if story == Story::Riku {
+            if riku_settings && combat_kh1 {
+                Layout::Riku
+            } else if riku_settings {
+                Layout::Settings
+            } else {
+                Layout::Recom
+            }
         } else if combat_kh1 && kh1_pages {
             Layout::Kh1
         } else {
@@ -176,6 +218,8 @@ pub mod top {
         Items,
         Abilities,
         Customize,
+        /// Riku's Costumes page (fork).
+        Costumes,
         /// Re:CoM's entry `i` (0..6), run by Re:CoM (Settings: see [`settings_list`]).
         Recom(i32),
     }
@@ -187,6 +231,7 @@ pub mod top {
                 Entry::Items => Some(super::sub::Row::Items),
                 Entry::Abilities => Some(super::sub::Row::Abilities),
                 Entry::Customize => Some(super::sub::Row::Customize),
+                Entry::Costumes => Some(super::sub::Row::Costumes),
                 Entry::Recom(_) => None,
             }
         }
@@ -198,6 +243,8 @@ pub mod top {
             (Layout::Kh1, DECKS) => Some(Entry::Items),
             (Layout::Kh1, ABILITIES) => Some(Entry::Abilities),
             (Layout::Kh1, CUSTOMIZE) => Some(Entry::Customize),
+            (Layout::Riku, DECKS) => Some(Entry::Customize),
+            (Layout::Riku, COSTUMES) => Some(Entry::Costumes),
             (_, i) if (0..RECOM_ENTRIES).contains(&i) => Some(Entry::Recom(i)),
             _ => None,
         }
@@ -211,17 +258,13 @@ pub mod top {
 
     /// Entries in the list.
     pub fn count(l: Layout) -> i32 {
-        if l == Layout::Kh1 {
-            KH1_ENTRIES
-        } else {
-            RECOM_ENTRIES
-        }
+        order(l).map_or(RECOM_ENTRIES, |o| o.len() as i32)
     }
 
     /// The slot on screen (0 = top) of camp index `idx`.
     pub fn slot(l: Layout, idx: i32) -> Option<i32> {
-        if l == Layout::Kh1 {
-            KH1_ORDER.iter().position(|&i| i == idx).map(|s| s as i32)
+        if let Some(o) = order(l) {
+            o.iter().position(|&i| i == idx).map(|s| s as i32)
         } else {
             (0..RECOM_ENTRIES).contains(&idx).then_some(idx)
         }
@@ -229,8 +272,8 @@ pub mod top {
 
     /// The camp index in slot `s`.
     pub fn at_slot(l: Layout, s: i32) -> Option<i32> {
-        if l == Layout::Kh1 {
-            usize::try_from(s).ok().and_then(|s| KH1_ORDER.get(s)).copied()
+        if let Some(o) = order(l) {
+            usize::try_from(s).ok().and_then(|s| o.get(s)).copied()
         } else {
             (0..RECOM_ENTRIES).contains(&s).then_some(s)
         }
@@ -265,7 +308,7 @@ pub mod top {
     pub const KH1_STEP: f32 = 24.0;
 
     fn y0_step(l: Layout) -> (f32, f32) {
-        if l == Layout::Kh1 {
+        if order(l).is_some() {
             (KH1_Y0, KH1_STEP)
         } else {
             (RECOM_Y0, RECOM_STEP)
@@ -327,9 +370,15 @@ pub mod top {
     /// The KH1 list's move: Re:CoM's rule over the nine slots on screen (held stops at the ends,
     /// fresh wraps, as the cursor set wraps), as a camp index.
     pub fn kh1_move(cursor: i32, p: Pad) -> Option<i32> {
-        let s = slot(Layout::Kh1, cursor)?;
-        let t = recom_move(s, KH1_ENTRIES, p)?;
-        at_slot(Layout::Kh1, t.rem_euclid(KH1_ENTRIES))
+        list_move(Layout::Kh1, cursor, p)
+    }
+
+    /// A reordered list's move ([`order`]): Re:CoM's rule over the entries on screen.
+    pub fn list_move(l: Layout, cursor: i32, p: Pad) -> Option<i32> {
+        let n = count(l);
+        let s = slot(l, cursor)?;
+        let t = recom_move(s, n, p)?;
+        at_slot(l, t.rem_euclid(n))
     }
 
     /// What our update wrapper does around Re:CoM's state 0xF at the KH1 list.
@@ -347,29 +396,44 @@ pub mod top {
     }
 
     pub fn kh1_fix(cursor: i32, p: Pad) -> Fix {
+        list_fix(Layout::Kh1, cursor, p)
+    }
+
+    /// [`kh1_fix`] for any reordered list.
+    pub fn list_fix(l: Layout, cursor: i32, p: Pad) -> Fix {
         if p.start || p.cancel {
             return Fix::None;
         }
         if p.confirm {
-            return match entry(Layout::Kh1, cursor) {
-                Some(e @ (Entry::Items | Entry::Abilities | Entry::Customize)) => Fix::Confirm(e),
-                _ => Fix::None,
+            return match entry(l, cursor) {
+                Some(Entry::Recom(_)) | None => Fix::None,
+                Some(e) => Fix::Confirm(e),
             };
         }
-        match (kh1_move(cursor, p), recom_move(cursor, RECOM_ENTRIES, p)) {
+        match (list_move(l, cursor, p), recom_move(cursor, RECOM_ENTRIES, p)) {
             (Some(t), None) if t != cursor => Fix::Move(t),
             _ => Fix::None,
         }
+    }
+
+    /// Riku's list ([`Layout::Riku`]): [`list_fix`] over its eight.
+    pub fn riku_fix(cursor: i32, p: Pad) -> Fix {
+        list_fix(Layout::Riku, cursor, p)
     }
 
     /// The whole KH1-list rule as the game runs it: Re:CoM's state 0xF with its 7-entry count,
     /// the cursor set redirected to `kh1_move`'s entry when Re:CoM moves, and our fix when it
     /// doesn't. Used by the tests.
     pub fn kh1_step(cursor: i32, p: Pad) -> Option<i32> {
+        list_step(Layout::Kh1, cursor, p)
+    }
+
+    /// [`kh1_step`] for any reordered list.
+    pub fn list_step(l: Layout, cursor: i32, p: Pad) -> Option<i32> {
         if recom_move(cursor, RECOM_ENTRIES, p).is_some() {
-            return kh1_move(cursor, p);
+            return list_move(l, cursor, p);
         }
-        match kh1_fix(cursor, p) {
+        match list_fix(l, cursor, p) {
             Fix::Move(t) => Some(t),
             _ => None,
         }
@@ -676,10 +740,28 @@ pub mod sub {
         Customize,
         /// M9 stage 9b: KH1's ability screen with AP (`crate::abilities::page`).
         Abilities,
+        /// Fork: Riku's Costumes page (`crate::menu::Page::Costumes`).
+        Costumes,
     }
 
     /// The Settings list's rows, top to bottom.
     pub const SETTINGS_ROWS: &[Row] = &[Row::GameSettings, Row::Combat, Row::Movement, Row::EffectsSound, Row::Camera];
+
+    /// Riku's story's Settings list (fork testing, `riku_kh1_movement` on): only the pages that
+    /// act on Riku (Combat for the switch, Movement for his KH1 movement, Camera: the KH1 / KH2
+    /// cameras follow him too). Effects & Sound stays Sora's (his effects are Re:CoM's). 0.149.0
+    /// (fork owner, 2026-11-22: "falta poder configurar os shortcuts igual da com o Sora"): Customize
+    /// on the top list (0.150.0, [`super::top::Layout::Riku`]: in Review Decks' place, as Sora's).
+    pub const RIKU_SETTINGS_ROWS: &[Row] = &[Row::GameSettings, Row::Combat, Row::Movement, Row::Camera];
+
+    /// The Settings list's rows in this story.
+    pub fn settings_rows(story: super::Story) -> &'static [Row] {
+        if story == super::Story::Riku {
+            RIKU_SETTINGS_ROWS
+        } else {
+            SETTINGS_ROWS
+        }
+    }
 
     /// Re:CoM's camp has 7 entry buttons (`camp+0x1B8[7]`); the list reuses them. Checked
     /// (decomp).
@@ -699,6 +781,7 @@ pub mod sub {
                 Row::Movement => crate::menu::Page::Movement.label(),
                 Row::EffectsSound => crate::menu::Page::EffectsSound.label(),
                 Row::Camera => crate::menu::Page::Camera.label(),
+                Row::Costumes => crate::menu::Page::Costumes.label(),
             }
         }
 
@@ -714,6 +797,7 @@ pub mod sub {
                 Row::Movement => Some(crate::menu::Page::Movement.help()),
                 Row::EffectsSound => Some(crate::menu::Page::EffectsSound.help()),
                 Row::Camera => Some(crate::menu::Page::Camera.help()),
+                Row::Costumes => Some(crate::menu::Page::Costumes.help()),
             }
         }
 
@@ -729,6 +813,7 @@ pub mod sub {
                 Row::Movement => Some(crate::menu::Page::Movement),
                 Row::EffectsSound => Some(crate::menu::Page::EffectsSound),
                 Row::Camera => Some(crate::menu::Page::Camera),
+                Row::Costumes => Some(crate::menu::Page::Costumes),
                 _ => None,
             }
         }
@@ -878,15 +963,37 @@ mod tests {
     fn the_list_per_story_and_setting() {
         // Owner, 2026-11-04: nine at KH1 in Sora's story; Re:CoM's seven at Re:CoM (Settings opens
         // the short list); Riku's story and the direct-map camp untouched.
-        assert_eq!(top::layout(Story::Sora, false, true, true), Layout::Kh1);
-        assert_eq!(top::layout(Story::Sora, false, false, true), Layout::Settings);
-        assert_eq!(top::layout(Story::Sora, false, true, false), Layout::Settings, "no Keyblade numbers: no KH1 pages");
+        assert_eq!(top::layout(Story::Sora, false, true, true, false), Layout::Kh1);
+        assert_eq!(top::layout(Story::Sora, false, false, true, false), Layout::Settings);
+        assert_eq!(top::layout(Story::Sora, false, true, false, false), Layout::Settings, "no Keyblade numbers: no KH1 pages");
         for (c, k) in [(true, true), (true, false), (false, true), (false, false)] {
-            assert_eq!(top::layout(Story::Riku, false, c, k), Layout::Recom);
-            assert_eq!(top::layout(Story::Sora, true, c, k), Layout::Recom, "direct map");
-            assert_eq!(top::layout(Story::Riku, true, c, k), Layout::Recom);
+            assert_eq!(top::layout(Story::Riku, false, c, k, false), Layout::Recom);
+            assert_eq!(top::layout(Story::Sora, true, c, k, false), Layout::Recom, "direct map");
+            assert_eq!(top::layout(Story::Riku, true, c, k, false), Layout::Recom);
+            // Fork testing: `riku_kh1_movement` gives Riku's story the Settings list (not the map camp).
+            assert_eq!(top::layout(Story::Riku, false, c, k, true), if c { Layout::Riku } else { Layout::Settings });
+            assert_eq!(top::layout(Story::Riku, true, c, k, true), Layout::Recom);
+            assert_eq!(top::layout(Story::Sora, false, true, true, true), Layout::Kh1);
         }
-        assert!(top::settings_list(Layout::Kh1) && top::settings_list(Layout::Settings) && !top::settings_list(Layout::Recom));
+        assert!(top::settings_list(Layout::Kh1) && top::settings_list(Layout::Settings) && top::settings_list(Layout::Riku) && !top::settings_list(Layout::Recom));
+        // Riku's list: Review Decks' place is Customize; the rest Re:CoM's, where they are.
+        assert_eq!(top::entry(Layout::Riku, top::DECKS), Some(Entry::Customize));
+        assert_eq!(top::entry(Layout::Riku, 3), Some(Entry::Recom(3)));
+        assert_eq!(top::entry(Layout::Riku, top::CUSTOMIZE), None);
+        // Riku's eight (fork, 0.154.1): Costumes before Settings, at the KH1 list's spacing.
+        assert_eq!(top::entry(Layout::Riku, top::COSTUMES), Some(Entry::Costumes));
+        assert_eq!((top::count(Layout::Riku), top::slot(Layout::Riku, 0), top::entry_pos(Layout::Riku, 2)), (8, Some(0), top::entry_pos(Layout::Kh1, 2)));
+        assert_eq!((top::slot(Layout::Riku, top::COSTUMES), top::slot(Layout::Riku, top::SETTINGS)), (Some(6), Some(7)));
+        let down = top::Pad { down: true, down_fresh: true, ..Default::default() };
+        assert_eq!(top::list_step(Layout::Riku, 5, down), Some(top::COSTUMES));
+        assert_eq!(top::list_step(Layout::Riku, top::COSTUMES, down), Some(top::SETTINGS));
+        assert_eq!(top::list_step(Layout::Riku, top::SETTINGS, down), Some(top::DECKS));
+        assert_eq!(top::riku_fix(top::COSTUMES, top::Pad { confirm: true, ..Default::default() }), top::Fix::Confirm(Entry::Costumes));
+        assert_eq!(Entry::Costumes.page(), Some(sub::Row::Costumes));
+        let confirm = top::Pad { confirm: true, ..Default::default() };
+        assert_eq!(top::riku_fix(0, confirm), top::Fix::Confirm(Entry::Customize));
+        assert_eq!(top::riku_fix(1, confirm), top::Fix::None);
+        assert_eq!(top::riku_fix(0, top::Pad::default()), top::Fix::None);
         assert_eq!((top::count(Layout::Kh1), top::count(Layout::Settings), top::count(Layout::Recom)), (9, 7, 7));
         assert_eq!((Story::from_camp(0), Story::from_camp(1)), (Story::Sora, Story::Riku));
     }
@@ -1171,6 +1278,9 @@ mod tests {
         use sub::{Act, Row};
         // Owner, 2026-11-04: Game Settings (Re:CoM's page), Combat, Movement.
         assert_eq!(sub::SETTINGS_ROWS, &[Row::GameSettings, Row::Combat, Row::Movement, Row::EffectsSound, Row::Camera]);
+        assert_eq!(sub::settings_rows(Story::Riku), &[Row::GameSettings, Row::Combat, Row::Movement, Row::Camera]);
+        assert!(sub::settings_rows(Story::Riku).len() <= sub::MAX_ROWS);
+        assert_eq!(sub::settings_rows(Story::Sora), sub::SETTINGS_ROWS);
         assert_eq!((Row::Camera.label(), Row::Camera.settings_page()), (&b"Camera\0"[..], Some(crate::menu::Page::Camera)));
         assert_eq!((Row::EffectsSound.label(), Row::EffectsSound.settings_page()), (&b"Effects & Sound\0"[..], Some(crate::menu::Page::EffectsSound)));
         assert_eq!(Row::GameSettings.label(), &b"Game Settings\0"[..]);

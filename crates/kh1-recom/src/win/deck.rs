@@ -130,8 +130,9 @@ pub unsafe extern "win64" fn build_revolver(pl: usize) {
     }
     let battle = d::Battle {
         kh1: mv::kh1_on(),
-        riku_story: super::stats::riku_story(),
-        main_sora: mv::is_main_sora(pl),
+        // Riku with `riku_kh1_movement` (`crate::riku`): his battles get the empty revolver too.
+        riku_story: super::stats::riku_story() && !mv::riku_on(),
+        main_sora: mv::is_main_sora(pl) || mv::kh1_riku(pl),
         minigame: rd::<i32>(pl + d::player::MINIGAME) != 0,
     };
     let why = match d::decide(&battle) {
@@ -278,7 +279,7 @@ pub fn enemy_ui_hidden() -> bool {
 
 /// An enemy's card drop (`0x14017E190(enemy, chance)`).
 pub unsafe extern "win64" fn hit_drop(enemy: usize, chance: i32) {
-    if d::drops_off(mv::kh1_on(), super::stats::riku_story(), minigame_room()) {
+    if d::drops_off(mv::kh1_on(), super::stats::riku_story() && !mv::riku_on(), minigame_room()) {
         capped(&DROP_LINES, d::DROP_LOG_LINES, || format!("Friend-card drop roll skipped (chance {chance}): nothing drops, as when Re:CoM's roll fails"));
         return;
     }

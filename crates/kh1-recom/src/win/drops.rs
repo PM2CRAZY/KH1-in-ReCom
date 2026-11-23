@@ -120,6 +120,8 @@ pub unsafe extern "win64" fn defeat_prize(enemy: usize, point: usize) -> u64 {
         }
     }
     let r = orig::<DefeatFn>(&ORIG_DEFEAT_PRIZE)(enemy, point);
+    // 0.151.0: Riku's DP for an enemy defeated.
+    super::dark_points::defeat(enemy);
     if ON.load(Ordering::Acquire) && enemy != 0 && point != 0 && super::movement::kh1_on() && rd::<usize>(enemy + ENP_ROW) != 0 {
         drop_items(enemy, point);
     }

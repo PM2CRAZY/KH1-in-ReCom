@@ -60,7 +60,7 @@ pub mod card {
 /// takes the tier a sleight of its kind would): 2 MP (the 3- / 4-AP tier) for the attacks, 3 MP
 /// (the 5-AP tier) for Wild Crush (two friends, three cards in Re:CoM), 1 MP (the 2-AP tier) for
 /// Lucky Bounty (a prize finder, no damage). An owner question.
-pub const ALL: [Friend; 11] = [
+pub const ALL: [Friend; 13] = [
     Friend { name: "Donald Magic", sleight: 0x45, cards: &[card::DONALD], mp: 2 },
     Friend { name: "Stardust Blitz", sleight: 0x46, cards: &[card::DONALD], mp: 2 },
     Friend { name: "Goofy Tornado", sleight: 0x48, cards: &[card::GOOFY], mp: 2 },
@@ -72,6 +72,14 @@ pub const ALL: [Friend; 11] = [
     Friend { name: "Spiral Wave", sleight: 0x50, cards: &[card::ARIEL], mp: 2 },
     Friend { name: "Hummingbird", sleight: 0x52, cards: &[card::PETER_PAN], mp: 2 },
     Friend { name: "Furious Volley", sleight: 0x54, cards: &[card::BEAST], mp: 2 },
+    // Riku's story (fork branch Re-Re-Reverse/Rebirth, 0.150.0; fork owner, 2026-11-22: "minha
+    // sugestão pra cura, igual no caso do donald e do goofy são tratados na gameplay do Sora"): the
+    // King's friend sleights, which Riku's own sleight start takes (`0x140216AB0`: 0x62..=0x64 with
+    // `0x14020E590`, Checked (exe)); the King's card is the only Friend card of Riku's drop rows
+    // (14..25, [`DROP_TABLE`]), never in Sora's. MM Miracle's LV3 (`SY0002.CTD` "MM Miracle LV3",
+    // its heal: Assumption, not read); MP ours (the heal one point dearer than the attacks).
+    Friend { name: "Mickey Miracle", sleight: 0x63, cards: &[card::KING], mp: 3 },
+    Friend { name: "Holy Burst", sleight: 0x64, cards: &[card::KING], mp: 2 },
 ];
 pub const COUNT: usize = ALL.len();
 const _: () = assert!(COUNT <= 15, "a Set and `win::party`'s per-battle word hold 15 entries");
@@ -320,12 +328,13 @@ mod tests {
 
     #[test]
     fn the_sleights_and_commands() {
-        assert_eq!(COUNT, 11);
+        assert_eq!(COUNT, 13);
         let ids: Vec<u16> = ALL.iter().map(|f| f.sleight).collect();
-        assert_eq!(ids, [0x45, 0x46, 0x48, 0x49, 0x4A, 0x56, 0x4C, 0x4E, 0x50, 0x52, 0x54]);
+        assert_eq!(ids, [0x45, 0x46, 0x48, 0x49, 0x4A, 0x56, 0x4C, 0x4E, 0x50, 0x52, 0x54, 0x63, 0x64]);
         for i in 0..COUNT {
             assert_eq!(of_command(command(i)), Some(i));
-            assert!((0xC5..=0xD6).contains(&command(i)));
+            assert!((0xC5..=0xD6).contains(&command(i)) || (0xE3..=0xE4).contains(&command(i)));
+            assert!(crate::riku::sleight(ALL[i].sleight).is_none(), "not one of Riku's six");
             assert_ne!(command(i), crate::gimmick::STAGGER);
             assert!(crate::abilities::of_sleight(ALL[i].sleight).is_none(), "not one of the 27");
         }
@@ -409,5 +418,22 @@ mod tests {
         assert!(!usable(&crate::summons::Gate { ground: false, air: true, ..g }, 0), "ground only");
         assert!(!usable(&crate::summons::Gate { battle: false, ..g }, 0));
         assert!(!usable(&crate::summons::Gate { out: true, ..g }, 0));
+    }
+
+    #[test]
+    fn the_kings_sleights_only_in_rikus_battles() {
+        let k = [index(0x63).unwrap(), index(0x64).unwrap()];
+        let all: Set = (1 << COUNT) - 1;
+        // Sora's story: never (no King card in rows 0..13).
+        for w in 0..=13 {
+            let a = available(all, &at(w, ALL_MET));
+            assert!(k.iter().all(|&i| a >> i & 1 == 0), "world {w}");
+        }
+        // Riku's story: wherever his row gives the King's card, once met; never Sora's friends.
+        let riku = |world, met| Place { world, room_type: 3, riku: true, minigame: false, met };
+        let a = available(all, &riku(1, ALL_MET));
+        assert_eq!(list(a), k.to_vec());
+        assert_eq!(available(all, &riku(1, ALL_MET & !0x80)), 0, "the King not met");
+        assert_eq!(available(all, &riku(10, ALL_MET)), 0, "row 23: no drops");
     }
 }

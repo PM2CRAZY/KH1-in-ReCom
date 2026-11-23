@@ -136,6 +136,11 @@ pub struct SettingsPage {
 }
 
 impl SettingsPage {
+    /// The camp it runs in.
+    pub fn camp(&self) -> usize {
+        self.camp
+    }
+
     fn p(&self) -> *mut u8 {
         self.camp as *mut u8
     }

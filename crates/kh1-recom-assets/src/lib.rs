@@ -63,6 +63,7 @@ pub mod kh1_fx;
 pub mod kh1_hud;
 pub mod mp_bar;
 pub mod recom_hp;
+pub mod riku_skin;
 pub mod rtm;
 pub mod menu_sounds;
 pub mod ses;

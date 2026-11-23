@@ -189,6 +189,16 @@ pub fn install(b: usize) {
                 return;
             }
         };
+        // Riku's Dark Form skin groups (fork): their rows copy Riku's (`crate::riku_skin`).
+        let skins = super::riku_skin::skins();
+        let planned = match crate::riku_skin::add_rows(planned.clone(), &skins) {
+            Ok(t) => t,
+            Err(e) => {
+                log(&format!("riku skin: PLAYER table: {e}; Riku keeps his model"));
+                planned
+            }
+        };
+        let skin_rows = planned.iter().any(|r| skins.iter().any(|s| s.skin == r.group));
         let Some(table) = build_rows(&planned) else {
             log("keyblades: PLAYER table copy failed; no model swap");
             return;
@@ -215,6 +225,11 @@ pub fn install(b: usize) {
         }
         let _ = MODELS.set(m);
         INSTALLED.store(true, Ordering::Release);
+        if skin_rows {
+            super::riku_skin::rows_in();
+            super::riku_skin::apply(b, super::settings().riku_dark_skin);
+            super::riku_skin::sync_menu(b);
+        }
         log(&format!(
             "keyblades: models in: PLAYER table {} rows ({} Re:CoM's + {} for groups {:?}) at {table:#x}; weapon group picked at CPlayerWeapon +0x30; rebuilt at camp close; own EET + EFF (M13 stage 4) for {:?}",
             planned.len(),
@@ -244,6 +259,18 @@ unsafe fn found(k: u16, g: u16) -> bool {
 /// A group's files are in: not queued, and its RTM, MDL and ANN are found by its id.
 unsafe fn loaded(g: u16) -> bool {
     !queued(g) && found(kind::RTM, g) && found(kind::MDL, g) && found(kind::ANN, g)
+}
+
+/// Group `g`'s files are loaded (Riku's costume, `win::riku_skin`).
+pub(super) unsafe fn group_ready(g: u16) -> bool {
+    loaded(g)
+}
+
+/// Queues group `g` if it is neither loaded nor queued (Riku's costume).
+pub(super) unsafe fn queue_group(g: u16) {
+    if queue_if_missing(g) {
+        log(&format!("riku skin: group {g} queued for the costume"));
+    }
 }
 
 /// Queues group `g` with Re:CoM's own call when its RTM is not loaded and it is not queued (as
@@ -313,6 +340,8 @@ pub fn prefetch() {
 /// Keyblade's group, before the builder waits for the queue.
 pub unsafe extern "win64" fn group_load(ch: u32) {
     orig::<GroupLoadFn>(&ORIG_GROUP_LOAD)(ch);
+    // Riku's costume: the menu's model now follows the group just queued.
+    super::riku_skin::sync_menu(base());
     if !INSTALLED.load(Ordering::Acquire) {
         return;
     }
@@ -369,6 +398,8 @@ pub unsafe extern "win64" fn camp_field(field: usize, open: i32, a3: usize, a4: 
         camp_closed();
     }
     if open == 0 {
+        // Riku's costume chosen in the camp: changed in place now (0.155.0).
+        super::riku_skin::camp_closed(base());
         // The MP bar shows a Keyblade's max MP (or the setting) changed in the camp.
         super::mp_bar::refresh();
     }

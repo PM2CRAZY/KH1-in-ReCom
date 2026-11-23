@@ -312,7 +312,7 @@ fn mp_view() -> Option<(i32, i32, u16)> {
 /// A new player gauge (its init and the MP bar have run, on draw list `list`): the menu is made
 /// for it, fading in.
 pub unsafe fn build(gauge: usize, list: i32) {
-    if !INSTALLED.load(Ordering::Acquire) || !super::mp::active() || super::mp_bar::menu_groups().is_none() {
+    if !INSTALLED.load(Ordering::Acquire) || !super::mp::live() || super::mp_bar::menu_groups().is_none() {
         return;
     }
     if mp_view().is_none() {
@@ -386,7 +386,7 @@ pub fn refresh(gauges: &[(usize, i32)]) {
     if !INSTALLED.load(Ordering::Acquire) {
         return;
     }
-    if super::mp::active() {
+    if super::mp::live() {
         for &(g, list) in gauges {
             let have = STATE.lock().map(|s| s.uis.iter().any(|u| u.gauge == g)).unwrap_or(true);
             if !have {
@@ -932,6 +932,11 @@ fn kh1_look() -> Option<&'static kh::MenuGroups> {
     if !super::kh1_hud::menu_on() {
         return None;
     }
+    // Riku's story (0.149.0): his FO0071 has the set only from this version's asset step; without
+    // it Re:CoM's look (a registry lookup, Riku's story only).
+    if super::stats::riku_story() && !super::kh1_hud::set_registered() {
+        return None;
+    }
     super::kh1_hud::manifest()?.menu.as_ref()
 }
 
@@ -1084,7 +1089,62 @@ pub fn confirm_is_circle() -> bool {
     cm::shortcut::confirm_is_circle(unsafe { rd::<u16>(base() + CONFIRM_KEY as usize) })
 }
 
+/// Riku's menu (`crate::riku`, `riku_kh1_movement`): Attack, and his Sleights list
+/// (`crate::riku::SLEIGHTS`, started by his own sleight start) on row 3; no spells, items, summons,
+/// Party or specials. His shortcut slots are filled with his first sleights once, while all three
+/// are empty and never set up; his Customize page (0.149.0, his Settings list) sets them after.
+unsafe fn riku_world(pl: usize) -> World {
+    let ids: Vec<u16> = crate::riku::list(mv::is_main_dark_riku(pl)).iter().map(|s| s.id).collect();
+    let mut shortcuts = super::mp::riku_shortcuts().unwrap_or([0; 3]);
+    if let Some(f) = crate::riku::fill_shortcuts(shortcuts, &ids).filter(|_| !super::mp::riku_shortcuts_set()) {
+        if super::mp::set_riku_shortcuts(f) {
+            shortcuts = f;
+            riku_learned_note();
+            note(|| format!("riku: shortcut slots set to his first sleights {f:02x?}"));
+        }
+    }
+    // 0.150.0: page 2 (Left) as Sora's, its Party list holding the King's sleights (Riku's only
+    // friend; the Summon row stays greyed: he has none).
+    let mut w = World { mp: mp_view(), shortcuts, page: super::summons::page(), ..Default::default() };
+    if let Ok(g) = mv::SORA.try_lock() {
+        if let Some(s) = g.as_ref().filter(|s| s.player == pl) {
+            w.state = s.sora.state;
+            if mv::sync_ok(pl, s) {
+                w.gate_any = s.sora.accepts_spell(crate::magic::spell::BLIZZARD);
+                w.gate_fire = s.sora.accepts_spell(crate::magic::spell::FIRE);
+            }
+        }
+    }
+    w.context = context(pl);
+    if super::summons::installed() {
+        (w.battle, w.summon_out) = super::summons::gate_state(pl);
+        w.summon_out |= super::summons::sleight_running(pl);
+    }
+    for (k, &id) in ids.iter().enumerate().take(crate::sleights::MAX) {
+        w.sleights[k] = id as u8;
+    }
+    w.sleight_count = ids.len().min(crate::sleights::MAX) as u8;
+    if super::party::installed() && (w.page == cm::Page::Two || w.shortcuts.iter().any(|&b| cm::shortcut::slot_sleight(b).is_some_and(|id| crate::party::index(id).is_some()))) {
+        (w.party_learned, w.party_avail) = super::party::sets(pl);
+    }
+    w
+}
+
+/// Re:CoM's own "learned" answer for each of Riku's sleights (`0x14023AB00`), logged once: the list
+/// shows all six (Re:CoM's Riku forms them from cards, Assumption), this says what Re:CoM records.
+unsafe fn riku_learned_note() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let f = super::abilities::sleight_learned_fn();
+        let v: Vec<String> = crate::riku::SLEIGHTS.iter().map(|s| format!("{} {}", s.name, if f(s.id) & 0xFF != 0 { "learned" } else { "not learned" })).collect();
+        log(&format!("riku: Re:CoM's sleight-learned test: {}", v.join(", ")));
+    });
+}
+
 unsafe fn world(pl: usize) -> World {
+    if mv::is_main_riku(pl) {
+        return riku_world(pl);
+    }
     let (spells, shortcuts) = spells();
     let mut w = World { mp: mp_view(), spells, shortcuts, ..Default::default() };
     // M8 stage 8a.1: Sora's item slots (a read of our save block), only with the items in.
@@ -1257,7 +1317,7 @@ unsafe fn step_frame(pl: usize) -> Option<Keep> {
     }
     let (set, first) = super::mp_bar::menu_groups()?;
     let words = WORDS.get()?;
-    if !super::mp::active() {
+    if !super::mp::live() {
         return None;
     }
     let pad = read_pad(pl);

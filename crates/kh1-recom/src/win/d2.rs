@@ -70,7 +70,7 @@ unsafe fn on_list<R>(list: i32, what: &str, f: impl FnOnce() -> R) -> R {
     r
 }
 
-unsafe fn layers(c: usize) -> i32 {
+pub(super) unsafe fn layers(c: usize) -> i32 {
     rd::<u8>(c + C_LAYERS) as i32
 }
 

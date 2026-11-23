@@ -51,6 +51,9 @@ pub enum Page {
     /// M12 camera: Re:CoM's, KH1's or KH2's player camera (ini `camera`; owner, 2026-11-04: "a
     /// new Settings > Camera page", independent of Combat).
     Camera,
+    /// Fork (0.154.1, owner 2026-11-22: "uma nova opção no menu chamada Costumes"): Riku's look,
+    /// Default Attire or Dark Mode (`crate::riku_skin`), from Riku's top list.
+    Costumes,
 }
 
 /// A row of a settings page: one `kh1-recom.ini` key.
@@ -82,6 +85,8 @@ pub enum Item {
     Camera,
     /// `auto_camera` (M12 camera stage 2)
     AutoCamera,
+    /// `riku_dark_skin` (fork): Default Attire / Dark Mode.
+    Costume,
 }
 
 /// When a change takes effect (from what reads the setting; `docs/recom-config-menu.md`).
@@ -91,6 +96,8 @@ pub enum Effect {
     Now,
     /// Read when a battle starts (the battle manager's construction / each enemy's).
     NextBattle,
+    /// Read when the player is built (the next room or battle).
+    NextRoom,
 }
 
 impl Page {
@@ -103,6 +110,7 @@ impl Page {
             Page::Movement => &[Item::RunSpeed, Item::JumpHeight, Item::AirSpeed, Item::DodgeRoll],
             Page::EffectsSound => &[Item::Effects, Item::Sounds],
             Page::Camera => &[Item::Camera, Item::AutoCamera],
+            Page::Costumes => &[Item::Costume],
         }
     }
 
@@ -115,6 +123,7 @@ impl Page {
             // (`0x1403480C0`, Checked (decomp)); that its font has a `&` glyph is an Assumption.
             Page::EffectsSound => b"Effects & Sound\0",
             Page::Camera => b"Camera\0",
+            Page::Costumes => b"Costumes\0",
         }
     }
 
@@ -125,6 +134,7 @@ impl Page {
             Page::Movement => b"Run speed, jump height, air speed and Dodge roll.\0",
             Page::EffectsSound => b"KH1's or Re:CoM's effects and sounds on Sora's KH1 moves.\0",
             Page::Camera => b"Re:CoM's, KH1's or KH2's camera, and their Auto camera.\0",
+            Page::Costumes => b"Change Riku's attire.\0",
         }
     }
 }
@@ -133,6 +143,7 @@ const RECOM_KH1: &[&[u8]] = &[b"Re:CoM\0", b"KH1\0"];
 const OFF_ON: &[&[u8]] = &[b"Off\0", b"On\0"];
 const ROLL: &[&[u8]] = &[b"Re:CoM\0", b"KH1\0", b"Off\0"];
 const CAMERAS: &[&[u8]] = &[b"Re:CoM\0", b"KH1\0", b"KH2\0"];
+const COSTUMES: &[&[u8]] = &[b"Default Attire\0", b"Dark Mode\0"];
 
 fn mode_index(m: Mode) -> usize {
     match m {
@@ -166,6 +177,7 @@ impl Item {
             Item::Sounds => b"Sounds\0",
             Item::Camera => b"Camera\0",
             Item::AutoCamera => b"Auto camera\0",
+            Item::Costume => b"Costume\0",
         }
     }
 
@@ -175,13 +187,15 @@ impl Item {
             Item::GuardReactions | Item::RevengeValue | Item::AutoCamera => OFF_ON,
             Item::DodgeRoll => ROLL,
             Item::Camera => CAMERAS,
+            Item::Costume => COSTUMES,
             _ => RECOM_KH1,
         }
     }
 
     /// Two options: Re:CoM's pair row; more: Re:CoM's single-value row.
     pub fn style(self) -> Style {
-        if self.options().len() == 2 {
+        // "Default Attire" is too wide for a pair row's value: one value showing the current one.
+        if self.options().len() == 2 && self != Item::Costume {
             Style::Pair
         } else {
             Style::Single
@@ -204,6 +218,7 @@ impl Item {
             Item::Sounds => b"KH1: KH1's swing and finisher sounds. KH1 only.\0",
             Item::Camera => b"Re:CoM's camera, KH1's, or KH2's (its distances x 0.89).\0",
             Item::AutoCamera => b"On: the KH1 / KH2 camera swings behind Sora as he runs.\0",
+            Item::Costume => b"Dark Mode: Dark Riku's look, Riku's own moves. From the next room.\0",
         }
     }
 
@@ -211,6 +226,7 @@ impl Item {
     pub fn effect(self) -> Effect {
         match self {
             Item::EnemyPace | Item::EnemyAi => Effect::NextBattle,
+            Item::Costume => Effect::NextRoom,
             _ => Effect::Now,
         }
     }
@@ -231,6 +247,7 @@ impl Item {
             Item::Sounds => "sounds",
             Item::Camera => "camera",
             Item::AutoCamera => "auto_camera",
+            Item::Costume => "riku_dark_skin",
         }
     }
 
@@ -258,6 +275,7 @@ impl Item {
                 Camera::Kh2 => 2,
             },
             Item::AutoCamera => s.auto_camera as usize,
+            Item::Costume => s.riku_dark_skin as usize,
         }
     }
 
@@ -291,6 +309,7 @@ impl Item {
                 }
             }
             Item::AutoCamera => s.auto_camera = v == 1,
+            Item::Costume => s.riku_dark_skin = v == 1,
         }
     }
 }

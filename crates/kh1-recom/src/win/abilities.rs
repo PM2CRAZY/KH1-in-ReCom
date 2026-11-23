@@ -50,11 +50,16 @@ static LOGGED_FIRST: AtomicBool = AtomicBool::new(false);
 
 /// Re:CoM's "sleight learned" (`0x14023AB00(u16 id)`, `sites::ABILITY_CALLEES`).
 const SLEIGHT_LEARNED: u32 = 0x0023_AB00;
-type LearnedFn = unsafe extern "win64" fn(u16) -> u64;
+pub(super) type LearnedFn = unsafe extern "win64" fn(u16) -> u64;
 /// Re:CoM's int variable getter (`0x1401B08C0(set, id)`, `sites::M6_DECK_CALLEES`, bytes checked at
 /// start), for its ability variable (`crate::abilities::recom::VAR`).
 const VAR_GET: u32 = 0x001B_08C0;
 type VarGetFn = unsafe extern "win64" fn(u32, u32) -> u64;
+
+/// Re:CoM's "sleight learned" test, for Riku's log line (`super::command_menu`).
+pub unsafe fn sleight_learned_fn() -> LearnedFn {
+    func::<LearnedFn>(SLEIGHT_LEARNED)
+}
 
 pub fn set_rows_ready(bits: ab::Bits) {
     // The modifiers' bits are all below 64.
