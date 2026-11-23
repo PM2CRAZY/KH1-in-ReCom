@@ -53,6 +53,10 @@ pub const MOVE_HOOKS: &[Site] = &[
     Site { name: "jump exe (action 7)", rva: 0x001E_DA60, expect: &[0x4C, 0x8B, 0xDC, 0x53, 0x48, 0x81, 0xEC, 0xD0, 0x00, 0x00, 0x00] },
     // push rbx; sub rsp,0x30; mov rax,[rcx+0xF0]; mov rbx,rcx
     Site { name: "CPlayerSora avoid exe (action 6)", rva: 0x0021_7310, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B, 0x81, 0xF0, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD9] },
+    // 0.153.0: Riku's (`CPlayerRiku +0x1C8`) and Dark Riku's (`CPlayerDRiku +0x1C8`) own avoid exes (action 6): the same
+    // first 16 bytes as Sora's. Checked (exe).
+    Site { name: "CPlayerRiku avoid exe (action 6)", rva: 0x0021_2350, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B, 0x81, 0xF0, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD9] },
+    Site { name: "CPlayerDRiku avoid exe (action 6)", rva: 0x001F_FC30, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B, 0x81, 0xF0, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD9] },
     // push rbx; sub rsp,0x80; and dword [rcx+0x428],-9
     Site { name: "CPlayerSora glide exe (action 8)", rva: 0x0021_7B50, expect: &[0x40, 0x53, 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, 0x83, 0xA1, 0x28, 0x04, 0x00, 0x00, 0xF7] },
 ];
@@ -2939,6 +2943,12 @@ pub mod data {
     pub const MAIN_PLAYER: u64 = 0x1_4087_B380;
     /// `CPlayerSora` vtable (RTTI). Riku's are `0x1405A8868` / `0x1405A50E8`.
     pub const SORA_VTABLE: u64 = 0x1_405A_9938;
+    /// `CPlayerRiku` vtable (RTTI; `docs/recom-player.md`). Its Battle exe slot `+0xB8` is a
+    /// `jmp` to the shared Battle exe `0x1401F9840`. Checked (exe).
+    pub const RIKU_VTABLE: u64 = 0x1_405A_8868;
+    /// `CPlayerDRiku` vtable (RTTI; Dark Mode's player, `docs/recom-riku-kh1.md`). Its Battle exe
+    /// `+0xB8` is `jmp 0x1401F9840` too; its Field exe is `ret`. Checked (exe).
+    pub const DRIKU_VTABLE: u64 = 0x1_405A_50E8;
     /// Pad devices, one pointer per port (`0x14029BF60` reads `[port]+0x74`).
     pub const PAD_DEVICES: u64 = 0x1_40AC_5D40;
     /// Sora's action table and the per-character table pointers (`docs/recom-motion-switch.md`).

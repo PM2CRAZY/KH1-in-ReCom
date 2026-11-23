@@ -154,14 +154,30 @@ pub mod top {
         Settings,
         /// The owner's nine.
         Kh1,
+        /// Riku's story at Combat = KH1 with `riku_kh1_movement` (fork branch, 0.150.0; fork owner
+        /// 2026-11-22: "poderia substituir o Review Decks quando a gameplay do KH1 estiver ativa,
+        /// IGUAL a do Sora"): Re:CoM's seven where they are, entry 0 (Review Decks) relabelled
+        /// Customize (his L1 shortcuts), Settings opening the short list.
+        Riku,
     }
 
     /// The list for this camp. `direct_map` = `camp+0x20A4` (the camp never shows the list);
     /// `kh1_pages` = Combat = KH1 and the stats file lists Keyblades (the KH1 pages' condition
     /// since 0.8.0: without the asset step's numbers they have nothing to show).
-    pub fn layout(story: Story, direct_map: bool, combat_kh1: bool, kh1_pages: bool) -> Layout {
-        if direct_map || story == Story::Riku {
+    ///
+    /// `riku_settings` (fork testing, `riku_kh1_movement` on): Riku's story gets the Settings list
+    /// too ([`super::sub::RIKU_SETTINGS_ROWS`]), so its Combat and Movement pages reach him.
+    pub fn layout(story: Story, direct_map: bool, combat_kh1: bool, kh1_pages: bool, riku_settings: bool) -> Layout {
+        if direct_map {
             Layout::Recom
+        } else if story == Story::Riku {
+            if riku_settings && combat_kh1 {
+                Layout::Riku
+            } else if riku_settings {
+                Layout::Settings
+            } else {
+                Layout::Recom
+            }
         } else if combat_kh1 && kh1_pages {
             Layout::Kh1
         } else {
@@ -198,6 +214,7 @@ pub mod top {
             (Layout::Kh1, DECKS) => Some(Entry::Items),
             (Layout::Kh1, ABILITIES) => Some(Entry::Abilities),
             (Layout::Kh1, CUSTOMIZE) => Some(Entry::Customize),
+            (Layout::Riku, DECKS) => Some(Entry::Customize),
             (_, i) if (0..RECOM_ENTRIES).contains(&i) => Some(Entry::Recom(i)),
             _ => None,
         }
@@ -359,6 +376,16 @@ pub mod top {
         match (kh1_move(cursor, p), recom_move(cursor, RECOM_ENTRIES, p)) {
             (Some(t), None) if t != cursor => Fix::Move(t),
             _ => Fix::None,
+        }
+    }
+
+    /// Riku's list ([`Layout::Riku`]): Re:CoM's own moves; a confirm on entry 0 is ours (Re:CoM's
+    /// would open its deck submenu).
+    pub fn riku_fix(cursor: i32, p: Pad) -> Fix {
+        if p.confirm && !p.start && !p.cancel && cursor == DECKS {
+            Fix::Confirm(Entry::Customize)
+        } else {
+            Fix::None
         }
     }
 
@@ -681,6 +708,22 @@ pub mod sub {
     /// The Settings list's rows, top to bottom.
     pub const SETTINGS_ROWS: &[Row] = &[Row::GameSettings, Row::Combat, Row::Movement, Row::EffectsSound, Row::Camera];
 
+    /// Riku's story's Settings list (fork testing, `riku_kh1_movement` on): only the pages that
+    /// act on Riku (Combat for the switch, Movement for his KH1 movement, Camera: the KH1 / KH2
+    /// cameras follow him too). Effects & Sound stays Sora's (his effects are Re:CoM's). 0.149.0
+    /// (fork owner, 2026-11-22: "falta poder configurar os shortcuts igual da com o Sora"): Customize
+    /// on the top list (0.150.0, [`super::top::Layout::Riku`]: in Review Decks' place, as Sora's).
+    pub const RIKU_SETTINGS_ROWS: &[Row] = &[Row::GameSettings, Row::Combat, Row::Movement, Row::Camera];
+
+    /// The Settings list's rows in this story.
+    pub fn settings_rows(story: super::Story) -> &'static [Row] {
+        if story == super::Story::Riku {
+            RIKU_SETTINGS_ROWS
+        } else {
+            SETTINGS_ROWS
+        }
+    }
+
     /// Re:CoM's camp has 7 entry buttons (`camp+0x1B8[7]`); the list reuses them. Checked
     /// (decomp).
     pub const MAX_ROWS: usize = 7;
@@ -878,15 +921,28 @@ mod tests {
     fn the_list_per_story_and_setting() {
         // Owner, 2026-11-04: nine at KH1 in Sora's story; Re:CoM's seven at Re:CoM (Settings opens
         // the short list); Riku's story and the direct-map camp untouched.
-        assert_eq!(top::layout(Story::Sora, false, true, true), Layout::Kh1);
-        assert_eq!(top::layout(Story::Sora, false, false, true), Layout::Settings);
-        assert_eq!(top::layout(Story::Sora, false, true, false), Layout::Settings, "no Keyblade numbers: no KH1 pages");
+        assert_eq!(top::layout(Story::Sora, false, true, true, false), Layout::Kh1);
+        assert_eq!(top::layout(Story::Sora, false, false, true, false), Layout::Settings);
+        assert_eq!(top::layout(Story::Sora, false, true, false, false), Layout::Settings, "no Keyblade numbers: no KH1 pages");
         for (c, k) in [(true, true), (true, false), (false, true), (false, false)] {
-            assert_eq!(top::layout(Story::Riku, false, c, k), Layout::Recom);
-            assert_eq!(top::layout(Story::Sora, true, c, k), Layout::Recom, "direct map");
-            assert_eq!(top::layout(Story::Riku, true, c, k), Layout::Recom);
+            assert_eq!(top::layout(Story::Riku, false, c, k, false), Layout::Recom);
+            assert_eq!(top::layout(Story::Sora, true, c, k, false), Layout::Recom, "direct map");
+            assert_eq!(top::layout(Story::Riku, true, c, k, false), Layout::Recom);
+            // Fork testing: `riku_kh1_movement` gives Riku's story the Settings list (not the map camp).
+            assert_eq!(top::layout(Story::Riku, false, c, k, true), if c { Layout::Riku } else { Layout::Settings });
+            assert_eq!(top::layout(Story::Riku, true, c, k, true), Layout::Recom);
+            assert_eq!(top::layout(Story::Sora, false, true, true, true), Layout::Kh1);
         }
-        assert!(top::settings_list(Layout::Kh1) && top::settings_list(Layout::Settings) && !top::settings_list(Layout::Recom));
+        assert!(top::settings_list(Layout::Kh1) && top::settings_list(Layout::Settings) && top::settings_list(Layout::Riku) && !top::settings_list(Layout::Recom));
+        // Riku's list: Review Decks' place is Customize; the rest Re:CoM's, where they are.
+        assert_eq!(top::entry(Layout::Riku, top::DECKS), Some(Entry::Customize));
+        assert_eq!(top::entry(Layout::Riku, 3), Some(Entry::Recom(3)));
+        assert_eq!(top::entry(Layout::Riku, top::CUSTOMIZE), None);
+        assert_eq!((top::count(Layout::Riku), top::slot(Layout::Riku, 0), top::entry_pos(Layout::Riku, 2)), (7, Some(0), top::entry_pos(Layout::Settings, 2)));
+        let confirm = top::Pad { confirm: true, ..Default::default() };
+        assert_eq!(top::riku_fix(0, confirm), top::Fix::Confirm(Entry::Customize));
+        assert_eq!(top::riku_fix(1, confirm), top::Fix::None);
+        assert_eq!(top::riku_fix(0, top::Pad::default()), top::Fix::None);
         assert_eq!((top::count(Layout::Kh1), top::count(Layout::Settings), top::count(Layout::Recom)), (9, 7, 7));
         assert_eq!((Story::from_camp(0), Story::from_camp(1)), (Story::Sora, Story::Riku));
     }
@@ -1171,6 +1227,9 @@ mod tests {
         use sub::{Act, Row};
         // Owner, 2026-11-04: Game Settings (Re:CoM's page), Combat, Movement.
         assert_eq!(sub::SETTINGS_ROWS, &[Row::GameSettings, Row::Combat, Row::Movement, Row::EffectsSound, Row::Camera]);
+        assert_eq!(sub::settings_rows(Story::Riku), &[Row::GameSettings, Row::Combat, Row::Movement, Row::Camera]);
+        assert!(sub::settings_rows(Story::Riku).len() <= sub::MAX_ROWS);
+        assert_eq!(sub::settings_rows(Story::Sora), sub::SETTINGS_ROWS);
         assert_eq!((Row::Camera.label(), Row::Camera.settings_page()), (&b"Camera\0"[..], Some(crate::menu::Page::Camera)));
         assert_eq!((Row::EffectsSound.label(), Row::EffectsSound.settings_page()), (&b"Effects & Sound\0"[..], Some(crate::menu::Page::EffectsSound)));
         assert_eq!(Row::GameSettings.label(), &b"Game Settings\0"[..]);

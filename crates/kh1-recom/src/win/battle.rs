@@ -573,13 +573,15 @@ pub fn install_pace(bs: usize) -> bool {
 
 /// Re:CoM's battle enemy manager ctor (once per battle): the battle's setting and P2–P4.
 pub unsafe extern "win64" fn manager_ctor(this: usize, a: usize, c: usize, d: usize) -> usize {
-    let kh1 = mv::kh1_on() && !super::stats::riku_story();
+    // Riku with `riku_kh1_movement` (`crate::riku`): his battles are KH1 battles too (cardless enemies).
+    let kh1 = mv::kh1_on() && (!super::stats::riku_story() || mv::riku_on());
     let pace_kh1 = super::settings().enemy_pace == crate::settings::Mode::Kh1;
     let want = b::wanted(kh1, pace_kh1);
     let switched = switch_patches(M6_PATCHES, &want);
     // Stage 3, P5: "Sora is attacking" for the bosses, on its own (a foreign getter leaves P2-P4).
     let p5 = switch_patches(M6_BOSS_PATCHES, &[kh1]);
     KH1_BATTLE.store(kh1, Ordering::Release);
+    super::dark_points::battle_start();
     let battle = BATTLE_NO.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
     BOSS_BATTLE_LINES.store(0, Ordering::Relaxed);
     SIDE2_CARDS.store(0, Ordering::Relaxed);

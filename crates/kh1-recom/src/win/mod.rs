@@ -11,6 +11,7 @@ mod crash;
 mod d2;
 mod damage;
 mod damage_cap;
+mod dark_points;
 mod deck;
 mod drops;
 mod effects;
@@ -286,6 +287,8 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
         hook::Hook { site: site("avoid init (0x1401F10C0)"), ours: movement::avoid_init as *const () as usize, original: &movement::ORIG_AVOID_INIT },
         hook::Hook { site: site("jump exe (action 7)"), ours: movement::jump_exe as *const () as usize, original: &movement::ORIG_JUMP_EXE },
         hook::Hook { site: site("CPlayerSora avoid exe (action 6)"), ours: movement::avoid_exe as *const () as usize, original: &movement::ORIG_AVOID_EXE },
+        hook::Hook { site: site("CPlayerRiku avoid exe (action 6)"), ours: movement::riku_avoid_exe as *const () as usize, original: &movement::ORIG_RIKU_AVOID_EXE },
+        hook::Hook { site: site("CPlayerDRiku avoid exe (action 6)"), ours: movement::driku_avoid_exe as *const () as usize, original: &movement::ORIG_DRIKU_AVOID_EXE },
         hook::Hook { site: site("CPlayerSora glide exe (action 8)"), ours: movement::glide_exe as *const () as usize, original: &movement::ORIG_GLIDE_EXE },
     ];
     // SAFETY: the targets' bytes are checked again inside, before anything is written.
@@ -296,6 +299,10 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
         movement::set_abilities(s.abilities);
         abilities::set_ini(&s.abilities);
         movement::set_mode(s.combat == settings::Mode::Kh1);
+        movement::set_riku(s.riku_kh1_movement);
+        if s.riku_kh1_movement {
+            log("riku: riku_kh1_movement = on: at combat = kh1, Riku in Reverse/Rebirth moves with KH1's movement (testing)");
+        }
         log(&format!(
             "movement: KH1 handlers in Re:CoM's actions 2/3/4, 6, 7, 8 ({}); abilities {:?}; dodge_roll = {} ({}); run_speed = {}, jump_height = {}, air_speed = {}",
             if s.combat == settings::Mode::Kh1 { "on: combat = kh1" } else { "pass-through: combat = recom" },

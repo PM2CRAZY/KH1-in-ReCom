@@ -156,9 +156,13 @@ pub fn learned() -> Set {
     // SAFETY: Re:CoM's own test (bytes checked at install), a pure read.
     let f = unsafe { func::<LearnedFn>(LEARNED) };
     let mut s = 0;
+    // Riku's story (`riku_kh1_movement`): the King's sleights count as taught (Re:CoM's Riku forms
+    // his sleights from cards, not from learned bits; his Sleights list doesn't filter either).
+    let riku = super::stats::riku_story() && super::movement::riku_on();
     for (i, fr) in pt::ALL.iter().enumerate() {
+        let king = fr.cards.contains(&pt::card::KING);
         // SAFETY: as above.
-        if unsafe { f(fr.sleight) } & 0xFF != 0 {
+        if (riku && king) || unsafe { f(fr.sleight) } & 0xFF != 0 {
             s |= 1 << i;
         }
     }

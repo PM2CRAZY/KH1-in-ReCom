@@ -391,6 +391,17 @@ fn layout_code(l: top::Layout) -> u8 {
         top::Layout::Recom => 0,
         top::Layout::Settings => 1,
         top::Layout::Kh1 => 2,
+        top::Layout::Riku => 3,
+    }
+}
+
+/// The list last built (any camp).
+fn list_now() -> top::Layout {
+    match LIST.load(Ordering::Relaxed) {
+        3 => top::Layout::Riku,
+        2 => top::Layout::Kh1,
+        1 => top::Layout::Settings,
+        _ => top::Layout::Recom,
     }
 }
 
@@ -399,11 +410,7 @@ fn layout_of(camp: *mut u8) -> top::Layout {
     if camp.is_null() || LIST_CAMP.load(Ordering::Relaxed) != camp as usize {
         return top::Layout::Recom;
     }
-    match LIST.load(Ordering::Relaxed) {
-        2 => top::Layout::Kh1,
-        1 => top::Layout::Settings,
-        _ => top::Layout::Recom,
-    }
+    list_now()
 }
 
 /// The list the camp should show now (`top::layout`): read at each build of the top list, so
@@ -412,7 +419,7 @@ unsafe fn layout_now(camp: *mut u8) -> top::Layout {
     let story = story(camp);
     let direct = at::<i32>(camp, camp::DIRECT_MAP) != 0;
     let combat = super::settings().combat == crate::settings::Mode::Kh1;
-    top::layout(story, direct, combat, combat && story == kb::Story::Sora && kh1_pages_listed())
+    top::layout(story, direct, combat, combat && story == kb::Story::Sora && kh1_pages_listed(), super::settings().riku_kh1_movement)
 }
 
 /// True when the Config input hook must run our code: the Settings list (Re:CoM's Settings entry
@@ -431,7 +438,7 @@ pub fn page_active(camp: *mut u8) -> bool {
 
 /// `saved` is the entry of ours our confirm opened.
 fn ours_confirmed(saved: i32) -> bool {
-    CONFIRMED.load(Ordering::Relaxed) == saved && top::entry(top::Layout::Kh1, saved).and_then(|e| e.page()).is_some()
+    CONFIRMED.load(Ordering::Relaxed) == saved && top::entry(list_now(), saved).and_then(|e| e.page()).is_some()
 }
 
 /// The camp's story, as Re:CoM's camp code reads it for its own tables.
@@ -606,6 +613,15 @@ unsafe fn apply_layout(camp: *mut u8, l: top::Layout, relabelled: bool) {
             relabel_one(camp, top::DECKS as usize, sub::Row::Items.label().as_ptr());
         }
         place_recoms(camp, l);
+    } else if l == top::Layout::Riku {
+        // Riku's (0.150.0): Re:CoM's seven where they are, entry 0 relabelled Customize.
+        delete_extras();
+        if !ITEMS_ON.swap(true, Ordering::Relaxed) {
+            relabel_one(camp, top::DECKS as usize, sub::Row::Customize.label().as_ptr());
+        }
+        if MOVED.load(Ordering::Relaxed) {
+            place_recoms(camp, l);
+        }
     } else {
         delete_extras();
         if ITEMS_ON.swap(false, Ordering::Relaxed) {
@@ -626,6 +642,7 @@ unsafe fn apply_layout(camp: *mut u8, l: top::Layout, relabelled: bool) {
             top::Layout::Kh1 => "camp: KH1's list: Items, Abilities, Customize, then Re:CoM's World Map .. Settings (9 entries, y 78 + 24 each); Settings opens Game Settings, Combat, Movement, Effects & Sound, Camera",
             top::Layout::Settings => "camp: Re:CoM's list (Combat = Re:CoM); Settings opens Game Settings, Combat, Movement, Effects & Sound, Camera",
             top::Layout::Recom => "camp: Re:CoM's list, untouched (Riku's story or the map-only camp)",
+            top::Layout::Riku => "camp: Riku's list at Combat = KH1: Customize in Review Decks' place, then Re:CoM's six; Settings opens Game Settings, Combat, Movement, Camera",
         });
     }
 }
@@ -746,6 +763,16 @@ unsafe fn glove_target(camp: *mut u8, i: i32, s: i32) {
 /// does Re:CoM's work for nine entries at their places; elsewhere it is Re:CoM's.
 pub unsafe extern "win64" fn cursor_set(camp: *mut u8, idx: i32, show: i32) -> u64 {
     let o: CursorSetFn = orig(&ORIG_CURSOR);
+    if layout_of(camp) == top::Layout::Riku && at::<i32>(camp, camp::LEVEL) == 0 {
+        // Re:CoM's work, then our help line for our Customize in entry 0's place.
+        let r = o(camp, idx, show);
+        if show != 0 && at::<i32>(camp, camp::CURSOR) == top::DECKS {
+            if let Some(t) = sub::Row::Customize.help() {
+                set_help(camp, t.as_ptr());
+            }
+        }
+        return r;
+    }
     if layout_of(camp) != top::Layout::Kh1 || at::<i32>(camp, camp::LEVEL) != 0 {
         return o(camp, idx, show);
     }
@@ -866,7 +893,13 @@ pub unsafe extern "win64" fn camp_update(camp: *mut u8) {
         }
         0xF => {
             let pad = top_pad();
-            let fix = if kh1 { top::kh1_fix(cursor, pad) } else { top::Fix::None };
+            let fix = if kh1 {
+                top::kh1_fix(cursor, pad)
+            } else if l == top::Layout::Riku {
+                top::riku_fix(cursor, pad)
+            } else {
+                top::Fix::None
+            };
             if let top::Fix::Confirm(e) = fix {
                 // Re:CoM's confirm must not run for ours (entry 0 would open its deck submenu):
                 // an index past 6 makes it skip (`0x1400DAABD`), the frame's other work stays.
@@ -913,7 +946,7 @@ pub unsafe extern "win64" fn camp_update(camp: *mut u8) {
         }
         // State 0x11 reads a 7-byte table (`1D 16 41 1A 44 47 4A`): index 0 gives the deck
         // submenu 0x1D, 7 / 8 read past it. Our pages open through the Config states 0x4A..0x4C.
-        0x11 if kh1 && ours_confirmed(cursor) => {
+        0x11 if (kh1 || l == top::Layout::Riku) && ours_confirmed(cursor) => {
             o(camp);
             let now = at::<i32>(camp, camp::STATE);
             if now != 0x11 {
@@ -989,6 +1022,8 @@ impl Open {
 /// The Settings list and the page open in it.
 struct Sub {
     camp: usize,
+    /// The list's rows (`sub::settings_rows`: Riku's story has fewer).
+    rows: &'static [sub::Row],
     state: SubState,
     row: i32,
     page: Option<Open>,
@@ -1028,7 +1063,6 @@ unsafe fn main_layer2(camp: *mut u8, show: bool) {
     }
 }
 
-const ROWS: &[sub::Row] = sub::SETTINGS_ROWS;
 
 impl Sub {
     fn p(&self) -> *mut u8 {
@@ -1042,21 +1076,22 @@ impl Sub {
         if MOVED.load(Ordering::Relaxed) {
             place_recoms(camp, top::Layout::Settings);
         }
-        let labels: Vec<&'static [u8]> = ROWS.iter().map(|r| r.label()).collect();
+        let rows = sub::settings_rows(story(camp));
+        let labels: Vec<&'static [u8]> = rows.iter().map(|r| r.label()).collect();
         relabel(camp, &labels);
-        put::<i32>(camp, camp::COUNT, ROWS.len() as i32);
+        put::<i32>(camp, camp::COUNT, rows.len() as i32);
         // Re:CoM's Deck submenu level; the cursor set and entry build read it (`< 2`: help).
         put::<i32>(camp, camp::LEVEL, 1);
         // Re:CoM's cursor set unhighlights the button at `camp+0xB8` first, which must be one of
         // the list's.
         put::<i32>(camp, camp::CURSOR, 0);
         build(camp, 0, 1);
-        log(&format!("camp: Settings list opened ({ROWS:?})"));
-        Sub { camp: camp as usize, state: SubState::Opening, row: 0, page: None }
+        log(&format!("camp: Settings list opened ({rows:?})"));
+        Sub { camp: camp as usize, rows, state: SubState::Opening, row: 0, page: None }
     }
 
     unsafe fn help(&self) {
-        if let Some(r) = ROWS.get(self.row as usize) {
+        if let Some(r) = self.rows.get(self.row as usize) {
             match (r.help(), r.recom_help()) {
                 (Some(t), _) => set_help(self.p(), t.as_ptr()),
                 (None, Some(id)) => set_help(self.p(), message(id)),
@@ -1079,7 +1114,7 @@ impl Sub {
                 }
             }
             SubState::Input => {
-                match sub::step(self.row, ROWS.len(), top_pad()) {
+                match sub::step(self.row, self.rows.len(), top_pad()) {
                     sub::Act::Close => {
                         recom_cursor(camp, self.row, false);
                         build(camp, 2, 0);
@@ -1091,7 +1126,7 @@ impl Sub {
                         // row's title, buttons fade, highlight bar and glove hidden; Re:CoM's page
                         // entries' confirm also hides the main panel's layer 2.
                         sound(2);
-                        header_title(camp, 1, ROWS[i].label());
+                        header_title(camp, 1, self.rows[i].label());
                         build(camp, 2, 0);
                         func::<CampIntFn>(HIGHLIGHT_BAR)(camp, -1, 0);
                         func::<CampIntFn>(GLIDE_TARGET)(camp, -1, 0);
@@ -1110,7 +1145,7 @@ impl Sub {
             }
             SubState::ToPage => {
                 if button0_ended(camp) {
-                    let row = ROWS.get(self.row as usize).copied().unwrap_or(sub::Row::GameSettings);
+                    let row = self.rows.get(self.row as usize).copied().unwrap_or(sub::Row::GameSettings);
                     self.page = Some(match row.settings_page() {
                         Some(sp) => Open::Settings(super::menu::SettingsPage::open(camp, sp)),
                         None => {
@@ -1343,6 +1378,20 @@ impl Page {
     /// Draw mode 0 for the page: the two panels, the cursor, the rows.
     unsafe fn open(camp: *mut u8, row: sub::Row) -> Page {
         let (content, list) = match row {
+            sub::Row::Customize if story(camp) == kb::Story::Riku => {
+                // Riku's (0.149.0): no spells; his sleights; his slots (the same save bytes).
+                let levels = [0u8; 7];
+                let slots = super::mp::riku_shortcuts().unwrap_or([0; 3]);
+                // His six and (0.152.0) Dark Riku's, each once (a slot starts what the one in play takes).
+                let mut sleights: Vec<u16> = crate::riku::SLEIGHTS.iter().chain(crate::riku::DARK_SLEIGHTS.iter()).map(|s| s.id).collect();
+                sleights.dedup();
+                sleights.sort_unstable();
+                sleights.dedup();
+                // 0.150.0: the King's Party sleights too (taught in his story).
+                sleights.extend(super::party::learned_ids().into_iter().filter(|&id| crate::party::index(id).is_some_and(|i| crate::party::ALL[i].cards.contains(&crate::party::card::KING))));
+                let picks = customize::picks(levels, &sleights);
+                (Content::Customize { levels, slots, sleights, picks, picking: None }, list::open_on(customize::SLOTS as i32, 0))
+            }
             sub::Row::Customize => {
                 let (levels, slots) = super::command_menu::spell_view();
                 // 0.111.0: the Party sleights Re:CoM has taught can be shortcuts too.
@@ -1838,7 +1887,8 @@ impl Page {
                     Some(cm::shortcut::Slot::Spell(s)) => crate::unlocks::level_name(s, levels[s as usize].clamp(1, 3)).to_string(),
                     Some(cm::shortcut::Slot::Sleight(id)) => format!("sleight {} ({id:#x})", crate::sleights::name(id)),
                 };
-                if super::mp::set_shortcuts(new) {
+                let written = if story(self.p()) == kb::Story::Riku { super::mp::set_riku_shortcuts(new) } else { super::mp::set_shortcuts(new) };
+                if written {
                     if let Content::Customize { slots: s, .. } = &mut self.content {
                         *s = new;
                     }
@@ -2133,7 +2183,7 @@ pub unsafe fn page(camp: *mut u8) -> u64 {
         // State 0x4A's call: the list's buttons, or the page.
         None => {
             let saved = at::<i32>(camp, camp::SAVED);
-            let row = if ours_confirmed(saved) { top::entry(top::Layout::Kh1, saved).and_then(|e| e.page()) } else { None };
+            let row = if ours_confirmed(saved) { top::entry(list_now(), saved).and_then(|e| e.page()) } else { None };
             *g = Some(match row {
                 Some(row) => {
                     log(&format!("camp: {row:?} opened from the top list"));

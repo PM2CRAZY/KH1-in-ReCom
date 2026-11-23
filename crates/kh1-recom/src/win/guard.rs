@@ -118,7 +118,8 @@ pub(super) unsafe fn on_result(c: usize, list: usize, r: i32) -> i32 {
         return r;
     }
     let pl: usize = rd(va(b, data::MAIN_PLAYER));
-    if !mv::is_main_sora(pl) || !super::attack::guard_live(pl) {
+    // 0.152.0: Riku's (and Dark Riku's) Guard too.
+    if !(mv::is_main_sora(pl) || (mv::riku_on() && mv::is_main_riku(pl))) || !super::attack::guard_live(pl) {
         return r;
     }
     let owner: u32 = rd(c + coll::OWNER);
@@ -151,6 +152,12 @@ pub(super) unsafe fn on_result(c: usize, list: usize, r: i32) -> i32 {
             other(obj, c, "a KH1 banana peel: blocked, not turned back");
             return r;
         }
+        // 0.153.0: Riku's Guard cancels a blocked shot (magic), as KH1's generic code makes a
+        // blocked shot inert; Re:CoM's result 2 stands (its bullet ends on it).
+        if mv::is_main_riku(pl) && rd::<usize>(obj + bullet::COLL) == c {
+            cancel_shot(obj, s);
+            return r;
+        }
         if rd::<usize>(obj + bullet::COLL) == c && turn_back(obj, c, s) {
             return 0;
         }
@@ -163,6 +170,49 @@ pub(super) unsafe fn on_result(c: usize, list: usize, r: i32) -> i32 {
     }
     other(obj, c, "not one of its CAttackMotion entries (its own collision): left as Re:CoM");
     r
+}
+
+/// 0.153.0: a shot Riku's Guard blocked is cancelled: its attack off (Re:CoM's `CCollAttack` off,
+/// `0x14014DE80`, through `super::magic::hold_off`) and its life over (`+0x160` = 0), so Re:CoM's
+/// own step ends it (as `super::kh1_thrown` ends a shot at a clash). Assumption: a plain
+/// `CBullet` counts its life at `+0x160` as the homing one does (its attack is off either way).
+unsafe fn cancel_shot(obj: usize, s: Shot) {
+    let shooter: i32 = rd(obj + bullet::SHOOTER);
+    super::magic::hold_off(obj);
+    wr(obj + super::magic::rt::LIFE, 0i32);
+    block_log(|| {
+        format!(
+            "Riku's Guard cancelled a shot {} of {} (shooter {shooter})",
+            if s == Shot::Homing { "CHomingBullet" } else { "CBullet" },
+            class_name(func::<mv::HandleFn>(mv::HANDLE_OBJ)(shooter.max(0) as u32))
+        )
+    });
+}
+
+/// 0.153.0: Riku's Guard blocked `obj`'s attack through our own front test
+/// (`super::attack::riku_guard_block`, Re:CoM's apply had already taken the hit): a shot is
+/// cancelled (magic: the owner's ask), any other attacker gets the block's reaction on its next
+/// hit-handler call (Re:CoM's flinch / KH1's clash recoil, as for Sora), with Guard reactions on.
+pub(super) unsafe fn riku_block(obj: usize, id: u32) {
+    let b = base();
+    let vt: usize = rd(obj);
+    let shot = if vt == va(b, bullet::VTABLE) {
+        Some(Shot::Plain)
+    } else if vt == va(b, bullet::HOMING_VTABLE) {
+        Some(Shot::Homing)
+    } else {
+        None
+    };
+    if let Some(s) = shot {
+        if !super::kh1_peel::is_peel(rd(obj + 0x20)) {
+            cancel_shot(obj, s);
+        }
+        return;
+    }
+    if !ON.load(Ordering::Relaxed) || !READY.load(Ordering::Acquire) {
+        return;
+    }
+    remember(obj, 0, id);
 }
 
 /// Whether `c` is one of the actor's `CAttackMotion` entries (its melee attack collisions).
@@ -210,6 +260,10 @@ unsafe fn remember(obj: usize, c: usize, id: u32) {
     drop(v);
     block_log(|| {
         let f: u64 = rd(obj + enemy::FLAGS);
+        if c == 0 {
+            // 0.153.0: Riku's own front test (no collision at hand).
+            return format!("block melee {} id={id} (Riku's Guard, our front test) flags={f:#x} state={:?}", class_name(obj), g::state_index(obj, rd(obj + enemy::STATE)));
+        }
         format!(
             "block melee {} id={id} coll={c:#x} kind={} elem={} ap={} serial={} flags={f:#x} state={:?}",
             class_name(obj),

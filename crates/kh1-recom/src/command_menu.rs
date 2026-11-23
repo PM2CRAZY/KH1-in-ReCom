@@ -1852,7 +1852,7 @@ pub mod shortcut {
     /// byte unless the player sets that slot. Checked (code).
     pub fn slot_sleight(b: u8) -> Option<u16> {
         let id = b as u16;
-        (b >= 8 && (crate::abilities::of_sleight(id).is_some() || crate::party::index(id).is_some())).then_some(id)
+        (b >= 8 && (crate::abilities::of_sleight(id).is_some() || crate::party::index(id).is_some() || crate::riku::sleight(id).is_some())).then_some(id)
     }
 
     /// The slot byte of a sleight ability's Re:CoM id (None: not one of the 27).
@@ -1998,7 +1998,7 @@ pub fn parse_words(text: &str, lang: &str) -> Result<Words, String> {
     }
     // Our own words (not KH1's): the asset step writes them; a manifest from before them gets the
     // built-in text (the Re:CoM look draws it; the KH1 look needs the asset step's glyphs).
-    for (id, text) in OUR_WORDS.iter().copied().chain(crate::sleights::words()).chain(crate::party::words()) {
+    for (id, text) in OUR_WORDS.iter().copied().chain(crate::sleights::words()).chain(crate::party::words()).chain(crate::riku::words()) {
         if out.get(id).is_none() {
             out.by_id.push((id, font_bytes(text).0));
         }
@@ -2983,7 +2983,7 @@ mod tests {
         assert!(src.contains(&format!("({}, \"{}\")", crate::sleights::ROW_WORD, crate::sleights::ROW_TEXT)));
         // 0.111.0: the Party row and names, and the arrow's motion.
         assert!(src.contains(&format!("({}, \"{}\")", cmd::PARTY_WORD, PARTY_TEXT)));
-        for (id, name) in crate::party::words() {
+        for (id, name) in crate::party::words().chain(crate::riku::words()) {
             let line = format!("({id:#06X}, \"{name}\")");
             assert!(src.contains(&line), "the asset step lacks {line}");
         }

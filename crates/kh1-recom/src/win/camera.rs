@@ -266,7 +266,9 @@ unsafe fn entries() -> u32 {
 unsafe extern "win64" fn init(cam: usize) {
     let orig: CamFn = std::mem::transmute(ORIG_INIT.load(Ordering::Acquire));
     orig(cam);
-    let riku = super::stats::riku_story();
+    // Riku's story keeps Re:CoM's camera, unless `riku_kh1_movement` (fork testing, `crate::riku`;
+    // owner 2026-11-22: "as opções de câmera podem ter para o Riku tbm"): then the Camera setting.
+    let riku = super::stats::riku_story() && !super::movement::riku_on();
     RIKU.store(riku, Ordering::Release);
     let battle = rd::<usize>(cam + f::STATE) == cam + f::BATTLE_STATE;
     let want = camera::wanted(choice(), riku, battle && boss_camera());

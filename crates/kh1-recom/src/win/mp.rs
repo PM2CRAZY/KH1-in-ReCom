@@ -55,9 +55,21 @@ fn save() -> Option<usize> {
     (s != 0).then_some(s)
 }
 
-/// KH1 MP is live: Combat = KH1, Sora's story, a save block.
+/// KH1 MP is live for Sora: Combat = KH1, Sora's story, a save block. Everything of Sora's that
+/// rides on it (AP Up, abilities, items, the shop, notices, the command menu) reads this.
 pub fn active() -> bool {
     mv::kh1_on() && !super::stats::riku_story() && save().is_some()
+}
+
+/// Riku's KH1 MP (`riku_kh1_movement`, `crate::riku`): Combat = KH1 in Riku's story, in the same
+/// block of his story's save. Only the MP itself (pay, charge, refill, the bar) reads it.
+pub fn riku_live() -> bool {
+    mv::kh1_on() && mv::riku_on() && super::stats::riku_story() && save().is_some()
+}
+
+/// The MP block is read and written: Sora's ([`active`]) or Riku's ([`riku_live`]).
+pub fn live() -> bool {
+    active() || riku_live()
 }
 
 /// The equipped Keyblade's KH1 max-MP bonus (KH1 weapon `+0x38`, the stats file's `magic`). The
@@ -70,7 +82,7 @@ pub fn keyblade_bonus() -> i32 {
 /// Reads the block, syncs it (level-ups, Keyblade), runs `f`, writes back what KH1 would have
 /// written. None when MP isn't live.
 fn with_state<R>(f: impl FnOnce(&mut Mp) -> R) -> Option<R> {
-    if !active() {
+    if !live() {
         REFILL_PENDING.store(false, Ordering::Relaxed);
         return None;
     }
@@ -80,7 +92,8 @@ fn with_state<R>(f: impl FnOnce(&mut Mp) -> R) -> Option<R> {
     let mut block: [u8; BLOCK_LEN] = unsafe { rd(at) };
     let saved = SavedMp::read(&block);
     let level = super::stats::sora_level();
-    let bonus = keyblade_bonus();
+    // Riku has no Keyblade bonus (Soul Eater; `crate::riku`).
+    let bonus = if riku_live() { 0 } else { keyblade_bonus() };
     let mut l: Live = m::live(&saved, level, bonus);
     if !FIRST_READ_LOGGED.swap(true, Ordering::Relaxed) {
         let (mp, max, c) = l.mp.view();
@@ -147,6 +160,38 @@ pub fn set_shortcuts(slots: [u8; 3]) -> bool {
     // SAFETY: inside the 0x2AD4-byte save block (BLOCK_LAST < 0x2818).
     unsafe { wr(s + BLOCK_FIRST + m::off::SHORTCUTS, slots) };
     true
+}
+
+/// Riku's three shortcut slots (`crate::riku`), the same bytes of his story's save block: his
+/// sleights' ids, 0 = none. None when his MP isn't live. No spell sync (he has no spells).
+pub fn riku_shortcuts() -> Option<[u8; 3]> {
+    if !riku_live() {
+        return None;
+    }
+    let s = save()?;
+    // SAFETY: inside the 0x2AD4-byte save block (BLOCK_LAST < 0x2818).
+    Some(unsafe { rd(s + BLOCK_FIRST + m::off::SHORTCUTS) })
+}
+
+/// Writes Riku's three shortcut slots, and marks them set up (the spare byte's
+/// `crate::unlocks::SHORTCUTS_SET`, in his story's block: Sora's never shares it), so slots he
+/// emptied on his Customize page are not filled again. False when his MP isn't live.
+pub fn set_riku_shortcuts(slots: [u8; 3]) -> bool {
+    let Some(s) = save().filter(|_| riku_live()) else { return false };
+    // SAFETY: as above.
+    unsafe {
+        wr(s + BLOCK_FIRST + m::off::SHORTCUTS, slots);
+        let spare = s + BLOCK_FIRST + m::off::SPARE;
+        wr(spare, rd::<u8>(spare) | crate::unlocks::SHORTCUTS_SET);
+    }
+    true
+}
+
+/// Riku's slots were set up once (filled with his first sleights, or set on his Customize page).
+pub fn riku_shortcuts_set() -> bool {
+    let Some(s) = save().filter(|_| riku_live()) else { return false };
+    // SAFETY: as above.
+    unsafe { rd::<u8>(s + BLOCK_FIRST + m::off::SPARE) & crate::unlocks::SHORTCUTS_SET != 0 }
 }
 
 /// (MP, max MP, charge), or None when MP isn't live.
@@ -224,7 +269,7 @@ pub fn restore_full(why: &str) {
 /// `+0x2C` × KH1's level factor, with the enemy's KH1 twin's level (decision 21) or, without a
 /// twin, the provisional `crate::mp::no_twin_level`.
 pub fn on_kh1_hit(enemy: usize, kh1_row: Option<usize>) {
-    if !active() {
+    if !live() {
         return;
     }
     let ms = super::attack::moveset();
@@ -315,7 +360,7 @@ pub unsafe extern "win64" fn save_point(this: usize) {
     let o: ThisFn = mv::orig(&ORIG_SAVE_POINT);
     o(this);
     let f = SAVE_POINT_FRAME.fetch_add(1, Ordering::Relaxed) % 3;
-    if f != 0 || rd::<u8>(this + SAVE_POINT_ON) != 1 || !active() {
+    if f != 0 || rd::<u8>(this + SAVE_POINT_ON) != 1 || !live() {
         return;
     }
     if let Some((b, a)) = with_state(|mp| {

@@ -11,6 +11,137 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 274 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard runs KH1's frame (his own action-6 exes wrapped), version 0.153.1 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "BRO, still not effective!!! … i tried rikus guard against Heartless Wizard thunder and ice magic"; "also parry should be effective just like KH1 Sora with this mod bro!".
+
+- **Cause** (Checked (the owner's 0.153.0 log: no `riku guard:` line, no guard success; exe: `CPlayerRiku` / `CPlayerDRiku` vtable `+0x1C8`)): KH1's Guard and its recoil put Riku in Re:CoM's action 6, whose exe is his own (`0x140212350`, Dark Riku `0x1401FFC30`), not Sora's `0x140217310`, the only one wrapped. So the KH1 frame never ran while he guarded: no guard object, no block, no parry.
+- **Fix**: two new hooks (`sites::MOVE_HOOKS` "CPlayerRiku / CPlayerDRiku avoid exe (action 6)", first 16 bytes = Sora's, Checked (exe)) with Sora's rule: his Re:CoM roll keeps his exe whole; the Guard / recoil run the KH1 frame (`win::movement::avoid_kh1`). His parry is Sora's kind-6 guard success (recoil, clink, the attacker's reaction, a shot cancelled, the DP parries); no Counterattack (no clip of his).
+- A shot within 1 m of him (the Wizard's spells appear near the player, a thunder from above): the front test uses its caster's position.
+- Checked: tests, the Windows build, the DLL copied into the owner's OpenKH folders. Not checked: in game.
+
+---
+
+## Stage 273 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard really blocks (KH1's front test after Re:CoM's) and cancels magic shots, version 0.153.0 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "a defes do Riku deve poder fazer parry e cancelar o ataque do oponente caso for uma magia!"; "percebi que a defesa dele não está sendo efetiva contra nada, precisa ser efetiva tal qual o KH1 é".
+
+- **Found** (Checked (the owner's 0.152.0 log)): his Guards started, Re:CoM's body guard (`0x14016F1C0`) never blocked (no block line, no guard success, only missed parries). Its rule read from the exe (Checked (exe: disasm)); which part refuses on Riku: not known (no decomp here); the first 40 guarded hits log its fields (`riku guard:`). His Guard clip `p002_043` is 56 game frames, so KH1's live frames 10..36 run (Checked (files)).
+- **Change** (`win::attack::riku_guard_block`, `crate::riku::guard_faces`, `win::guard::{riku_block, cancel_shot}`): in the damage-check wrapper, a hit on Riku / Dark Riku while his KH1 guard is live that Re:CoM didn't block is KH1's block when its attacker is within ±100° of his facing (Re:CoM's own angle rule): Re:CoM's protection bit for the check, KH1's guard success (recoil, clink, parries), the melee attacker's block reaction.
+- **Magic**: a shot his Guard blocks is cancelled (attack off `0x14014DE80`, life `+0x160` = 0), KH1's inert blocked shot; Sora's still turn back.
+- **Thunder** (owner, verbatim: "remebering, that it should be like the kh1 guard, if an enemy cast like thunder, then it should be effective"): the KH1 Yellow Opera's bolt, which skips Sora's Guard (KH1's Thunder has no clash pass, Stage 178), meets Riku's Guard (the owner's rule, not KH1's). Re:CoM's own thunder shots are bullets: blocked and cancelled as above; one straight down counts as in front.
+- No new hook or site; per hit only. Assumptions: the attacker's position for KH1's hit point; a plain `CBullet`'s life at `+0x160`; the caster isn't interrupted. Checked: tests (`riku::tests::rikus_guard_faces_the_front`), the Windows build. Not checked: in game. Details: `docs/recom-riku-kh1.md` § 0.153.0.
+
+---
+
+## Stage 272 (fork branch Re-Re-Reverse/Rebirth): Dark Riku with KH1 combat, DP on Re:CoM's Dark gauge, Riku's Guard and parries, version 0.152.0 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "implementa tudo pra eu testar de uma vez e faz push no final".
+
+- **Dark Riku** (`CPlayerDRiku`, `docs/recom-riku-kh1.md` § Research): `win::movement::is_main_riku` covers him (`is_main_dark_riku` tells them apart). His Battle exe is the shared one, and actions 2..4 / 7 call the shared move / jump exes (Checked (exe: the jump table at `0x1401FA050`)), so KH1's movement runs on him as on Riku. His data: rows with clips (`riku::DARK_NO_CLIP`), swing ids 0x9E..0xA4 (`attack_id_for`), his row-pick slot `0x1405A5210` (old `0x140204F80`) → `win::attack::dark_picker` (falls back to his own), his sleight start `0x140206830` (takes 0x5F..0x63, 0x65..0x6B: its jump table `0x140206894`, Checked (exe)) and his Sleights list `riku::DARK_SLEIGHTS` (Dark Break, Dark Firaga, Dark Aura, Dark Impulse / Maelstrom / Barrage; MP ours). His roll is Re:CoM's own (his roll exe).
+- **DP on Re:CoM's gauge** (Checked (exe: disasm)): Re:CoM's DP are the player's `+0x44C` (cap 30, `0x1401F57A4`), the gauge `+0x3E0`, its setter `0x14020BFA0(gauge, dp, max)` (first 10 bytes checked). Ours are written there and shown. Re:CoM's own DP rules in its damage check (`0x1401E7255`: +1 on a hit, −5 in Dark Mode, the way-back flags `+0x424 & 0x100000`, card battle `+0x208 & 0x400000`) are undone around the check: only the owner's tables move them.
+- **Riku's Guard** (owner: "falta a defesa"): KH1's Guard rule for Riku and Dark Riku on their block-recoil row 0x24 (`riku::GUARD_ROW`): KH1's Riku has no Guard request (212); his request 110 is that recoil (Checked (files: `xa_ex_1010.mset`'s request table)). Enemies react to his blocks (`win::guard`, as Sora's). **Parries**: a block within 20 frames of the Guard's start = perfect (+5 / +3 in Dark Mode), a Guard that blocks nothing in 60 frames = missed (−3).
+- Customize: his picker lists Riku's and Dark Riku's sleights.
+- **Not built**: the Dark Form skin. `PL0201.MDL`'s mesh packets are a format our MDL reader refuses (header at `0x2A50`: a vertex count 45 for 49 vertices and 2 quadwords a vertex in a textured packet: multi-bone vertices, Assumption); without it the mesh can't be rebound to Riku's skeleton. Its unlock is recorded (save spare bit 4).
+- Asset step: **re-run** (Dark Riku's three new sleight names). Checked: tests, the asset step on the local install, the Windows build. Not checked: in game.
+
+---
+
+## Stage 271 (fork branch Re-Re-Reverse/Rebirth): Riku's Dark Points (the owner's tables) start and end Re:CoM's own Dark Mode, version 0.151.0 (2026-11-22)
+
+Fork owner, 2026-11-22: the DP gain / loss tables (outside and in Dark Mode), "go", "faz ai".
+
+- Re:CoM (Checked (exe: disasm), `docs/recom-riku-kh1.md` § Research): Dark Mode is a second player, `CPlayerDRiku` (vtable `0x1405A50E8`, group 201), made with Riku's battle player when `+0x41C & 0x4000000`, linked both ways at `+0x8A0`. Riku's `+0x198` `0x140215FB0(riku, 1)` = action 0x20, his transformation (exe `+0x1A0` `0x140215380` → `0x140206810`); Dark Riku's `0x1402046D0(dark, 1)` writes him to `0x14087B380`, `(dark, 0)` = his way back (action 0x20 sub-state 4).
+- Ours (`crate::dark_points`, `win::dark_points`): DP 0..30 per battle, the owner's two tables (definitions in the module: critical / heavy = Re:CoM's knock-away kind 2, special = a hit from a `CBoss…`, one count per hit taken that took HP, one per swing that landed, finisher = attack ids 4 / 7 / 0x9A / 0x9D / 0xA1 / 0xA4, idle 5 s then every 3 s, in Dark Mode every 5 s, missed dodge 0.5 s after a roll, streak 5). At 30, Re:CoM's `+0x198(riku, 1)` when he stands / walks / runs; at 0 in Dark Mode, `+0x198(dark, 0)`. Both functions' first 10 bytes checked at first use. No Dark Riku in the battle (Dark Mode not unlocked in the story): DP stay at 30 (logged). First Dark Mode kept in the save block's spare byte bit 4 (the skin's unlock).
+- Hooks used (no new site): Riku's / Dark Riku's request bits, the enemy hit handler, the damage check, the defeat prize, the battle manager ctor.
+- Not yet: parries (no defense), the Dark gauge showing DP (the log shows them: `dark points:` lines), KH1 gameplay on Dark Riku (Re:CoM's own until the next stage), the skin.
+- Assumptions: Re:CoM's request bits / damage check run for Dark Riku (shared Battle exe); calling the switches from the request bits is safe (Re:CoM calls `+0x198` from its exes).
+- Checked: tests (`dark_points::tests`), the Windows build. Not checked: in game.
+
+---
+
+## Stage 270 (fork branch Re-Re-Reverse/Rebirth): Riku's camp list at Combat = KH1 (Customize in Review Decks' place) and the King's friend sleights in his Party list, version 0.150.0 (2026-11-22)
+
+Fork owner, 2026-11-22 (screenshot: Riku's camp with Review Decks), verbatim: "se não há mais cartas ent nn tem mais pq usar o review deck, igual a gameplay do Sora, certo? , minha sugestão pra cura, igual no caso do donald e do goofy são tratados na gameplay do Sora … poderia substituir o Review Decks quando a gameplay do KH1 estiver ativa, IGUAL a do Sora … o que tiver na gameplay do Sora tem que ter o equivalente adaptado a do Riku só preenchendo os Caveats".
+
+- Camp (`keyblades::top::Layout::Riku`, `riku_fix`; `win::keyblades`): in Riku's story at Combat = KH1 with `riku_kh1_movement`, Re:CoM's entry 0 (Review Decks) is relabelled Customize and opens his Customize page (0.149.0's), through the KH1 list's own confirm path (Re:CoM's confirm skipped, state 0x11 → the Config states); Re:CoM's other six stay where they are; Settings opens Game Settings, Combat, Movement, Camera (Customize left the Settings list). At Combat = Re:CoM his list is 0.147.1's.
+- Party (`crate::party::ALL` + Mickey Miracle 0x63 (MM Miracle LV3), Holy Burst 0x64; `win::party::learned`, `win::command_menu::riku_world`, `win::summons::begin`): as Donald / Goofy for Sora, each shown on page 2's Party list in a battle where Re:CoM's Friend-card roll can give the King's card (`0x1401602A0`'s Riku rows 14..25: only card 0x38, Checked (exe, the checked table)) and the King is met (int var (0, 0x22) bit 0x80); counted as taught in his story; started by Riku's own sleight start (`0x140216AB0` takes 0x62..=0x64, Checked (exe)). MP ours: 3 / 2. Usable as shortcuts (his Customize picker lists them). Sora's story: never (no King card in his rows; test).
+- Asset step: the two names in `PARTY_WORDS` (re-run, automatic).
+- Assumptions: MM Miracle heals (not read); the King's met bit is set in Riku's story; his page byte is per session (the summon block stays Sora's).
+- Caveats for parity, not built: Items (Riku has no item motion row known; Re:CoM's Riku uses no items), Abilities / AP Up, Summon row (greyed: no summons for Riku), KH1 drops / Lucky Bounty, Enemy Skills, Guard / Counterattack (no clips).
+- Checked: tests (`party::tests::the_kings_sleights_only_in_rikus_battles`, `keyblades` layout tests), the asset step on the local install, the Windows build. Not checked: in game.
+
+---
+
+## Stage 269 (fork branch Re-Re-Reverse/Rebirth): Riku gets the KH1 HUD (Re:CoM's HP gauge at KH1's place with the MP ring), the KH1 look of the command menu, and a Customize page for his shortcuts, version 0.149.0 (2026-11-22)
+
+Fork owner, 2026-11-22 (screenshot: Riku's Re:CoM HP gauge top left, the 7.2 MP bar under it, the command menu in Re:CoM's look), verbatim: "falta poder configurar os shortcuts igual da com o Sora, e ainda o command menu não aparece na tela igual do Sora, além disso a HUD ta com o mesmo problema que está com a do Sora … na prática o fix pode ser o mesmo entretanto trocando a foto do sóra com a do Riku".
+
+- Found: Riku's `FO0071.SPR` `gauge:01` is `FO0002`'s byte for byte (47 groups; groups 7..9 identical), and `FO0071.RTM` holds `Cockpit.imz` with the same five language copies. Checked (files: the local install).
+- Asset step: `kh1hud.lad` (+ copies) and Re:CoM's HP ring turned 180° (same first group 47) go into `FO0071.SPR`; `kh1hud.imz` (+ copies) into `FO0071.RTM` (new output `raw/FORM/0071/FO0071.RTM`). Riku's six sleight names are menu words (`command_menu::RIKU_WORDS`, ids `0x8100 + id`), baked in KH1's font. Not fatal: without it his story keeps Re:CoM's HUD. **Re-run** (automatic: the hash changed).
+- DLL: `kh1_hud::active` holds in Riku's story with `riku_kh1_movement` (Re:CoM's gauge at KH1's place, its own face, which is Riku's; KH1's MP ring; room plate top left; Re:CoM's pieces hidden as for Sora); the KH1 menu look in his story only when his `FO0071` has the set (registry lookup); the registry check logged once per story.
+- Customize for Riku: first row of his Settings list, Re:CoM's camp page with his three L1 slots and his six sleights + None, written to his save block's slot bytes; slots set (by the page or the one-time fill) are marked in the block's spare byte so emptied slots are not filled again.
+- No new hook, patch or site. Checked: tests (workspace), the asset step on the local install (`FO0071.SPR` / `.RTM` written and copied into the mod folder), the Windows build. Not checked: in game; Riku's Dark gauge with the turned HP gauge. Details: `docs/recom-riku-kh1.md` § 0.149.0.
+
+---
+
+## Stage 268 (fork branch Re-Re-Reverse/Rebirth): Riku's HUD file (`FO0071.SPR`) gets the command menu's plates and the MP bar's groups, version 0.148.0 (2026-11-22)
+
+Fork owner, 2026-11-22 (screenshot), verbatim: "aqui cara, ta faltando o COMMAND MENU e o Shortcut!!!".
+
+- Cause: Riku's story loads `FORM/0071/FO0071.SPR` for its HUD (Cockpit 152 groups, copies 157); only `FO0002` was patched. Checked (files + the owner's log).
+- Fix: the asset step patches `FO0071` (and its language copies) with the same groups (their atlas has the plate, colour, arrow and neutral texel at the same UVs: Checked (files)); `kh1-mp-bar.json` lists first group 152. Asset step: **re-run** (automatic: the hash changed); new output `raw/FORM/0071/FO0071.SPR`.
+- Checked: the step run on the owner's install (output written and copied into the mod folder), tests, the Windows build. Not checked: in game. Details: `docs/recom-riku-kh1.md` § 0.148.0.
+
+---
+
+## Stage 267 (fork branch Re-Re-Reverse/Rebirth): the Camera setting for Riku, version 0.147.1 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "as opções de câmera podem ter para o Riku tbm". With `riku_kh1_movement` on, Riku's story no longer forces Re:CoM's camera (`win::camera::init`); his Settings list gets the Camera page. Checked: tests, the Windows build. Not checked: in game.
+
+---
+
+## Stage 266 (fork branch Re-Re-Reverse/Rebirth): Riku's KH1 MP, his command menu with his Sleights list, his shortcuts, version 0.147.0 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "b" (a list of his sleights paid with KH1 MP, shortcuts); "e seria interessante, atribuir uma barra de mana dele já que não terão as cartas, possível?".
+
+- 0.146.0: `win::mp::{riku_live, live}`: his KH1 MP in the same save block (Sora's `active()` unchanged); charge from his KH1 hits; refill; save point; the MP bar built for him (placement not seen).
+- 0.147.0: his sleight ids from `SY0002.CTD` (id = row − 1) and his sleight start `0x140216AB0` (takes 0x62..0x64, 0x66..0x6B). Checked (files + exe). His command menu (Re:CoM's look) with Attack and a Sleights list (Impulse, Maelstrom, Barrage and their Dark versions; MP ours), started by his own sleight start; his L1 shortcuts filled with his first three.
+- Checked: tests (`riku::tests::rikus_sleights`), the Windows build. Not checked: in game. Details: `docs/recom-riku-kh1.md` § 0.146.0, § 0.147.0.
+
+---
+
+## Stage 265 (fork branch Re-Re-Reverse/Rebirth): Riku's KH1 swings show his own hit effect, version 0.145.1 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "parece que funcionou mas os ataques estão sem efeitos/feedback quando acertam ent por um momento achei que não tivesse dando dano, mas deu sim".
+
+- Cause: `onAttack` `0x1402250B0` reads the hit effect by attack id from Sora's row table; Sora's ids 1..7 name `ex_5010`, which only Sora's `EFFECT/1000` holds. Checked (exe + files).
+- Fix (`riku::attack_id`): Riku's swings carry his own twin ids 0x97..0x9D (same clips and columns; effect `weapon` 12 / 0 from his `EFFECT/1500`). Checked (exe). Not checked: in game. Details: `docs/recom-riku-kh1.md` § 0.145.1.
+
+---
+
+## Stage 264 (fork branch Re-Re-Reverse/Rebirth): KH1's Attack for Riku, his empty deck and cardless enemies; the Settings list in Riku's story, version 0.145.0 (2026-11-22)
+
+Fork owner, 2026-11-22 (screenshot: Riku's camp with Re:CoM's menu), verbatim: "certo mas não sei se foi intencional mas no menu ta faltando as opções tbm"; "e sim, vamos prosseguir com os testes, mas pode ser mais agressivo e já implementar o combate".
+
+- All behind `riku_kh1_movement` (default off): the camp's Settings list in Riku's story (Game Settings, Combat, Movement); KH1's Attack on Riku's own swing rows 0x30..0x36 (Checked (exe): Re:CoM's attack rows 1-7); his row pick slot `0x1405A8990` patched like Sora's (checked old value `0x1401F7520`); hits through Re:CoM's own weapon volume, landing during enemy attacks; Re:CoM's card AP of Soul Eater (0x12) at both Damage settings; the empty revolver, no Friend-card drops, and KH1 battles (cardless enemies) in his story.
+- Details, assumptions and what is lost (Dark Mode, card breaks, sleights): `docs/recom-riku-kh1.md` § 0.145.0.
+- Checked: `cargo test -p kh1-recom` (`keyblades::tests` Riku layout / rows); the Windows build. Not checked: in game.
+
+---
+
+## Stage 263 (fork branch Re-Re-Reverse/Rebirth): Riku moves with KH1's movement in Reverse/Rebirth, behind `riku_kh1_movement` (default off), version 0.144.0 (2026-11-22)
+
+Fork owner, 2026-11-22: "probably the riku from recom, is more compatible with kh1 combat system than yout think, i think if you try to use moves from kh1 boss, it will become too overpower"; "we have every animation already in KH recom, we would need just to rearange the animations and the system"; "ok now start the work". Lifts design rule 6 on this branch only, behind a default-off switch.
+
+- **Research** (`docs/recom-riku-kh1.md`): Riku's action table `0x1407C6370` has Sora's row meanings for 0x00..0x38. Checked (exe). His Battle exe `0x140216B10` is `jmp 0x1401F9840`. Checked (exe). His roll exe is `0x140212350`, and he has no glide. Checked (exe). His skeleton is KH1's `xa_ex_1010` Riku (`ex_1010_sk`). Checked (files).
+- **Change** (`crate::riku`, `win::movement::{kh1_riku, kh1_mover, player_abilities}`, `sites::data::RIKU_VTABLE`, ini `riku_kh1_movement`): the shared movement hooks run KH1's frame for the main `CPlayerRiku`. Only rows with a clip of his are played. Re:CoM's own roll, his cards, and High Jump from his ability word are kept. No Guard, Glide, menus, Enemy Skills or KH1 effects.
+- Readers fixed: `kh1-formats` mset (an empty motion's 0xFFFFFFFF channel table); `kh1-recom-assets` MDL (the first part's offset from the file's first word: 0x20 in Riku's files).
+- No new hook, patch or site. Assumptions: Re:CoM's card dispatch for Riku runs inside the move exe before its move step; Dark Mode doesn't disturb the KH1 frame.
+- Checked: tests (`riku::tests::{rikus_rows_cover_kh1_movement, rikus_abilities}`, `cargo test -p kh1-recom -p kh1-formats -p kh1-recom-assets`); the Windows build (no new warnings). Not checked: in game; the Re:CoM decompile (not on this machine).
+
+---
+
 ## Stage 262: the KH1 HUD is the default, and older settings files switch to it once (2026-11-05, version 0.143.1)
 
 Owner, 2026-11-05 (a tester's screenshot: Re:CoM's HP gauge and FRIENDS row top left, the room plate bottom right, the command menu in its Re:CoM look, at combat = kh1), verbatim: "people that are trying the mod are seeing this. Lets fix that to be how the hud is supposed to look"

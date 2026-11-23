@@ -466,6 +466,11 @@ impl Motion {
             if n > 0x10000 {
                 return bad(format!("mset motion at {m:#x}: implausible channel count {n}"));
             }
+            if n == 0 {
+                // An empty motion's table offset can be 0xFFFFFFFF (Riku's `xa_ex_1010` entry 6,
+                // `xa_ex_1560` entry 38: 0 frames, 0 channels). Checked (files).
+                return Ok(Vec::new());
+            }
             let t = at(table_off)?;
             (0..n)
                 .map(|i| {

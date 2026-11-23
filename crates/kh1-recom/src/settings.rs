@@ -180,6 +180,10 @@ pub struct Settings {
     pub air_speed: Mode,
     /// One-line logs of the Attack's decisions in `kh1-recom.log` (first 200 lines).
     pub debug_attack: bool,
+    /// Testing (fork branch Re-Re-Reverse/Rebirth): at `combat = kh1`, Riku in Reverse/Rebirth
+    /// moves with KH1's movement rules on his own Re:CoM animations (`crate::riku`). Default off:
+    /// Riku's story stays Re:CoM's.
+    pub riku_kh1_movement: bool,
     /// Debug (M7, until stage 7.11 earns spells): Sora has all 7 spells at level 3.
     pub kh1_all_spells: bool,
     /// Debug (M9): every ability of the equip screen is equipped, AP ignored (not written to the
@@ -324,7 +328,7 @@ impl Kh1Abilities {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { combat: Mode::Kh1, guard_reactions: true, enemy_pace: Mode::Recom, enemy_ai: Mode::Kh1, damage: Mode::Recom, boss_revenge: true, effects: Mode::Kh1, sounds: Mode::Kh1, camera: Camera::Recom, auto_camera: true, config_menu: true, asset_build: true, abilities: Kh1Abilities::default(), dodge_roll: RollMode::Recom, run_speed: Mode::Recom, jump_height: Mode::Kh1, air_speed: Mode::Kh1, debug_attack: false, kh1_all_spells: false, kh1_all_abilities: false, kh1_test_items: false, menu_language: "us".into(), hud: Mode::Kh1, hud_parts: HudParts::default() }
+        Settings { combat: Mode::Kh1, guard_reactions: true, enemy_pace: Mode::Recom, enemy_ai: Mode::Kh1, damage: Mode::Recom, boss_revenge: true, effects: Mode::Kh1, sounds: Mode::Kh1, camera: Camera::Recom, auto_camera: true, config_menu: true, asset_build: true, abilities: Kh1Abilities::default(), dodge_roll: RollMode::Recom, run_speed: Mode::Recom, jump_height: Mode::Kh1, air_speed: Mode::Kh1, debug_attack: false, riku_kh1_movement: false, kh1_all_spells: false, kh1_all_abilities: false, kh1_test_items: false, menu_language: "us".into(), hud: Mode::Kh1, hud_parts: HudParts::default() }
     }
 }
 
@@ -453,6 +457,11 @@ combo_master = off
 ;
 ; debug_attack = on | off: log the Attack's decisions (first 200 lines) in kh1-recom.log
 debug_attack = off
+;
+; riku_kh1_movement = on | off (testing; only at combat = kh1): Riku in Reverse/Rebirth moves
+;   with KH1's movement (run, jump, air control, landing) on his own Re:CoM animations. His
+;   cards, Dark Mode and roll stay Re:CoM's. Off: Riku's story is Re:CoM's.
+riku_kh1_movement = off
 ;
 ; kh1_all_spells = on | off (debug, until spells are earned in the game): Sora has all 7 KH1
 ;   spells at level 3 in the command menu's Magic list.
@@ -611,6 +620,10 @@ pub fn parse(text: &str) -> (Settings, Vec<String>) {
                     }
                 }
                 _ => warnings.push(bad(&format!("{k} must be a number from 0 to 9"))),
+            },
+            "riku_kh1_movement" => match parse_switch(v) {
+                Some(b) => s.riku_kh1_movement = b,
+                None => warnings.push(bad("riku_kh1_movement must be on or off")),
             },
             "debug_attack" => match parse_switch(v) {
                 Some(b) => s.debug_attack = b,
@@ -881,7 +894,7 @@ mod tests {
 
     #[test]
     fn store_round_trips() {
-        let s = Settings { combat: Mode::Recom, guard_reactions: false, enemy_pace: Mode::Kh1, enemy_ai: Mode::Recom, damage: Mode::Kh1, boss_revenge: false, effects: Mode::Recom, sounds: Mode::Recom, camera: Camera::Kh1, auto_camera: false, config_menu: false, asset_build: false, abilities: Kh1Abilities { high_jump: true, glide: true, ..Default::default() }, dodge_roll: RollMode::Kh1, run_speed: Mode::Kh1, jump_height: Mode::Recom, air_speed: Mode::Recom, debug_attack: true, kh1_all_spells: true, kh1_all_abilities: true, kh1_test_items: true, menu_language: "fr".into(), hud: Mode::Kh1, hud_parts: HudParts { gauge: false, recom_hp_place: false, mp_ring: true, menu: true, party: false, hide_hp: false, hide_minimap: true, hide_friends: false, hide_prizes: true, room_plate_top: false } };
+        let s = Settings { combat: Mode::Recom, guard_reactions: false, enemy_pace: Mode::Kh1, enemy_ai: Mode::Recom, damage: Mode::Kh1, boss_revenge: false, effects: Mode::Recom, sounds: Mode::Recom, camera: Camera::Kh1, auto_camera: false, config_menu: false, asset_build: false, abilities: Kh1Abilities { high_jump: true, glide: true, ..Default::default() }, dodge_roll: RollMode::Kh1, run_speed: Mode::Kh1, jump_height: Mode::Recom, air_speed: Mode::Recom, debug_attack: true, riku_kh1_movement: false, kh1_all_spells: true, kh1_all_abilities: true, kh1_test_items: true, menu_language: "fr".into(), hud: Mode::Kh1, hud_parts: HudParts { gauge: false, recom_hp_place: false, mp_ring: true, menu: true, party: false, hide_hp: false, hide_minimap: true, hide_friends: false, hide_prizes: true, room_plate_top: false } };
         let t = store(DEFAULT_FILE, &s);
         let (back, w) = parse(&t);
         assert_eq!(back, s);

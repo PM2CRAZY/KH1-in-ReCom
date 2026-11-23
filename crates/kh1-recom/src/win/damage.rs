@@ -123,11 +123,14 @@ unsafe fn in_battle(pl: usize) -> bool {
 /// battle, the equipped Keyblade's card at the row's column, as the row pick computes it for a card
 /// (with `initAttack`'s bonus first). False: the caller's cardless AP stands.
 pub unsafe fn swing(pl: usize, kh1_row: usize) -> bool {
-    if !recom_ready() || !in_battle(pl) {
+    // Riku (`crate::riku`): Re:CoM's card AP at either Damage setting (no KH1 numbers for him), his
+    // Soul Eater card's.
+    let riku = super::movement::is_main_riku(pl);
+    if !(recom_ready() || riku && READY.load(Ordering::Acquire)) || !in_battle(pl) {
         return false;
     }
     let Some(col) = dm::swing_column(kh1_row, super::attack::moveset()) else { return false };
-    let card = super::stats::equipped_card();
+    let card = if riku { crate::keyblades::SOUL_EATER } else { super::stats::equipped_card() };
     let Some(r) = card_row(card) else {
         note(|| format!("swing row {kh1_row}: Re:CoM's BattleCardList isn't loaded: cardless AP"));
         return false;

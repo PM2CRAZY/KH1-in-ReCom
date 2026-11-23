@@ -80,7 +80,7 @@ pub fn command(id: u16) -> u8 {
 /// 2026-11-04) the Party list's friend sleights, `crate::party`).
 pub fn of_command(c: u8) -> Option<u16> {
     let id = c.checked_sub(COMMAND_BASE)? as u16;
-    (ability(id).is_some() || special_index(id).is_some() || crate::party::index(id).is_some()).then_some(id)
+    (ability(id).is_some() || special_index(id).is_some() || crate::party::index(id).is_some() || crate::riku::sleight(id).is_some()).then_some(id)
 }
 
 /// The word of sleight `id` (a listed special: KH1's own word of its command).
@@ -100,7 +100,7 @@ pub fn words() -> impl Iterator<Item = (u16, &'static str)> {
 pub fn name(id: u16) -> &'static str {
     match ability(id) {
         Some(i) => ab::ALL[i].name,
-        None => crate::party::name(id).unwrap_or("?"),
+        None => crate::party::name(id).or_else(|| crate::riku::sleight(id).map(|s| s.name)).unwrap_or("?"),
     }
 }
 
@@ -115,6 +115,10 @@ pub enum Cost {
 }
 
 pub fn cost(id: u16) -> Option<Cost> {
+    // Riku's (`crate::riku::SLEIGHTS`): his own points.
+    if let Some(s) = crate::riku::sleight(id) {
+        return Some(Cost::Points(s.mp));
+    }
     Some(match ab::sleight_mp(ability(id)?)? {
         SleightMp::Points(n) => Cost::Points(n as i32),
         SleightMp::All => Cost::All,
@@ -207,7 +211,7 @@ pub fn kh1_scaled(value: i16, kind: u32, kh1_max: i32, recom_max: i32) -> Option
 /// The list's ids from the equipped ones (Re:CoM's order; anything not a sleight ability dropped,
 /// at most [`MAX`]).
 pub fn list(equipped: &[u16]) -> Vec<u16> {
-    let mut v: Vec<u16> = equipped.iter().copied().filter(|&id| ability(id).is_some() || special_index(id).is_some()).collect();
+    let mut v: Vec<u16> = equipped.iter().copied().filter(|&id| ability(id).is_some() || special_index(id).is_some() || crate::riku::sleight(id).is_some()).collect();
     v.sort_unstable();
     v.dedup();
     v.truncate(MAX);

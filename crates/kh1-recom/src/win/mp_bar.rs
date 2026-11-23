@@ -305,7 +305,8 @@ impl Bar {
 /// `mp::current` calls [`sync`], which takes the lock.
 unsafe fn build(gauge: usize, list: i32) {
     let Some(l) = layout() else { return };
-    if !super::mp::active() {
+    // Sora's, or Riku's (`crate::riku`: under his HP gauge, as Re:CoM's own Dark gauge).
+    if !super::mp::live() {
         return;
     }
     let hp: usize = rd(gauge + G_HP);
@@ -470,7 +471,7 @@ pub fn refresh() {
             }
         }
     }
-    if super::mp::active() {
+    if super::mp::live() {
         let missing: Vec<(usize, i32)> = STATE.lock().map(|s| s.gauges.iter().copied().filter(|g| !s.bars.iter().any(|b| b.gauge == g.0)).collect()).unwrap_or_default();
         for (g, list) in missing {
             // SAFETY: a live gauge (its dtor removes it from the list).

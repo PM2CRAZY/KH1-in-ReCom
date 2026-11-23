@@ -56,7 +56,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 static MANIFEST: OnceLock<Manifest> = OnceLock::new();
-static CHECKED: AtomicBool = AtomicBool::new(false);
+/// The registry check logged for this story (1 Sora's, 2 Riku's; each logged once: they load
+/// different HUD files, `FO0002` / `FO0071`).
+static CHECKED: AtomicU32 = AtomicU32::new(0);
 /// The C2DSeqCtrl vtable's replace slot is Re:CoM Steam's (`sites::KH1_HUD_PLACE_PTRS`).
 static PLACE_OK: AtomicBool = AtomicBool::new(false);
 /// "gauge:01 is not ours" logged once.
@@ -226,8 +228,12 @@ pub fn wanted() -> bool {
 /// 2026-11-04: "with combat set to RE:CoM the hud should also go back to the normal positioning": at
 /// Combat = Re:CoM every piece, its placements and hides included, is Re:CoM's; a switch takes
 /// effect where each piece is set up: the next room or battle for the gauges and the room plate).
+/// Riku's story too with `riku_kh1_movement` (0.149.0, fork owner 2026-11-22: "a HUD ta com o mesmo
+/// problema que está com a do Sora … o fix pode ser o mesmo"): the asset step gives his `FO0071`
+/// the same set and turned ring; every piece checks Re:CoM's registry before drawing, so a served
+/// `FO0071` without them keeps Re:CoM's HUD.
 pub fn active() -> bool {
-    wanted() && HOOKED.load(Ordering::Relaxed) && !super::stats::riku_story() && super::movement::kh1_on()
+    wanted() && HOOKED.load(Ordering::Relaxed) && (!super::stats::riku_story() || super::movement::riku_on()) && super::movement::kh1_on()
 }
 
 /// The pieces chosen in the settings (`hud_kh1_*`, `hud_hide_*`).
@@ -392,16 +398,17 @@ pub unsafe fn gauge_made(gauge: usize, list: i32) {
     let bits = hidden_bits();
     MINIMAP_UP.store(bits & 8 != 0, Ordering::Relaxed);
     recom_hud(gauge, bits);
-    if CHECKED.swap(true, Ordering::Relaxed) {
+    let (bit, file) = if super::stats::riku_story() { (2, "FORM/0071/FO0071") } else { (1, "FORM/0002/FO0002") };
+    if CHECKED.fetch_or(bit, Ordering::Relaxed) & bit != 0 {
         return;
     }
     match super::mp_bar::set_groups(kh::SET) {
         Some(n) if n == m.groups => log(&format!(
-            "kh1 hud: Re:CoM registered kh1hud:00 with {n} groups (FO0002's kh1hud.lad / .imz are served); hud = {}",
+            "kh1 hud: Re:CoM registered kh1hud:00 with {n} groups ({file}'s kh1hud.lad / .imz are served); hud = {}",
             if wanted() { "kh1" } else { "recom" }
         )),
-        Some(n) => log(&format!("kh1 hud: kh1hud:00 has {n} groups, not {} (an older FO0002.SPR is served?)", m.groups)),
-        None => log("kh1 hud: kh1hud:00 is not in Re:CoM's 2D registry (Panacea serves Re:CoM's own FORM/0002/FO0002.SPR: add raw/FORM/0002/FO0002.SPR and .RTM to mod.yml)"),
+        Some(n) => log(&format!("kh1 hud: kh1hud:00 has {n} groups, not {} (an older {file}.SPR is served?)", m.groups)),
+        None => log(&format!("kh1 hud: kh1hud:00 is not in Re:CoM's 2D registry (Panacea serves Re:CoM's own {file}.SPR / .RTM: run this version's asset step)")),
     }
 }
 

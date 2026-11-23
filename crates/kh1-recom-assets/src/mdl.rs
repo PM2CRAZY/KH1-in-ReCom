@@ -32,9 +32,16 @@ impl RecomSkeleton {
     /// Parses a whole `.MDL` file.
     pub fn parse(d: &[u8]) -> Result<RecomSkeleton> {
         let r = Rd(d);
-        let n = r.u16(0x10)? as usize;
-        let nt = 0x10 + r.u32(0x14)? as usize;
-        let mt = 0x10 + r.u32(0x18)? as usize;
+        // The first word is the first model part's offset: 0x10 in Sora's and the Keyblades'
+        // files, 0x20 in Riku's (`PL0101` / `PL0111` / `PL0201` hold 3 more part offsets after it).
+        // Checked (files).
+        let base = r.u32(0)? as usize;
+        if base != 0x10 && base != 0x20 {
+            return bad(format!("mdl: first part at {base:#x}"));
+        }
+        let n = r.u16(base)? as usize;
+        let nt = base + r.u32(base + 4)? as usize;
+        let mt = base + r.u32(base + 8)? as usize;
         let mut bones = Vec::with_capacity(n);
         for i in 0..n {
             let o = nt + 20 * i;
