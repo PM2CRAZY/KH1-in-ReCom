@@ -353,9 +353,11 @@ should show L and the pool's free count flat during menu use. Checked (decomp); 
 
 - The look is Re:CoM's plates (decision 34), not KH1's panels; the highlighted row is a colour,
   not KH1's cursor.
-- KH1 puts Talk in row 0 (instead of Attack) next to NPCs (FM then draws row 0 as a dimmed
-  "Attack" and the tab shows Talk); here Talk is entry 3's like every context command: it shows
-  in the same tab, and row 0 stays a normal Attack. Open question 2.
+- Talk next to NPCs is KH1's since 0.178.3 (fork owner, 2026-11-23, answer 8b): Talk goes in row 0
+  (instead of Attack), drawn as a dimmed "Attack" whose confirm gives the error sound; the tab
+  shows Talk and Triangle talks. Until 0.178.2 it was entry 3's, with a normal Attack in row 0. A
+  running special's follow-up keeps row 0 (Talk then stays entry 3's): Assumption, KH1's order
+  between the two not read.
 - Confirm on a locked Attack row (a state without flag 0x10, e.g. the glide) gives no error sound
   here (today's Attack path is left as it was).
 - The Magic list's spells cast from 7.4 (Fire first; Blizzard … Aero do nothing until their
@@ -392,7 +394,7 @@ should show L and the pool's free count flat during menu use. Checked (decomp); 
 
 1. **Highlight colour:** (a) the magic plate's blue (built); (b) another of Re:CoM's plate
    colours (red / grey); (c) a value you pick from a screenshot.
-2. **Talk next to NPCs:** (a) in the context tab (built; Attack stays Attack); (b) KH1's rule:
+2. **Talk next to NPCs** (answered 2026-11-23 by the fork owner: **(b)**, built in 0.178.3): (a) in the context tab (Attack stays Attack); (b) KH1's rule:
    Talk goes in row 0, which FM draws as a dimmed "Attack" whose confirm gives the error sound;
    the tab shows Talk and Triangle talks.
 3. **Menu language:** (a) the ini's `menu_language` (built, default us); (b) follow Re:CoM's own

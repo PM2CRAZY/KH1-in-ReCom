@@ -33,6 +33,8 @@
 //! **0.107.0** (owner, 2026-11-04: "when something is bound to a shortcut, they should also be
 //! listed by the button prompt"; `docs/recom-m12-sleights.md` § 8.7): each slot row reads its button
 //! glyph and the bound name ([`text::slot_row`]); an empty slot shows the glyph alone.
+//! 0.198.18: an empty slot reads the glyph and "None", as KH1's slot list (`0x140302950`: sysmsg `0xD4` on an empty
+//! slot).
 
 use crate::command_menu::{cmd, shortcut as sc};
 
@@ -102,6 +104,20 @@ pub fn row_look(picking: bool, pick: Pick) -> i32 {
     }
 }
 
+/// 0.198.18: the look of slot row `slot` on the slot list (0..2 Riku's or Sora's set, 3..5 Riku's Dark Mode set).
+/// Fork owner, 2026-11-27, verbatim: "ficou bom, só que era bom colocar talvez algum ícone que ajudasse o usuário a
+/// ver se nn ele só vai ter a escrita pra se guiar, não? pode ser o ícone de heartless que já era pra estar
+/// funcionando nos sleights que só o Riku em DarkMode consegue usar". The Dark Mode set's rows take Re:CoM's own
+/// row with Dark Riku's wing ([`crate::keyblades::row_look::DARK`], the mark Re:CoM's Sleights List puts on Dark
+/// Riku's sleights); the other slots keep the blue magic row ([`row_look`]).
+pub fn slot_look(slot: usize) -> i32 {
+    if slot >= SLOTS {
+        crate::keyblades::row_look::DARK
+    } else {
+        row_look(false, None)
+    }
+}
+
 /// The message id of a spell's name at its level (KH1's `0x14028F290`: the command
 /// `level + (spell + 2) × 3`, named by its own id). A level outside 1..=3 reads as level 1.
 pub fn name_id(spell: u8, level: u8) -> u16 {
@@ -155,8 +171,15 @@ pub mod text {
     /// 0.111.0: the same for a Party sleight Re:CoM hasn't taught (yet).
     pub const UNLEARNED_HELP: &[u8] = b"Not learned yet: Re:CoM teaches this friend sleight.\0";
 
+    /// 0.198.18: Riku's set holding one of Dark Riku's own sleights (Dark Break, Dark Firaga, Dark Aura, Inverse Burst).
+    pub const DARK_ONLY_HELP: &[u8] = b"Dark Mode only: set it in the Dark Mode set (Left/Right).\0";
+
     /// The help line of a slot holding sleight `id` that isn't in the picker.
     pub fn unequipped_help(id: u16) -> &'static [u8] {
+        // 0.198.18: one of Dark Riku's own (Riku's start `0x140216AB0` refuses them) left in Riku's set.
+        if crate::riku::DARK_SLEIGHTS.iter().any(|s| s.id == id) && !crate::riku::SLEIGHTS.iter().any(|s| s.id == id) {
+            return DARK_ONLY_HELP;
+        }
         if crate::party::index(id).is_some() {
             UNLEARNED_HELP
         } else {
@@ -180,14 +203,14 @@ pub mod text {
     /// A slot row's text (owner, 2026-11-04: "when something is bound to a shortcut, they should
     /// also be listed by the button prompt"): the slot's label (its button glyph, or the button's
     /// name), then the bound spell's or sleight's name (`name`, NUL-terminated or not) after a space
-    /// (after ": " beside a button's name). An empty slot (`None`) shows the label alone, as before.
+    /// (after ": " beside a button's name). 0.198.18: an empty slot (`None`) reads [`NONE`] there, as
+    /// KH1's slot list (`0x140302950`) shows sysmsg `0xD4` on an empty slot (it used to show the label alone).
     pub fn slot_row(label: &[u8], name: Option<&[u8]>, glyphs: bool) -> Vec<u8> {
         let strip = |t: &[u8]| -> Vec<u8> { t.iter().copied().take_while(|&b| b != 0).collect() };
         let mut v = strip(label);
-        if let Some(n) = name.map(strip).filter(|n| !n.is_empty()) {
-            v.extend_from_slice(if glyphs { b" " } else { b": " });
-            v.extend(n);
-        }
+        let n = name.map(strip).filter(|n| !n.is_empty()).unwrap_or_else(|| strip(NONE));
+        v.extend_from_slice(if glyphs { b" " } else { b": " });
+        v.extend(n);
         v.push(0);
         v
     }
@@ -206,6 +229,63 @@ pub mod text {
         }
     }
 
+    /// 0.198.18: Riku's Dark Mode set (`crate::riku::dark_block`), shown on his page in place of his own three rows
+    /// (Left / Right, as Re:CoM's Sleights page switches its tabs, `0x1400EB7E0` state 4): its rows' label prefix and
+    /// help line (the same buttons, used while he is in Dark Mode; Left / Right goes back to his own set).
+    pub const DARK_PREFIX: &[u8] = b"Dark ";
+    pub const DARK_SLOT_HELP_GLYPHS: [&[u8]; 3] = [
+        b"In Dark Mode: hold \xF5\x68 and press \xF5\x67. Left/Right: Riku's set.\0",
+        b"In Dark Mode: hold \xF5\x68 and press \xF5\x66. Left/Right: Riku's set.\0",
+        b"In Dark Mode: hold \xF5\x68 and press \xF5\x64. Left/Right: Riku's set.\0",
+    ];
+    pub const DARK_SLOT_HELP: [&[u8]; 3] = [
+        b"In Dark Mode: hold L1 and press Triangle. Left/Right: Riku's set.\0",
+        b"In Dark Mode: hold L1 and press Square. Left/Right: Riku's set.\0",
+        b"In Dark Mode: hold L1 and press Cross. Left/Right: Riku's set.\0",
+    ];
+    pub const DARK_SLOT3_HELP_CIRCLE: &[u8] = b"In Dark Mode: hold L1 and press Circle. Left/Right: Riku's set.\0";
+    /// Riku's own set when the Dark Mode set exists: his slot help with the Left / Right hint.
+    pub const SWITCH_SLOT_HELP_GLYPHS: [&[u8]; 3] = [
+        b"Hold \xF5\x68 and press \xF5\x67. Left/Right: Dark Mode set.\0",
+        b"Hold \xF5\x68 and press \xF5\x66. Left/Right: Dark Mode set.\0",
+        b"Hold \xF5\x68 and press \xF5\x64. Left/Right: Dark Mode set.\0",
+    ];
+    pub const SWITCH_SLOT_HELP: [&[u8]; 3] = [
+        b"Hold L1 and press Triangle. Left/Right: Dark Mode set.\0",
+        b"Hold L1 and press Square. Left/Right: Dark Mode set.\0",
+        b"Hold L1 and press Cross. Left/Right: Dark Mode set.\0",
+    ];
+    pub const SWITCH_SLOT3_HELP_CIRCLE: &[u8] = b"Hold L1 and press Circle. Left/Right: Dark Mode set.\0";
+    /// The Dark Mode set's picker help.
+    pub const DARK_PICK_HELP_GLYPHS: [&[u8]; 3] = [
+        b"Choose the spell or sleight for Dark Mode's \xF5\x68 + \xF5\x67.\0",
+        b"Choose the spell or sleight for Dark Mode's \xF5\x68 + \xF5\x66.\0",
+        b"Choose the spell or sleight for Dark Mode's \xF5\x68 + \xF5\x64.\0",
+    ];
+    pub const DARK_PICK_HELP: [&[u8]; 3] = [
+        b"Choose the spell or sleight for Dark Mode's L1 + Triangle.\0",
+        b"Choose the spell or sleight for Dark Mode's L1 + Square.\0",
+        b"Choose the spell or sleight for Dark Mode's L1 + Cross.\0",
+    ];
+    pub const DARK_PICK3_HELP_CIRCLE: &[u8] = b"Choose the spell or sleight for Dark Mode's L1 + Circle.\0";
+
+    /// A Dark Mode row's label: [`DARK_PREFIX`] then slot `k`'s ([`slot_label`]), NUL-terminated.
+    pub fn dark_slot_label(k: usize, glyphs: bool, confirm_is_circle: bool) -> Vec<u8> {
+        let mut v = DARK_PREFIX.to_vec();
+        v.extend(slot_label(k, glyphs, confirm_is_circle).iter().copied().take_while(|&b| b != 0));
+        v.push(0);
+        v
+    }
+
+    /// The help of Dark Mode's slot `k` (0..2).
+    pub fn dark_slot_help(k: usize, glyphs: bool, confirm_is_circle: bool) -> &'static [u8] {
+        match k.min(2) {
+            k if glyphs => DARK_SLOT_HELP_GLYPHS[k],
+            2 if confirm_is_circle => DARK_SLOT3_HELP_CIRCLE,
+            k => DARK_SLOT_HELP[k],
+        }
+    }
+
     /// The picker's help for slot `k` (0..2).
     pub fn pick_help(k: usize, glyphs: bool, confirm_is_circle: bool) -> &'static [u8] {
         match k.min(2) {
@@ -214,11 +294,65 @@ pub mod text {
             k => PICK_HELP[k],
         }
     }
+
+    /// The help of Riku's own slot `k` (0..2) when his Dark Mode set exists (the Left / Right hint).
+    pub fn switch_slot_help(k: usize, glyphs: bool, confirm_is_circle: bool) -> &'static [u8] {
+        match k.min(2) {
+            k if glyphs => SWITCH_SLOT_HELP_GLYPHS[k],
+            2 if confirm_is_circle => SWITCH_SLOT3_HELP_CIRCLE,
+            k => SWITCH_SLOT_HELP[k],
+        }
+    }
+
+    /// The picker's help for Dark Mode's slot `k` (0..2).
+    pub fn dark_pick_help(k: usize, glyphs: bool, confirm_is_circle: bool) -> &'static [u8] {
+        match k.min(2) {
+            k if glyphs => DARK_PICK_HELP_GLYPHS[k],
+            2 if confirm_is_circle => DARK_PICK3_HELP_CIRCLE,
+            k => DARK_PICK_HELP[k],
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 0.198.18: a Dark Riku-only sleight left in Riku's set says where it belongs.
+    #[test]
+    fn dark_only_sleights_point_to_the_dark_set() {
+        assert_eq!(text::unequipped_help(0x60), text::DARK_ONLY_HELP);
+        assert_eq!(text::unequipped_help(0x65), text::DARK_ONLY_HELP);
+        assert_ne!(text::unequipped_help(0x69), text::DARK_ONLY_HELP, "Dark Impulse: Riku starts it too");
+        assert!(text::DARK_ONLY_HELP.len() - 1 <= crate::menu::HELP_MAX);
+    }
+
+    /// 0.198.18: Riku's Dark Mode rows say so, with the same buttons.
+    #[test]
+    fn dark_mode_rows_name_their_buttons() {
+        assert_eq!(text::dark_slot_label(0, true, false), b"Dark \xF5\x67\0".to_vec());
+        assert_eq!(text::dark_slot_label(2, false, true), b"Dark Circle\0".to_vec());
+        assert!(text::dark_slot_help(1, false, false).starts_with(b"In Dark Mode: hold L1 and press Square"));
+        assert_eq!(text::dark_slot_help(2, false, true), text::DARK_SLOT3_HELP_CIRCLE);
+        for t in text::DARK_SLOT_HELP_GLYPHS.iter().chain(text::DARK_SLOT_HELP.iter()) {
+            assert!(t.ends_with(&[0]) && !t.contains(&b'%'));
+        }
+        // The Dark set's help names it and the way back; Riku's own (when the Dark set exists) the way there.
+        for k in 0..3 {
+            for (glyphs, circle) in [(true, false), (false, false), (false, true)] {
+                assert!(text::dark_slot_help(k, glyphs, circle).windows(10).any(|w| w == b"Left/Right"), "{k}");
+                assert!(text::switch_slot_help(k, glyphs, circle).windows(13).any(|w| w == b"Dark Mode set"), "{k}");
+                assert!(text::dark_pick_help(k, glyphs, circle).windows(11).any(|w| w == b"Dark Mode's"), "{k}");
+            }
+            assert!(text::dark_pick_help(k, true, false).windows(2).any(|w| w == &text::SLOT_GLYPHS[k][..2]), "{k}");
+            assert!(text::switch_slot_help(k, true, false).windows(2).any(|w| w == &text::SLOT_GLYPHS[k][..2]), "{k}");
+        }
+        assert_eq!(text::switch_slot_help(2, false, true), text::SWITCH_SLOT3_HELP_CIRCLE);
+        assert_eq!(text::dark_pick_help(2, false, true), text::DARK_PICK3_HELP_CIRCLE);
+        assert_eq!(text::dark_pick_help(9, false, false), text::DARK_PICK_HELP[2]);
+        // An empty Dark row: "Dark" + the glyph + "None" (KH1's sysmsg 0xD4 on an empty slot).
+        assert_eq!(text::slot_row(&text::dark_slot_label(0, true, false), None, true), b"Dark \xF5\x67 None\0".to_vec());
+    }
 
     use sc::Slot::{Sleight, Spell};
 
@@ -298,6 +432,18 @@ mod tests {
         assert_eq!(u16::from_le_bytes([seqs[2 * BLUE as usize], seqs[2 * BLUE as usize + 1]]), 0x133);
     }
 
+    /// 0.198.18: Riku's Dark Mode set (slots 3..5) takes Re:CoM's row 0x12F (Dark Riku's wing); slots 0..2 stay blue.
+    #[test]
+    fn dark_mode_set_takes_recoms_dark_wing_row() {
+        use crate::keyblades::row_look::{BLUE, DARK};
+        for k in 0..SLOTS {
+            assert_eq!(slot_look(k), BLUE, "slot {k}");
+            assert_eq!(slot_look(k + SLOTS), DARK, "Dark Mode slot {k}");
+        }
+        let seqs = crate::sites::KEYBLADE_DATA.iter().find(|s| s.rva == 0x007C_11F0).unwrap().expect;
+        assert_eq!(u16::from_le_bytes([seqs[2 * DARK as usize], seqs[2 * DARK as usize + 1]]), 0x12F, "a checked entry of Re:CoM's table");
+    }
+
     #[test]
     fn spell_names_are_the_command_menus_words_at_the_level() {
         assert_eq!(name_id(0, 1), 7, "Fire");
@@ -327,8 +473,24 @@ mod tests {
 
     #[test]
     fn texts_fit_the_help_box() {
-        let all = [text::NONE, text::UNEQUIPPED_HELP, text::UNLEARNED_HELP, text::SLOT3_HELP_CIRCLE, text::SLOT3_WORD_CIRCLE, text::PICK3_HELP_CIRCLE]
-            .into_iter()
+        let all = [
+            text::NONE,
+            text::UNEQUIPPED_HELP,
+            text::UNLEARNED_HELP,
+            text::SLOT3_HELP_CIRCLE,
+            text::SLOT3_WORD_CIRCLE,
+            text::PICK3_HELP_CIRCLE,
+            text::DARK_SLOT3_HELP_CIRCLE,
+            text::SWITCH_SLOT3_HELP_CIRCLE,
+            text::DARK_PICK3_HELP_CIRCLE,
+        ]
+        .into_iter()
+        .chain(text::DARK_SLOT_HELP)
+        .chain(text::DARK_SLOT_HELP_GLYPHS)
+        .chain(text::SWITCH_SLOT_HELP)
+        .chain(text::SWITCH_SLOT_HELP_GLYPHS)
+        .chain(text::DARK_PICK_HELP)
+        .chain(text::DARK_PICK_HELP_GLYPHS)
             .chain(text::SLOT_GLYPHS)
             .chain(text::SLOT_WORDS)
             .chain(text::SLOT_HELP)
@@ -351,8 +513,10 @@ mod tests {
     fn slot_rows_show_the_bound_name_beside_the_button() {
         let tri = text::slot_label(0, true, false);
         assert_eq!(text::slot_row(tri, Some(b"Curaga\0"), true), b"\xF5\x67 Curaga\0".to_vec());
-        assert_eq!(text::slot_row(tri, None, true), tri.to_vec(), "empty: the glyph alone");
-        assert_eq!(text::slot_row(tri, Some(b"\0"), true), tri.to_vec());
+        // 0.198.18: empty reads "None" beside the button, as KH1's slot list (`0x140302950`, sysmsg 0xD4).
+        assert_eq!(text::slot_row(tri, None, true), b"\xF5\x67 None\0".to_vec(), "empty: the glyph and None");
+        assert_eq!(text::slot_row(tri, Some(b"\0"), true), b"\xF5\x67 None\0".to_vec());
+        assert_eq!(text::slot_row(text::slot_label(1, false, false), None, false), b"Square: None\0".to_vec());
         assert_eq!(text::slot_row(text::slot_label(2, false, true), Some(b"Homing Blizzara"), false), b"Circle: Homing Blizzara\0".to_vec());
         // Re:CoM's C2DFnt takes it: ASCII and the escape, NUL-terminated.
         shown_len(&text::slot_row(tri, Some(b"Homing Blizzara\0"), true));

@@ -76,6 +76,12 @@ static LOG_LEFT: AtomicU32 = AtomicU32::new(80);
 /// Re:CoM's sleight start (Sora's vtable `+0x130`), the sleight resource load, the weapon's attack
 /// end (`sites::SUMMON_CHECKED`).
 const SLEIGHT_START: u32 = 0x0022_47A0;
+/// `CPlayerRiku`'s sleight start (his vtable `+0x130`, `0x140216AB0`: ids 0x62..=0x64, 0x66..=0x6B;
+/// the same writes as Sora's after its id test: `initStockSkill` through `+0x138`, `+0x838` = 10).
+/// Checked (exe: disasm). `crate::riku`.
+const RIKU_SLEIGHT_START: u32 = 0x0021_6AB0;
+/// Dark Riku's sleight start (`CPlayerDRiku +0x130`). Checked (exe).
+const DRIKU_SLEIGHT_START: u32 = 0x0020_6830;
 const SLEIGHT_LOAD: u32 = 0x0021_1790;
 const WEAPON_END: u32 = 0x0022_4FB0;
 /// Re:CoM's sleight action (`initStockSkill` `0x1401F8D70(player, 0x16)`).
@@ -299,8 +305,17 @@ unsafe fn begin(pl: usize, sleight: u16, name: &str) -> Option<u32> {
     // Sora's own vtable slot, as Re:CoM calls it (`0x1401F8150`).
     let vt: usize = rd(pl);
     let slot: usize = if vt != 0 { rd(vt + f::VT_START) } else { 0 };
-    if slot != base() + SLEIGHT_START as usize {
-        note(|| format!("{name}: Sora's vtable +0x130 is {slot:#x}, not Re:CoM's sleight start"));
+    // Riku's own start for every sleight of his (his six, and the King's in his Party list).
+    let riku = super::movement::is_main_riku(pl);
+    let want = if super::movement::is_main_dark_riku(pl) {
+        DRIKU_SLEIGHT_START
+    } else if riku {
+        RIKU_SLEIGHT_START
+    } else {
+        SLEIGHT_START
+    };
+    if slot != base() + want as usize {
+        note(|| format!("{name}: the player's vtable +0x130 is {slot:#x}, not Re:CoM's sleight start"));
         return None;
     }
     // A live swing's volume ends first (the specials' rule; Re:CoM's own card chain ends the
@@ -444,8 +459,19 @@ pub unsafe fn start_sleight(pl: usize, id: u16) -> bool {
     }
     // Owner (2026-11-04, "Sleights outside battle"): a field room too, free.
     let Some(field) = super::field_sleights::start_room(pl, id, name) else { return false };
+    // 0.179.0: Dark Riku's own sleights pay Dark Mode's DP (checked here, paid once Re:CoM's start
+    // took it).
+    let dp = crate::dark_points::pays_dp(id);
+    if dp && !field {
+        let view = super::dark_points::sleight_view(pl);
+        let ok = view.is_some_and(|(now, cap)| crate::dark_points::sleight_cost(id, cap).is_some_and(|c| crate::dark_points::can_pay(now, c)));
+        if !ok {
+            note(|| format!("sleight {name}: DP short (DP {view:?}; {:?})", crate::sleights::cost(id)));
+            return false;
+        }
+    }
     let mp = super::mp::current().map_or(0, |m| m.0);
-    let points = if field {
+    let points = if field || dp {
         0
     } else {
         let Some(points) = crate::sleights::pay_points(id, mp) else {
@@ -455,7 +481,11 @@ pub unsafe fn start_sleight(pl: usize, id: u16) -> bool {
         points
     };
     let Some(before) = begin(pl, id, name) else { return false };
-    if !field {
+    if dp && !field {
+        if super::dark_points::pay_sleight(pl, id).is_none() {
+            note(|| format!("sleight {name}: started, but its DP could not be paid (DP changed in between)"));
+        }
+    } else if !field {
         super::mp::pay(points * 100, name);
     }
     SLEIGHT_ID.store(id as u32, Ordering::Relaxed);

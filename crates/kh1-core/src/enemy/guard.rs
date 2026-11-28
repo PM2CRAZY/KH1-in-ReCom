@@ -174,6 +174,18 @@ pub fn meeting(a: (u32, i32, bool), b: (u32, i32, bool)) -> Meeting {
     Meeting { a: ma, b: mb, a_stops, b_stops }
 }
 
+impl Meeting {
+    /// Whether `b` does no harm to the player who owns `a` this frame: `b` is stopped, or `a` got a clash record. 0.198.11
+    /// (fork owner, 2026-11-26: "no KH1 a defesa funciona", against the Defender's priority-100 mace; "eu preciso de uma
+    /// correção geral"): a player's records are handled in his own loop (`0x14029BBD0`), the clash record first (the clash
+    /// pass `0x1402B47A0` runs before the body pass in `0x1402B4460`; records are taken from the list's head), and kind 6 /
+    /// 7's handlers (`0x14029D720` / `0x14029D5F0`) set flag 0x80 (`0x140297F30`), so the unstopped attack's hit record that
+    /// follows does 0 HP and no reaction (`0x1402BEEE0`: HP only when `actor+0 & 0x1000080` is clear). Checked (decomp).
+    pub fn a_unharmed(&self) -> bool {
+        self.b_stops || matches!(self.a, Met::Clash { .. })
+    }
+}
+
 /// `0x1402B4640`'s front cone of a row of clash type `t` (`+0x60` a turn of the facing, `+0x64` the cosine
 /// limit): only guard types (1..4) test it (`((t − 1) & ~3) == 0`); any other type passes. The 3D cosine
 /// (`0x1402A8C70`) is 0 when either vector is zero.

@@ -223,6 +223,8 @@ pub mod shortcut {
     pub const CIRCLE: u32 = 4;
     /// Groups.
     pub const COUNT: u32 = 5;
+    /// The other pad types' glyph groups (`"pads"`): type 1's four, then type 3's.
+    pub const PADS: u32 = 8;
 }
 
 /// The shortcut panel's groups of the manifest (stage 7.12).
@@ -232,6 +234,24 @@ pub struct ShortcutGroups {
     pub first: u32,
     /// The glyph groups hold the PC's button art.
     pub icons: bool,
+    /// The other pad types' glyphs (`"pads"`, the asset step's `shortcut::pad_glyphs`): pad type
+    /// 1's Triangle / Square / Cross / Circle places (the Xbox Y / X / A / B), then type 3's.
+    pub pads: Option<u32>,
+}
+
+impl ShortcutGroups {
+    /// The group of glyph `k` ([`shortcut::TRIANGLE`]..=[`shortcut::CIRCLE`]) for Re:CoM's pad
+    /// type (its controller config `+0x1C`): as `0x140349120` picks its own button glyphs, 2 the
+    /// PlayStation set, 3 the generic pad's, any other the Xbox set (Checked (exe)). Without
+    /// `"pads"` (an older asset step) the PlayStation set.
+    pub fn glyph(&self, k: u32, pad_type: u16) -> u32 {
+        let i = k.saturating_sub(shortcut::TRIANGLE).min(3);
+        match (pad_type, self.pads) {
+            (2, _) | (_, None) => self.first + k,
+            (3, Some(p)) => p + 4 + i,
+            (_, Some(p)) => p + i,
+        }
+    }
 }
 
 /// H5: the LOCK ON! plate and the target's HP gauge (`kh1_recom_assets::kh1_hud::target`). KH1's
@@ -315,6 +335,9 @@ pub struct MenuGroups {
     /// Squeeze to fit (owner, 2026-11-04): each word's width (tenths of a unit), by language as
     /// [`MenuGroups::words`]; empty from an asset step before 0.107.0 (no word is squeezed).
     pub widths: Vec<(String, Vec<(u16, u32)>)>,
+    /// 0.179.1: the DP sleights' mark (Re:CoM's Heartless emblem), drawn right of their names; None
+    /// from an older asset step or without Re:CoM's `FO0104.RTM` art.
+    pub dp_icon: Option<u32>,
 }
 
 impl MenuGroups {
@@ -351,6 +374,8 @@ pub struct Manifest {
     pub party: Option<[u32; 2]>,
     /// KH1's lock-on cursor group (H7), when built.
     pub cursor: Option<u32>,
+    /// KH1's orange auto-target ring group (`lockon_d`, 0.180.0), when built.
+    pub auto_ring: Option<u32>,
     /// KH1's LEVEL UP!! box group (H8), when built.
     pub level_up: Option<u32>,
     /// The first of Re:CoM's HP ring groups turned 180° in `gauge:01` ([`recom_hp`]), when the
@@ -439,6 +464,12 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
                 Some(Some(g)) if g + menu::LIST_GROUPS <= groups => Some(g),
                 Some(_) => return Err("a bad summon_list entry".into()),
             };
+            // 0.179.1, optional.
+            let dp_icon = match m.get("dp_icon").map(|x| x.as_u32()) {
+                None => None,
+                Some(Some(g)) if g < groups => Some(g),
+                Some(_) => return Err("a bad dp_icon entry".into()),
+            };
             // Squeeze to fit (0.107.0), optional: [id, width in tenths of a unit] per language.
             let mut widths = Vec::new();
             for lang in ["us", "uk", "fr", "gr", "it", "sp"] {
@@ -453,7 +484,7 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
                     widths.push((lang.to_string(), list));
                 }
             }
-            Some(MenuGroups { first, tab_icon, words, items_list, summon_list, widths })
+            Some(MenuGroups { first, tab_icon, words, items_list, summon_list, widths, dp_icon })
         }
     };
     let shortcut = match v.get("shortcut") {
@@ -464,7 +495,17 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
                 return Err("shortcut groups past the set".into());
             }
             let icons = matches!(t.get("icons"), Some(crate::json::Value::Bool(true)));
-            Some(ShortcutGroups { first, icons })
+            let pads = match t.get("pads") {
+                None => None,
+                Some(p) => {
+                    let p = p.as_u32().ok_or("shortcut pads not a number")?;
+                    if p + shortcut::PADS > groups {
+                        return Err("shortcut pad glyphs past the set".into());
+                    }
+                    Some(p)
+                }
+            };
+            Some(ShortcutGroups { first, icons, pads })
         }
     };
     let target = match v.get("target") {
@@ -486,6 +527,11 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
         None => None,
         Some(Some(c)) if c < groups => Some(c),
         Some(_) => return Err("a bad cursor entry".into()),
+    };
+    let auto_ring = match v.get("auto_ring").map(|c| c.as_u32()) {
+        None => None,
+        Some(Some(c)) if c < groups => Some(c),
+        Some(_) => return Err("a bad auto_ring entry".into()),
     };
     let level_up = match v.get("level_up").map(|c| c.as_u32()) {
         None => None,
@@ -515,7 +561,7 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
             Some(first)
         }
     };
-    Ok(Manifest { groups, languages, motion: Motion { programs, units, runs }, menu, shortcut, target, party, cursor, level_up, recom_hp, mp_ring })
+    Ok(Manifest { groups, languages, motion: Motion { programs, units, runs }, menu, shortcut, target, party, cursor, auto_ring, level_up, recom_hp, mp_ring })
 }
 
 /// Re:CoM's HP gauge at KH1's place, its ring and bar turned 180° (owner, 2026-11-01; asset step
@@ -865,6 +911,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shortcut_glyphs_follow_the_pad_type() {
+        use shortcut::{CIRCLE, CROSS, SQUARE, TRIANGLE};
+        let sg = ShortcutGroups { first: 100, icons: true, pads: Some(200) };
+        // Type 2: the PlayStation set (the panel's own groups).
+        assert_eq!([TRIANGLE, SQUARE, CROSS, CIRCLE].map(|k| sg.glyph(k, 2)), [101, 102, 103, 104]);
+        // Type 1 (and any other, as Re:CoM): the Xbox Y / X / A / B.
+        assert_eq!([TRIANGLE, SQUARE, CROSS, CIRCLE].map(|k| sg.glyph(k, 1)), [200, 201, 202, 203]);
+        assert_eq!(sg.glyph(TRIANGLE, 0), 200);
+        assert_eq!(sg.glyph(CIRCLE, 7), 203);
+        // Type 3: the generic pad's.
+        assert_eq!([TRIANGLE, SQUARE, CROSS, CIRCLE].map(|k| sg.glyph(k, 3)), [204, 205, 206, 207]);
+        // An older manifest (no pad glyphs): the PlayStation set whatever the pad.
+        let old = ShortcutGroups { pads: None, ..sg };
+        assert_eq!(old.glyph(TRIANGLE, 1), 101);
+    }
+
+    #[test]
     fn hp_units_scale_recom_cap_to_kh1_cap() {
         assert_eq!((hp_units(0), hp_units(1), hp_units(560), hp_units(600), hp_units(300), hp_units(280)), (0, 1, 120, 120, 65, 60));
     }
@@ -881,6 +944,10 @@ mod tests {
         assert_eq!(m.motion.group(1, program::FADE_IN), Some(643));
         assert_eq!(m.motion.group(1, program::SLIDE_H), None);
         assert_eq!(m.motion.group(0, program::SLIDE_V), Some(638));
+        assert_eq!((m.cursor, m.auto_ring), (None, None), "an older step: no ring");
+        let ring = parse_manifest(&ok.replace("\"sources\": {}", "\"sources\": {}, \"cursor\": 642, \"auto_ring\": 643")).unwrap();
+        assert_eq!((ring.cursor, ring.auto_ring), (Some(642), Some(643)));
+        assert!(parse_manifest(&ok.replace("\"sources\": {}", "\"sources\": {}, \"auto_ring\": 644")).is_err(), "past the last group");
         assert!(parse_manifest(&ok.replace("\"base_groups\": 632", "\"base_groups\": 631")).is_err());
         assert!(parse_manifest(&ok.replace("[639, 5]", "[639, 6]")).is_err());
         assert!(parse_manifest(&ok.replace("vibe_ss", "vibe_xx")).is_err());
@@ -898,6 +965,11 @@ mod tests {
         assert_eq!(mm.summon_list, None, "M8b: optional");
         let su = with.replace("\"tab_icon\": true", "\"tab_icon\": true, \"summon_list\": 694");
         assert_eq!(parse_manifest(&su).unwrap().menu.unwrap().summon_list, Some(694));
+        // 0.179.1: the DP sleights' mark, optional.
+        assert_eq!(mm.dp_icon, None);
+        let dp = with.replace("\"tab_icon\": true", "\"tab_icon\": true, \"dp_icon\": 699");
+        assert_eq!(parse_manifest(&dp).unwrap().menu.unwrap().dp_icon, Some(699));
+        assert!(parse_manifest(&with.replace("\"tab_icon\": true", "\"tab_icon\": true, \"dp_icon\": 700")).is_err(), "past the last group");
         assert!(parse_manifest(&it.replace("690", "695")).is_err(), "six groups past the set");
         // Squeeze to fit (0.107.0): word widths optional, tenths of a unit; "fr" falls back to
         // "us" as the word does.
@@ -910,9 +982,13 @@ mod tests {
         // Stage 7.12: the shortcut panel, optional (older manifests have none).
         assert_eq!(m.shortcut, None);
         let with = ok.replace("\"languages\"", "\"shortcut\": {\"first\": 639, \"icons\": true}, \"languages\"");
-        assert_eq!(parse_manifest(&with).unwrap().shortcut, Some(ShortcutGroups { first: 639, icons: true }));
+        assert_eq!(parse_manifest(&with).unwrap().shortcut, Some(ShortcutGroups { first: 639, icons: true, pads: None }));
         assert!(parse_manifest(&with.replace("\"first\": 639", "\"first\": 640")).is_err(), "past the set");
         assert_eq!(parse_manifest(&with.replace("true}", "false}")).unwrap().shortcut.map(|s| s.icons), Some(false));
+        // The other pad types' glyphs, optional: 8 groups inside the set.
+        let pads = with.replace("\"icons\": true}", "\"icons\": true, \"pads\": 600}");
+        assert_eq!(parse_manifest(&pads).unwrap().shortcut.and_then(|s| s.pads), Some(600));
+        assert!(parse_manifest(&pads.replace("\"pads\": 600", "\"pads\": 637")).is_err(), "pad glyphs past the set");
         assert_eq!(m.recom_hp, None);
         let with = ok.replace("\"languages\"", "\"recom_hp\": {\"set\": \"gauge:01\", \"first\": 47, \"of\": [7, 8, 9]}, \"languages\"");
         assert_eq!(parse_manifest(&with).unwrap().recom_hp, Some(47));

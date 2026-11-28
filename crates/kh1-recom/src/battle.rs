@@ -233,9 +233,20 @@ pub fn bytes_state_of(recom: &[u8], ours: &[u8], have: &[u8]) -> Bytes {
 }
 
 /// Which of `sites::M6_PATCHES` (P2 think gate, P3 grant all, P4 crowd pace) a battle wants as
-/// ours: P2 and P3 in every KH1 battle, P4 only with `enemy_pace = kh1` (decision 32).
+/// ours: all three only with `enemy_pace = kh1` (decision 32). 0.175.0 (fork, a tester's report
+/// the owner passed on: "I moved back to Re:Com's enemy ai but they were still attacking all at
+/// once"): at `enemy_pace = recom` Re:CoM's three serialisers stay, and the cardless play takes
+/// one attacker at a time ([`one_at_a_time`]), Re:CoM's CBTL enemy slot's rule.
 pub fn wanted(kh1_battle: bool, pace_kh1: bool) -> [bool; 3] {
-    [kh1_battle, kh1_battle, kh1_battle && pace_kh1]
+    let ours = kh1_battle && pace_kh1;
+    [ours, ours, ours]
+}
+
+/// Re:CoM's pace without cards: Re:CoM lets one enemy play a card at a time (CBTL's single enemy
+/// slot, taken by the card play, freed at the attack's end); a cardless attack waits while another
+/// enemy is in its attack (`others_attacking`). Bosses keep their own rules (`boss`).
+pub fn one_at_a_time(pace_kh1: bool, boss: bool, others_attacking: usize) -> bool {
+    !pace_kh1 && !boss && others_attacking > 0
 }
 
 /// One write of [`plan`]: (patch index, the bytes there now, the bytes to write).
@@ -403,14 +414,14 @@ mod tests {
         let p = M6_PATCHES;
         let pairs: Vec<(&[u8], &[u8])> = p.iter().map(|q| (q.site.expect, q.new)).collect();
         let (r, o) = (Bytes::Recom, Bytes::Ours);
-        // KH1 battle, Re:CoM's pace: P2 and P3 ours, P4 stays Re:CoM's.
-        let w = plan_each(&pairs, &[r, r, r], &wanted(true, false)).unwrap();
-        assert_eq!(w.iter().map(|w| w.0).collect::<Vec<_>>(), vec![0, 1]);
-        // Switching the pace to KH1 later writes only P4; back to Re:CoM undoes only P4.
-        assert_eq!(plan_each(&pairs, &[o, o, r], &wanted(true, true)).unwrap().iter().map(|w| w.0).collect::<Vec<_>>(), vec![2]);
+        // KH1 battle, Re:CoM's pace (0.175.0): all three stay Re:CoM's.
+        assert!(plan_each(&pairs, &[r, r, r], &wanted(true, false)).unwrap().is_empty());
+        // Switching the pace to KH1 writes the three; back to Re:CoM undoes them.
+        assert_eq!(plan_each(&pairs, &[r, r, r], &wanted(true, true)).unwrap().iter().map(|w| w.0).collect::<Vec<_>>(), vec![0, 1, 2]);
         let back = plan_each(&pairs, &[o, o, o], &wanted(true, false)).unwrap();
-        assert_eq!(back.len(), 1);
-        assert_eq!((back[0].0, back[0].1, back[0].2), (2, p[2].new, p[2].site.expect));
+        assert_eq!(back.len(), 3);
+        assert_eq!((back[2].0, back[2].1, back[2].2), (2, p[2].new, p[2].site.expect));
+        assert!(one_at_a_time(false, false, 1) && !one_at_a_time(false, false, 0) && !one_at_a_time(true, false, 2) && !one_at_a_time(false, true, 2));
         // A Re:CoM battle wants none, whatever the pace.
         assert_eq!(wanted(false, true), [false; 3]);
         assert!(plan_each(&pairs, &[r, r, Bytes::Other], &wanted(true, true)).is_none());

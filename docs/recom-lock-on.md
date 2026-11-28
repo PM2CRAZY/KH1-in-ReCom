@@ -171,3 +171,19 @@ atomic load. An L2 press walks Re:CoM's target list once.
    Combat = Re:CoM or Riku's story: R2 and Re:CoM's rules as before.
 8. Log at start: `lock-on: KH1's lock rules on R1 …`; on a device change `… KH1's rules (R1 again
    unlocks, L2 steps)`.
+
+## 0.173.0 (fork): KH1 FM's Auto Lock and Target Lock
+
+- KH1's Config block `*(0x142E1F4D8)` (Checked (KH1 exe: disasm)):
+  - `+0` Auto Lock, 0 = On (getter `0x1402FAFB0`; readers `0x14029365F`, the attack command's soft
+    lock state 4 via `0x1402B08A0`; `0x1402B1348`, a new pick `0x1402B0A00` after the lock is lost);
+  - `+4` Target Lock, 1 = Manual (`0x1402FAFA0`; read only by the locked state's unlock test
+    `0x1402B069C`: Manual = R1's release `[pad+4] & 0x400` clear, Auto = its press `[pad+8] & 0x400`);
+  - `+8` the camera's Auto / Manual (`0x1402FAFD0`).
+- Ours:
+  - `lock_on` arms `AUTO_LOCK` on a frame with the Attack request (`+0x424 & 4`) and no lock, or
+    when the last frame's lock ended without the player's unlock (`PLAYER_UNLOCK`, set by
+    `lock_released`).
+  - `lock_pressed` then answers "pressed" for Re:CoM's pick, its reach rules as for R1.
+  - `lock_released` reads R1's release at Manual.
+  - Settings > Camera rows "Auto Lock" (Off / On) and "Target Lock" (Auto / Manual).

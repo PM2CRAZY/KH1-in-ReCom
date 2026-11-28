@@ -76,8 +76,11 @@ Sora's opening in Traverse Town (world 1) is a chain of event rooms (2000+) and 
   `0xF7`. Checked (files).
 - Which exit a normal play takes (lesson or won): Assumption, the lesson exit. Whether winning
   either battle by KO gives EXP: Assumption, no (not read).
-- Riku's story has its own tutorial battle 1100 in world 0, started by `WORLD00` event 2102. It is
-  not touched (Riku's story is out of scope).
+- Riku's story has its own tutorial battle 1100 in world 0, started by `WORLD00` event 2102 (his first Ansem fight, a
+  Rapid Break and Duel lesson). Fork branch, 0.196.0 (`AGENTS.md` Stage 374): at Combat = KH1 with Riku's KH1 combat the
+  battle room loads and the mod does its lesson's won-path writes (saved Rapid Break / Duel bits, the 9 world cards) and
+  sets its script's "done" bit (1, 2) so the script leaves through its own exit back to 2102. Research:
+  the workspace's `knowledge/ReCoM/recom-riku-ansem-tutorial.md`.
 - Kept as they are (not battle tutorials): Traverse Town's field help screens (`CTtr11` field
   actions in room 1, `CTtr12` doors, `CTtr13` save point, `CTtr14` Moogle shop). Also kept: every
   cutscene, with Re:CoM's own scene skip.

@@ -466,6 +466,11 @@ impl Motion {
             if n > 0x10000 {
                 return bad(format!("mset motion at {m:#x}: implausible channel count {n}"));
             }
+            if n == 0 {
+                // An empty motion's table offset can be 0xFFFFFFFF (Riku's `xa_ex_1010` entry 6,
+                // `xa_ex_1560` entry 38: 0 frames, 0 channels). Checked (files).
+                return Ok(Vec::new());
+            }
             let t = at(table_off)?;
             (0..n)
                 .map(|i| {
@@ -573,11 +578,6 @@ impl Motion {
             out[i] = compose(&local_matrix(&h[i]), &parent);
         }
         out
-    }
-
-    /// Model-space position of every helper at `t` (helper 0 at the origin).
-    pub fn helper_positions(&self, t: f32) -> Vec<[f32; 3]> {
-        self.helper_chain(t).into_iter().map(|m| m.1).collect()
     }
 
     /// Root position at `t`: the last helper's position through the helper chain (motion space,

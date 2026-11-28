@@ -5,7 +5,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
-if rustup target list --installed 2>/dev/null | grep -q x86_64-pc-windows-gnu; then
+# The target's std is there with rustup, or with a distro package (Fedora: rust-std-static-x86_64-pc-windows-gnu).
+if rustup target list --installed 2>/dev/null | grep -q x86_64-pc-windows-gnu \
+   || [ -d "$(rustc --print target-libdir --target x86_64-pc-windows-gnu 2>/dev/null)" ]; then
   cargo build --release --target x86_64-pc-windows-gnu -p kh1-recom
 else
   RUSTC_BOOTSTRAP=1 cargo build --release --target x86_64-pc-windows-gnu -p kh1-recom \

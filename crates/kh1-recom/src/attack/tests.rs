@@ -426,3 +426,33 @@ fn percent_rows_on_recoms_hp() {
         assert_eq!(kh1_percent_of_hp(&m, r, sora, &w, Some(&t), 1000, &mut rng), None);
     }
 }
+
+#[test]
+fn riku_tables_take_his_own_hit_windows() {
+    let m = Moveset::kh1_defaults();
+    let t = kh1_table(&RECOM_ROWS_1_7, &m, &|_| None);
+    let r = riku_table(&t, &RIKU_ROWS_1_7);
+    let d = riku_table(&t, &DARK_ROWS_1_7);
+    // Riku's rows 0x97..0x9D (Checked (exe)): 12–26, 12–32, 20–38, 18–48, 8–26, 4–16, 10–38.
+    let win = |t: &[[u8; 16]], row: usize| (t[row][4], t[row][5]);
+    assert_eq!([13, 11, 14, 8, 17, 18, 16].map(|row| win(&r, row)), [(12, 26), (12, 32), (20, 38), (18, 48), (8, 26), (4, 16), (10, 38)]);
+    // Dark Riku's 0x9E..0xA4: 4–22, 4–42, 8–26, 18–40, 8–26, 8–30, 4–50.
+    assert_eq!([13, 11, 14, 8, 17, 18, 16].map(|row| win(&d, row)), [(4, 22), (4, 42), (8, 26), (18, 40), (8, 26), (8, 30), (4, 50)]);
+    // The jump-up / hop rows take their clip's row (ids 5 / 6).
+    assert_eq!((win(&r, 1), win(&r, 2)), ((8, 26), (4, 16)));
+    // Everything else is the KH1 row's: clip, combo window, kind, flag.
+    // His homing: row 13 = 0x97's +6..+9 (8, 30, 20, 8); the KH1 row had none.
+    assert_eq!((&t[13][6..10], &r[13][6..10]), (&[0u8, 0, 0, 0][..], &[8u8, 30, 20, 8][..]));
+    assert_eq!(&d[8][6..10], &[8u8, 26, 20, 8][..]);
+    for (i, (a, b)) in t.iter().zip(r.iter()).enumerate() {
+        assert_eq!((a[0..4].to_vec(), a[10..].to_vec()), (b[0..4].to_vec(), b[10..].to_vec()), "row {i}");
+        if !ROW_MAP.iter().any(|&(row, _)| row == i) {
+            assert_eq!(a, b, "row {i} not a swing row");
+        }
+    }
+    // The constants are Re:CoM's Riku rows: Sora's action rows, Riku's own effects.
+    for k in 0..7 {
+        assert_eq!((RIKU_ROWS_1_7[k][0], DARK_ROWS_1_7[k][0]), (RECOM_ROWS_1_7[k][0], RECOM_ROWS_1_7[k][0]));
+    }
+}
+

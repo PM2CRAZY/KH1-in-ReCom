@@ -40,6 +40,8 @@ pub static ORIG_JUMP_INIT: AtomicUsize = AtomicUsize::new(0);
 pub static ORIG_AVOID_INIT: AtomicUsize = AtomicUsize::new(0);
 pub static ORIG_JUMP_EXE: AtomicUsize = AtomicUsize::new(0);
 pub static ORIG_AVOID_EXE: AtomicUsize = AtomicUsize::new(0);
+pub static ORIG_RIKU_AVOID_EXE: AtomicUsize = AtomicUsize::new(0);
+pub static ORIG_DRIKU_AVOID_EXE: AtomicUsize = AtomicUsize::new(0);
 pub static ORIG_GLIDE_EXE: AtomicUsize = AtomicUsize::new(0);
 
 /// `combat = kh1`, and the hooks are in.
@@ -345,6 +347,14 @@ pub(super) unsafe fn reapply(pl: usize) {
     if step <= 0.0 {
         return;
     }
+    // 0.198.28: Riku's ground swing moves and turns as Re:CoM moves him (fork owner, 2026-11-27: his
+    // travel is his own): its exe's homing writes the yaw (`0x1401F5F40`, body `+0x54`) and the
+    // velocity (`0x1401D5630` → `0x1401D5670`, body `+0x80`), with his clip's root; KH1's facing and
+    // displacement written back here would undo them every frame (the 0.198.27 review). His air
+    // swings keep KH1's (KH1's air rows set the air velocity).
+    if is_main_riku(pl) && slot.sora.swing.is_some() && slot.sora.state == kh1_core::controller::state::GROUND {
+        return;
+    }
     let mut h = RecomHost::new(pl);
     h.set_velocity(slot.sora.last_disp * (1.0 / step));
     h.set_facing(slot.sora.facing);
@@ -358,6 +368,26 @@ pub fn mark_installed() {
     INSTALLED.store(true, Ordering::Release);
 }
 
+static RIKU_REFUSAL_LOG_LEFT: AtomicU32 = AtomicU32::new(200);
+
+/// Riku's refused Attack presses (fork owner, 2026-11-27: "alguns ataques parece que não pegam"): a
+/// press KH1's rules turned down, e.g. after a swing that hit nothing (`LastSwingMissed`).
+fn riku_refusals(events: &[kh1_core::controller::Event]) {
+    use kh1_core::controller::Event;
+    for e in events {
+        if let Event::AttackRefused(r) = e {
+            if RIKU_REFUSAL_LOG_LEFT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1)).is_ok() {
+                log(&format!("riku attack: press refused ({r:?})"));
+            }
+        }
+    }
+}
+
+/// The main player (Sora or Riku), 0 before one is made.
+pub(super) unsafe fn main_player() -> usize {
+    rd::<usize>(va(base(), data::MAIN_PLAYER))
+}
+
 /// The main player, if it is Sora (`CPlayerSora`; Riku keeps Re:CoM's handlers).
 pub unsafe fn is_main_sora(pl: usize) -> bool {
     let b = base();
@@ -366,6 +396,67 @@ pub unsafe fn is_main_sora(pl: usize) -> bool {
 
 pub(super) unsafe fn kh1_sora(pl: usize) -> bool {
     KH1.load(Ordering::Acquire) && is_main_sora(pl)
+}
+
+/// `riku_kh1_movement` (testing, `crate::riku`): KH1's movement for Riku in Reverse/Rebirth.
+static RIKU: AtomicBool = AtomicBool::new(false);
+
+pub fn set_riku(on: bool) {
+    RIKU.store(on, Ordering::Release);
+}
+
+/// The main player, if it is Riku (`CPlayerRiku`, vtable `0x1405A8868`).
+/// 0.152.0: Dark Riku (`CPlayerDRiku`, Dark Mode's player) counts as Riku for every KH1 rule
+/// (owner, 2026-11-22: "a mesma adequação que fizemos ao Riku, precisa ser feita ao Riku Dark");
+/// [`is_main_dark_riku`] tells them apart where their data differ (rows, attack ids, sleights).
+pub unsafe fn is_main_riku(pl: usize) -> bool {
+    let b = base();
+    pl != 0 && pl == rd::<usize>(va(b, data::MAIN_PLAYER)) && (rd::<usize>(pl) == va(b, data::RIKU_VTABLE) || rd::<usize>(pl) == va(b, data::DRIKU_VTABLE))
+}
+
+/// The main player is Dark Riku.
+pub unsafe fn is_main_dark_riku(pl: usize) -> bool {
+    let b = base();
+    pl != 0 && pl == rd::<usize>(va(b, data::MAIN_PLAYER)) && rd::<usize>(pl) == va(b, data::DRIKU_VTABLE)
+}
+
+/// `riku_kh1_movement` is on (read at start): Riku's story gets KH1's movement and Attack, the
+/// empty revolver and cardless enemies (`docs/recom-riku-kh1.md`).
+pub fn riku_on() -> bool {
+    RIKU.load(Ordering::Acquire)
+}
+
+/// Riku with KH1's movement on (`riku_kh1_movement` at `combat = kh1`).
+pub(super) unsafe fn kh1_riku(pl: usize) -> bool {
+    KH1.load(Ordering::Acquire) && RIKU.load(Ordering::Acquire) && is_main_riku(pl)
+}
+
+/// KH1's Attack runs for this player (the attack hooks): Sora, or Riku with `riku_kh1_movement`.
+pub(super) unsafe fn kh1_fighter(pl: usize) -> bool {
+    kh1_sora(pl) || kh1_riku(pl)
+}
+
+/// The shared movement handlers (actions 2/3/4, 7 and the roll's init) run KH1's frame for this
+/// player: Sora, or Riku when `riku_kh1_movement` is on. Everything else stays Sora's only.
+unsafe fn kh1_mover(pl: usize) -> bool {
+    kh1_sora(pl) || kh1_riku(pl)
+}
+
+/// The KH1 abilities of this player's frame: Sora's, or Riku's ([`crate::riku::abilities`]).
+unsafe fn player_abilities(pl: usize) -> kh1_core::Abilities {
+    if is_main_riku(pl) {
+        // 0.164.0: his equipped Enemy Skills' combo effects (Soldier's Combo Plus, Bandit's Combo
+        // Finish), as Sora's.
+        let mut a = crate::riku::abilities(rd(pl + p::ABILITY));
+        if let Some(e) = super::abilities::equipped_live() {
+            let c = crate::abilities::to_core(e & crate::abilities::CARD_BITS);
+            a.combo_plus = c.combo_plus;
+            a.combo_finish = c.combo_finish;
+        }
+        a
+    } else {
+        abilities()
+    }
 }
 
 /// Re:CoM's pad for this frame (after the state exe's pad update).
@@ -379,6 +470,9 @@ pub unsafe fn read_pad(pl: usize) -> PadView {
         y = -y;
     }
     let req: u32 = rd(pl + p::REQUEST);
+    // 0.181.0: an Attack press takes its target (KH1's command target, and a soft target becomes
+    // the auto lock).
+    let (target, auto_target) = if req & 4 != 0 { super::attack::take_target(pl, crate::command_menu::cmd::ATTACK) } else { (None, false) };
     let jump_held: PadHeldFn = func(JUMP_HELD);
     let held: HeldFn = func(BUTTONS_HELD);
     PadView {
@@ -389,8 +483,11 @@ pub unsafe fn read_pad(pl: usize) -> PadView {
         jump: Button { pressed: req & 1 != 0, held: jump_held(pad) != 0 },
         square: Button { pressed: req & 2 != 0, held: enabled && held(0x80, 0) != 0 },
         confirm: Button { pressed: req & 4 != 0, held: false },
-        lock: lock_target(pl),
-        target: if req & 4 != 0 { super::attack::attack_target(pl) } else { None },
+        // 0.183.0: a Square press also takes Auto Lock's soft target, for the Guard's turn (KH1's lock
+        // pair `0x142DB3518` holds it in lock states 1–4; `0x1402A3B00`). No hold: the Guard is no command.
+        lock: lock_target(pl).or_else(|| if req & 2 != 0 { super::attack::soft_target_centre(pl) } else { None }),
+        target,
+        auto_target,
     }
 }
 
@@ -591,6 +688,41 @@ impl Host for RecomHost {
             let stance = Stance { battle: rd::<u32>(pl + p::CARD) & 1 != 0, flag_418_2: rd::<u32>(pl + p::FLAGS_418) & 2 != 0, prev_row: rd(pl + p::ROW_PREV), row: rd(pl + p::ROW) };
             let ext = EXT.get().copied().unwrap_or_default();
             let Some((row, root)) = rows::row_for(request, &stance, &ext) else { return false };
+            // 0.152.0: Riku's Guard plays his block-recoil row (`crate::riku::GUARD_ROW`).
+            // 0.157.0: Sora's KH1 Guard on his skeleton (row 0x39) when the asset step made it.
+            let guard = is_main_riku(pl) && request & 0x3FF == rows::GUARD;
+            let row = if guard { super::riku_skin::guard_row(is_main_dark_riku(pl)) } else { row };
+            // 0.158.2: KH1 Riku's own guard recoil for KH1's guard recoils.
+            let recoil = is_main_riku(pl) && matches!(request & 0x3FF, rows::RECOIL | rows::STRONG_RECOIL);
+            let row = match super::riku_skin::recoil_row(is_main_dark_riku(pl)) {
+                Some(r) if recoil => r,
+                _ => row,
+            };
+            let guard = guard || (recoil && row == crate::riku::KH1_RECOIL_ROW);
+            // 0.184.1: KH1's cast motions play his cast clips (rows 0x3B..0x40, from Dark Riku's Dark Firaga).
+            let cast = if is_main_riku(pl) { super::riku_skin::cast_row(is_main_dark_riku(pl), request & 0x3FF) } else { None };
+            let row = cast.unwrap_or(row);
+            // 0.198.13: after a cast row, the idle is the battle stance (`crate::riku::idle_after_cast`).
+            let row = if is_main_riku(pl) && cast.is_none() { crate::riku::idle_after_cast(stance.row, stance.prev_row, row) } else { row };
+            if is_main_riku(pl) {
+                // Only rows Riku's own action table plays (`crate::riku::row_ok`); Re:CoM's own
+                // effects and sounds of his clips (variant 0).
+                if cast.is_none() && !(guard && (row == crate::riku::KH1_GUARD_ROW || row == crate::riku::KH1_RECOIL_ROW)) && !crate::riku::row_ok_for(is_main_dark_riku(pl), row) {
+                    log_riku_row(request, row);
+                    return false;
+                }
+                // 0.184.5: a cast row plays its effects at the spell's level (the asset step's EET variants 1..3).
+                // 0.185.8: Aero and Stop share Thunder's and Gravity's clips: their effects are the variants 4..6.
+                let r0 = request & 0x3FF;
+                let second = [crate::magic::cast_req::AERO, crate::magic::cast_req::AERO_AIR, crate::magic::cast_req::STOP, crate::magic::cast_req::STOP_AIR].contains(&r0);
+                let eet = if cast.is_some() { super::magic::cast_level() as i32 + if second { 3 } else { 0 } } else { 0 };
+                // 0.184.6: his KH1-only rows blend in and out (`crate::riku::blend_for`).
+                let r = request & 0x3FF;
+                let first = (0..7u8).any(|s| r == crate::magic::cast_req::first(s, false) || r == crate::magic::cast_req::first(s, true));
+                let blend = crate::riku::blend_for(stance.row as u32, row, first, blend);
+                func::<MotionFn>(MOTION_REQUEST)(pl, row as i32, frames_to_units(blend), root as u64, eet, 0, frames_to_units(start));
+                return true;
+            }
             let voice = if crate::magic::is_cast_request(request) && super::magic::kh1_cast(pl) { cast_voice_variant(pl) } else { 0 };
             // M13 stage 3: KH1's effects / sounds of the move (the asset step's events at KH1's
             // variant), by the Effects / Sounds settings; Re:CoM's own (0) otherwise.
@@ -694,7 +826,7 @@ impl Host for RecomHost {
             if k.is_finite() && k > 0.0 && g.is_finite() && g < 0.0 {
                 n.rise_scale = k;
                 // Wight Knight's Float (Enemy Skills): Sora's gravity × 0.75 (his own only).
-                n.gravity = g * super::enemy_skills::gravity_factor();
+                n.gravity = if is_main_riku(self.pl) { g } else { g * super::enemy_skills::gravity_factor() };
             }
         }
         n
@@ -718,17 +850,31 @@ impl Host for RecomHost {
         super::attack::take_swing_clash(self.pl)
     }
 
+    fn guard_clash(&mut self) -> Option<(u8, i32)> {
+        super::attack::take_guard_clash()
+    }
+
     fn set_untouchable(&mut self, on: bool) {
         // KH1's flag 0x80 after a guard success: Re:CoM's `+0x418 & 1`, which makes the damage
         // check `0x1401E6DE0` skip hits (Checked (decomp)).
         unsafe {
+            super::attack::riku_untouchable_log(self.pl, on);
             let f: u32 = rd(self.pl + p::FLAGS_418);
             wr(self.pl + p::FLAGS_418, if on { f | 1 } else { f & !1 });
         }
     }
 
     fn draw_weapon(&mut self) {
-        unsafe { func::<ShowFn>(SHOW_WEAPON)(self.pl, 1) }
+        unsafe {
+            if is_main_riku(self.pl) {
+                // His own "draw the weapon" (`CPlayerRiku` vtable `+0xF8` = `0x1402160A0`).
+                let vt: usize = rd(self.pl);
+                let f: ShowFn = std::mem::transmute_copy(&rd::<usize>(vt + 0xF8));
+                f(self.pl, 1)
+            } else {
+                func::<ShowFn>(SHOW_WEAPON)(self.pl, 1)
+            }
+        }
     }
 
     fn guard_clink(&mut self) {
@@ -794,9 +940,56 @@ pub(super) unsafe fn run_frame(pl: usize, fresh: bool) {
     close_recom_roll(pl, "a KH1 frame runs Sora again");
     let Ok(mut g) = SORA.try_lock() else { return };
     if g.as_ref().is_none_or(|s| s.player != pl) {
-        *g = Some(Slot { player: pl, sora: Kh1Sora::new(Params::kh1_defaults(), abilities()), sync: None, last: FrameOut::default() });
+        *g = Some(Slot { player: pl, sora: Kh1Sora::new(Params::kh1_defaults(), player_abilities(pl)), sync: None, last: FrameOut::default() });
     }
     let Some(slot) = g.as_mut() else { return };
+    // Riku's own swing pick and timings (fork owner, 2026-11-27), Dark Riku's in Dark Mode.
+    let moves = if is_main_riku(pl) { Some(is_main_dark_riku(pl)) } else { None };
+    if slot.sora.riku_moves != moves {
+        log(&format!("riku attack: swing pick and timings: {}", match moves {
+            Some(true) => "Dark Riku's (Re:CoM's 0x140204F80 rules, his clips and windows)",
+            Some(false) => "Riku's (Re:CoM's 0x1401F7520 rules, his clips and windows)",
+            None => "Sora's (KH1's)",
+        }));
+        slot.sora.set_riku_moves(moves);
+    }
+    if is_main_riku(pl) {
+        // Riku (`crate::riku`): KH1's movement and KH1's Attack (the same picker and rows as
+        // Sora's, on his own swing clips: his action table's rows 0x30..). His roll is Re:CoM's own
+        // (his roll exe `0x140212350`); no specials. 0.164.0: his items and Enemy Skills. 0.184.0: Sora's KH1 spells.
+        super::enemy_skills::kh1_frame(pl);
+        slot.sora.abilities = player_abilities(pl);
+        // Wight Knight's Float (Enemy Skills): KH1's gravity × 0.75, as Sora's.
+        slot.sora.params.gravity = kh1_core::params::GRAVITY * super::enemy_skills::gravity_factor();
+        slot.sora.recom_roll = true;
+        slot.sora.speeds = speeds();
+        let mut input = trace::frame_input(&read_pad(pl));
+        // 0.164.0: an item from his command menu's Items list this frame (0.163.0 never passed it).
+        input.item = super::items::take_command();
+        // 0.184.0: a spell from his command menu's Magic list (Sora's KH1 spells), aimed as Sora's.
+        input.magic = super::magic::take_command();
+        if let Some(m) = input.magic.filter(|_| input.target.is_none()) {
+            let (t, auto) = super::attack::take_target(pl, crate::command_menu::cmd::spell(m.spell, m.level));
+            input.target = t;
+            input.locked |= auto;
+        }
+        let mut host = RecomHost::new(pl);
+        let before = (slot.sora.state, slot.sora.lock, slot.sora.rec.head());
+        slot.last = slot.sora.frame(&mut host, &input, fresh);
+        square_log(pl, &input, before, &slot.last);
+        slot.sync = if slot.last.handed_to_recom() { None } else { Some(read_sync(pl)) };
+        if !slot.last.cast.is_empty() {
+            super::magic::on_events(&slot.last.cast);
+        }
+        if !slot.last.items.is_empty() {
+            super::items::on_events(&slot.last.items);
+        }
+        // 0.152.0: his Guard's start and success move his DP (perfect / missed parries).
+        super::dark_points::guard_events(pl, &slot.last.events);
+        riku_refusals(&slot.last.events);
+        log_once_riku();
+        return;
+    }
     // Enemy Skills: the first KH1 frame of this player applies them (one compare otherwise).
     super::enemy_skills::kh1_frame(pl);
     slot.sora.abilities = abilities();
@@ -807,18 +1000,24 @@ pub(super) unsafe fn run_frame(pl: usize, fresh: bool) {
     let mut input = trace::frame_input(&read_pad(pl));
     // A magic command from the command menu this frame (M7 stage 7.4), aimed at Re:CoM's target.
     input.magic = super::magic::take_command();
-    if input.magic.is_some() && input.target.is_none() {
-        input.target = super::attack::attack_target(pl);
+    if let Some(m) = input.magic.filter(|_| input.target.is_none()) {
+        let (t, auto) = super::attack::take_target(pl, crate::command_menu::cmd::spell(m.spell, m.level));
+        input.target = t;
+        input.locked |= auto;
     }
     // An item from the command menu's Items list this frame (M8 stage 8a.1), on Sora.
     input.item = super::items::take_command();
     // A special from the command menu this frame (M9 stage 9c.1), aimed at Re:CoM's target.
     input.special = super::specials::take_command();
-    if input.special.is_some() && input.target.is_none() {
-        input.target = super::attack::attack_target(pl);
+    if let Some(c) = input.special.filter(|_| input.target.is_none()) {
+        let (t, auto) = super::attack::take_target(pl, c);
+        input.target = t;
+        input.locked |= auto;
     }
     let mut host = RecomHost::new(pl);
+    let before = (slot.sora.state, slot.sora.lock, slot.sora.rec.head());
     slot.last = slot.sora.frame(&mut host, &input, fresh);
+    square_log(pl, &input, before, &slot.last);
     // Re:CoM's end action entered its win action, or Re:CoM's own roll started: it owns Sora; a
     // later KH1 frame takes over afresh.
     slot.sync = if slot.last.handed_to_recom() { None } else { Some(read_sync(pl)) };
@@ -834,6 +1033,26 @@ pub(super) unsafe fn run_frame(pl: usize, fresh: bool) {
     if !slot.last.specials.is_empty() {
         super::specials::on_events(&slot.last.specials);
     }
+}
+
+/// 0.183.4 (fork owner, 2026-11-23: the Guard is slow to start): each Square press a KH1 frame saw, in the guard
+/// timeline (`win::attack::kh1_guard_log`): the Guard started, a roll, or the press dropped and why (KH1 drops a
+/// Square while the action lock holds or off the ground: `0x140297870`, `0x1402A7B30`). `before`: the KH1 state,
+/// lock and request at the frame's start.
+unsafe fn square_log(pl: usize, input: &crate::movement::FrameInput, before: (u32, bool, u16), out: &crate::movement::FrameOut) {
+    use kh1_core::controller::Event;
+    if !input.square.pressed {
+        return;
+    }
+    let what = if out.events.contains(&Event::Guarded) {
+        "Guard started".to_string()
+    } else if out.events.contains(&Event::Rolled) || out.recom_roll {
+        "a roll (moving at run speed or more)".to_string()
+    } else {
+        let (state, lock, head) = before;
+        format!("dropped (KH1 state {state}, action lock {lock}, request {head:#x})")
+    };
+    super::attack::guard_line(pl, &format!("Square pressed: {what}"));
 }
 
 /// Whether our last frame left this player's actions as they are now.
@@ -866,7 +1085,12 @@ fn init_fresh(pl: usize) -> bool {
 
 pub unsafe extern "win64" fn move_exe(pl: usize) {
     let o: PlayerFn = orig(&ORIG_MOVE_EXE);
-    if !kh1_sora(pl) {
+    // Riku's costume waiting for its group (0.155.0): one atomic load otherwise. While his
+    // transformation plays for a costume change (0.155.2), his move exe is held.
+    if super::riku_skin::frame(pl) {
+        return;
+    }
+    if !kh1_mover(pl) {
         return o(pl);
     }
     let fresh = !continues(pl);
@@ -882,7 +1106,7 @@ pub unsafe extern "win64" fn move_exe(pl: usize) {
 
 pub unsafe extern "win64" fn stick_class(pl: usize) -> u64 {
     let o: ClassFn = orig(&ORIG_STICK_CLASS);
-    if IN_MOVE_EXE.load(Ordering::Relaxed) != pl || !kh1_sora(pl) {
+    if IN_MOVE_EXE.load(Ordering::Relaxed) != pl || !kh1_mover(pl) {
         return o(pl);
     }
     static PARAMS: OnceLock<Params> = OnceLock::new();
@@ -905,15 +1129,31 @@ pub unsafe extern "win64" fn stick_class(pl: usize) -> u64 {
 
 pub unsafe extern "win64" fn move_step(pl: usize) {
     let o: PlayerFn = orig(&ORIG_MOVE_STEP);
-    if IN_MOVE_EXE.load(Ordering::Relaxed) != pl || !kh1_sora(pl) {
+    if IN_MOVE_EXE.load(Ordering::Relaxed) != pl || !kh1_mover(pl) {
         return o(pl);
     }
     run_frame(pl, init_fresh(pl));
 }
 
 /// Re:CoM's win action and Sora's "win pending" bit (`crate::battle::end`).
+/// A KH1 request with no clip in Riku's table (logged per row, first 32).
+fn log_riku_row(request: u16, row: u32) {
+    static SEEN: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+    if let Ok(mut g) = SEEN.lock() {
+        if g.len() < 32 && !g.contains(&row) {
+            g.push(row);
+            log(&format!("riku: KH1 request {request:#x} wants row {row:#x}, which Riku's action table has no clip for: the current motion stays"));
+        }
+    }
+}
+
 pub(super) unsafe fn in_recom_win(pl: usize) -> bool {
     rd::<u32>(pl + p::ACTION) == crate::battle::end::WIN_ACTION
+}
+
+fn log_once_riku() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| log("riku: KH1 movement runs on Riku (riku_kh1_movement = on): his own Re:CoM animations, KH1's Attack, Re:CoM's roll"));
 }
 
 fn log_once_win() {
@@ -928,7 +1168,7 @@ fn log_once_spring() {
 
 pub unsafe extern "win64" fn jump_init(pl: usize, falling: i32) {
     let o: InitFn = orig(&ORIG_JUMP_INIT);
-    if !kh1_sora(pl) {
+    if !kh1_mover(pl) {
         o(pl, falling);
         return;
     }
@@ -938,7 +1178,7 @@ pub unsafe extern "win64" fn jump_init(pl: usize, falling: i32) {
     if falling != 0 {
         if let Ok(mut g) = SORA.try_lock() {
             if g.as_ref().is_none_or(|s| s.player != pl) {
-                *g = Some(Slot { player: pl, sora: Kh1Sora::new(Params::kh1_defaults(), abilities()), sync: None, last: FrameOut::default() });
+                *g = Some(Slot { player: pl, sora: Kh1Sora::new(Params::kh1_defaults(), player_abilities(pl)), sync: None, last: FrameOut::default() });
             }
             if let Some(slot) = g.as_mut() {
                 slot.sora.enter_fall(&mut RecomHost::new(pl));
@@ -954,7 +1194,7 @@ pub unsafe extern "win64" fn jump_init(pl: usize, falling: i32) {
 pub unsafe extern "win64" fn avoid_init(pl: usize) {
     let o: PlayerFn = orig(&ORIG_AVOID_INIT);
     // Re:CoM's footing special case (`+0x420 & 0x10400000 == 0x10000000`) stays Re:CoM's.
-    if !kh1_sora(pl) || rd::<u32>(pl + p::FLAGS_420) & 0x1040_0000 == 0x1000_0000 {
+    if !kh1_mover(pl) || rd::<u32>(pl + p::FLAGS_420) & 0x1040_0000 == 0x1000_0000 {
         return o(pl);
     }
     run_frame(pl, init_fresh(pl));
@@ -987,7 +1227,7 @@ unsafe fn air_command(pl: usize) -> bool {
 
 pub unsafe extern "win64" fn jump_exe(pl: usize) {
     let o: PlayerFn = orig(&ORIG_JUMP_EXE);
-    if !kh1_sora(pl) || crate::movement::spring::recom_owns_jump(rd(pl + p::ACTION), rd(pl + p::FLAGS_418)) {
+    if !kh1_mover(pl) || crate::movement::spring::recom_owns_jump(rd(pl + p::ACTION), rd(pl + p::FLAGS_418)) {
         // Re:CoM's spring jump: its own flight and landing (`docs/recom-kh1-movement.md` § Springs).
         return o(pl);
     }
@@ -1041,6 +1281,41 @@ pub unsafe extern "win64" fn avoid_exe(pl: usize) {
     if !kh1_sora(pl) {
         return o(pl);
     }
+    avoid_kh1(pl, o)
+}
+
+/// 0.153.0 (fork owner, 2026-11-22: "still the guard is not effective"): KH1's Guard / its recoil put
+/// Riku in Re:CoM's action 6, whose exe is **his own** (`CPlayerRiku +0x1C8` = `0x140212350`; Dark
+/// Riku's `0x1401FFC30`), not Sora's `0x140217310` we wrap: so the KH1 frame (the guard object, the
+/// block, the recoil) never ran while he guarded. Checked (exe: both vtables' slot, the first bytes).
+/// Now his own exes wrap the same way: his Re:CoM roll (handed over by KH1's rule) runs his exe whole,
+/// anything else of ours in action 6 runs the KH1 frame.
+pub unsafe extern "win64" fn riku_avoid_exe(pl: usize) {
+    let o: PlayerFn = orig(&ORIG_RIKU_AVOID_EXE);
+    if !kh1_riku(pl) {
+        return o(pl);
+    }
+    log_once_riku_avoid();
+    avoid_kh1(pl, o)
+}
+
+/// Dark Riku's own avoid exe ([`riku_avoid_exe`]).
+pub unsafe extern "win64" fn driku_avoid_exe(pl: usize) {
+    let o: PlayerFn = orig(&ORIG_DRIKU_AVOID_EXE);
+    if !kh1_riku(pl) {
+        return o(pl);
+    }
+    log_once_riku_avoid();
+    avoid_kh1(pl, o)
+}
+
+fn log_once_riku_avoid() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| log("riku guard: his own avoid exe (action 6) runs KH1's frame for the Guard and its recoil (his Re:CoM roll stays his exe)"));
+}
+
+/// Action 6 for a KH1 player: Re:CoM's own roll when KH1's rule handed it over, else the KH1 frame.
+unsafe fn avoid_kh1(pl: usize, o: PlayerFn) {
     if recom_roll_owns(pl) {
         // `dodge_roll = recom`: Re:CoM's own roll, its exe whole (owner, 2026-11-02, "The whole
         // roll"). Only read around it, for the start / end log lines.

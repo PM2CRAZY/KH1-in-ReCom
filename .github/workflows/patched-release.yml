@@ -1,0 +1,150 @@
+# Patched build (this fork only): on every push to `main`, run the tests, build the Windows DLL,
+# commit it to `main` (OpenKH installs `JoaoVitorSCS1999/KH1-in-ReCom` from it and updates from
+# it) and publish a GitHub Release with the OpenKH install steps. See PATCHED.md.
+name: patched-release
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["openkh/kh1-recom.dll"]
+  workflow_dispatch:
+    inputs:
+      sync_upstream:
+        description: "Merge the author's latest testing (PM2CRAZY/KH1-in-ReCom) first"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: patched-release
+  cancel-in-progress: false
+env:
+  UPSTREAM: https://github.com/PM2CRAZY/KH1-in-ReCom.git
+  UPSTREAM_BRANCH: testing
+  DLL: openkh/kh1-recom.dll
+jobs:
+  build:
+    if: github.repository != 'PM2CRAZY/KH1-in-ReCom'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge the author's testing (by hand only)
+        if: inputs.sync_upstream
+        run: |
+          set -euo pipefail
+          git fetch --no-tags "$UPSTREAM" "$UPSTREAM_BRANCH:refs/remotes/upstream/$UPSTREAM_BRANCH"
+          if ! git merge --no-ff --no-edit "upstream/$UPSTREAM_BRANCH"; then
+            # The author's build bot and this one both commit the DLL: keep ours (rebuilt below).
+            conflicts=$(git diff --name-only --diff-filter=U)
+            if [ "$conflicts" = "$DLL" ]; then
+              git checkout --ours -- "$DLL"
+              git add "$DLL"
+              git commit --no-edit
+            else
+              echo "::error::the author's testing conflicts with main in: $conflicts"
+              git merge --abort
+              exit 1
+            fi
+          fi
+
+      - name: Toolchain
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64
+          rustup target add x86_64-pc-windows-gnu
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: Build DLL (Windows)
+        run: ./tools/build-win.sh
+
+      # 0.198.18 (fork owner, 2026-11-27): debug aids never reach a player. The release DLL is built without the
+      # cargo feature `dev` (only tools/dev-install.sh turns it on); this step stops the release if the DLL has the
+      # development build's marker anyway, or if build-win.sh ever asks for that feature.
+      - name: No development build in a release
+        run: |
+          set -euo pipefail
+          if grep -nE -- '--(all-)?features|-F ' tools/build-win.sh; then
+            echo "::error::tools/build-win.sh must build the user version (no cargo features)"; exit 1
+          fi
+          if grep -a -q 'DEV BUILD (feature dev)' "$DLL"; then
+            echo "::error::$DLL is a development build (feature dev): not released"; exit 1
+          fi
+          echo "release DLL: user version (no debug keys)"
+
+      - name: Commit the DLL to main
+        id: commit
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          git add "$DLL"
+          if ! git diff --cached --quiet; then
+            git commit -m "build: kh1-recom.dll $version (patched) [skip ci]"
+          fi
+          git push origin HEAD:main
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: OpenKH zip
+        run: |
+          set -euo pipefail
+          # What OpenKH's "Install a new mod" → zip wants: mod.yml at the zip's root and the files
+          # its assets name (only the DLL). A fixed name, so an update replaces the same mod folder.
+          rm -f KH1-in-ReCom.zip
+          zip -X -q KH1-in-ReCom.zip mod.yml "$DLL" README.md PATCHED.md
+          unzip -l KH1-in-ReCom.zip
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.commit.outputs.version }}"
+          tag="v$version-patched-${{ steps.commit.outputs.sha }}"
+          # The changes since the previous release: every commit's subject (the version commits read
+          # "0.180.0: what changed"), without the bot's DLL commits and merges.
+          git fetch --tags --force -q origin
+          prev=$(git tag -l 'v*-patched-*' --sort=-creatordate | head -n 1)
+          if [ -n "$prev" ] && git merge-base --is-ancestor "$prev" HEAD; then
+            range="$prev..HEAD"
+          else
+            range="HEAD~20..HEAD"
+          fi
+          git log --no-merges --format='- %s' "$range" | grep -vE '^- build: kh1-recom\.dll' | sed 's/ \[skip ci\]//' > changes.md || true
+          {
+            echo "KH1 Combat in Re:CoM **$version** with this fork's fixes (commit \`${{ steps.commit.outputs.sha }}\`; see [PATCHED.md](https://github.com/${{ github.repository }}/blob/main/PATCHED.md))."
+            echo
+            echo "## Changes"
+            echo
+            if [ -s changes.md ]; then
+              cat changes.md
+            else
+              echo "- No code change since ${prev:-the last release} (the build only)."
+            fi
+            echo
+            echo "Details of each version (the request, the addresses, what was checked): [AGENTS.md](https://github.com/${{ github.repository }}/blob/main/AGENTS.md)."
+            echo
+            echo "## Install with OpenKH"
+            echo
+            echo "1. In the OpenKH Mods Manager, select **Kingdom Hearts Re:Chain of Memories**."
+            echo "2. Mods → **Install a new mod** → \`${{ github.repository }}\`."
+            echo "3. Tick it (untick the original \`PM2CRAZY/...\` if you have it) and press **Build**."
+            echo "4. Start Re:CoM: the title builds the KH1 files by itself."
+            echo
+            echo "Already installed: Mods → check for updates → update the mod, then **Build**."
+            echo
+            echo "### Or from the zip"
+            echo
+            echo "Download **KH1-in-ReCom.zip** below. In the Mods Manager (Re:CoM selected): Mods → **Install a new mod** → **Select and install Mod Archive** → the zip. Tick it and press **Build**. To update, install the newer zip the same way (the mod keeps its folder; check for updates only works for the GitHub install)."
+            echo
+            echo "Requirements: KH 1.5+2.5 on Steam (Re:CoM and KH1 FM; KH2 FM and Birth by Sleep FM add Riku's hair and his spell and Block motions), OpenKH Mods Manager with Panacea. The default settings are ready to play (Riku's KH1 combat is on); no ini edit is needed."
+          } > notes.md
+          gh release create "$tag" --target "$(git rev-parse HEAD)" --title "$version (patched, ${{ steps.commit.outputs.sha }})" --notes-file notes.md --latest KH1-in-ReCom.zip

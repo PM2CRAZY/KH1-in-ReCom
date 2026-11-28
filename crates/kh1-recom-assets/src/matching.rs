@@ -91,11 +91,6 @@ impl PairScore {
         self.pos_mm.iter().take(ROOT_SPLIT_BONES).copied().fold(0.0, f64::max)
     }
 
-    /// Worst translation error of the other bones (mm).
-    pub fn body_pos_mm(&self) -> f64 {
-        self.pos_mm.iter().skip(ROOT_SPLIT_BONES).copied().fold(0.0, f64::max)
-    }
-
     /// Worst rotation error over all bones (degrees).
     pub fn max_rot(&self) -> f64 {
         self.rot_deg.iter().copied().fold(0.0, f64::max)

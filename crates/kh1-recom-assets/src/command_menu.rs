@@ -399,6 +399,23 @@ pub const PARTY_WORDS: &[(u16, &str)] = &[
     (0x8150, "Spiral Wave"),
     (0x8152, "Hummingbird"),
     (0x8154, "Furious Volley"),
+    (0x8163, "Mickey Miracle"),
+    (0x8164, "Holy Burst"),
+];
+
+/// Riku's Sleights list's names (fork branch Re-Re-Reverse/Rebirth, 0.149.0: his menu in KH1's look;
+/// the DLL's `crate::riku::words`: our id `0x8100 +` his Re:CoM sleight id, `SY0002.CTD`'s names).
+pub const RIKU_WORDS: &[(u16, &str)] = &[
+    (0x815F, "Dark Break"),
+    (0x8160, "Dark Firaga"),
+    (0x8161, "Dark Aura"),
+    (0x8165, "Inverse Burst"),
+    (0x8166, "Impulse"),
+    (0x8167, "Maelstrom"),
+    (0x8168, "Barrage"),
+    (0x8169, "Dark Impulse"),
+    (0x816A, "Dark Maelstrom"),
+    (0x816B, "Dark Barrage"),
 ];
 
 /// M12 step 5: the Sleights list's names (the DLL's `crate::sleights::words`: our id `0x8100 +` the
@@ -450,7 +467,7 @@ pub fn words(word_bin: &[u8]) -> (Vec<(u16, String)>, Vec<u16>) {
         ok.push((id, t.to_string()));
     }
     ok.push((CLOUD_NAME, CLOUD_TEXT.to_string()));
-    for &(id, t) in SLEIGHT_WORDS.iter().chain(PARTY_WORDS) {
+    for &(id, t) in SLEIGHT_WORDS.iter().chain(PARTY_WORDS).chain(RIKU_WORDS) {
         ok.push((id, t.to_string()));
     }
     (ok, missing)
@@ -541,7 +558,7 @@ mod tests {
         }
         let (ok, missing) = words(&d);
         assert!(missing.is_empty(), "{missing:?}");
-        assert_eq!(ok.len(), NAMES.len() + OUR_WORDS.len() + 1 + SLEIGHT_WORDS.len() + PARTY_WORDS.len(), "and Cloud, the sleights, the Party sleights");
+        assert_eq!(ok.len(), NAMES.len() + OUR_WORDS.len() + 1 + SLEIGHT_WORDS.len() + PARTY_WORDS.len() + RIKU_WORDS.len(), "and Cloud, the sleights, the Party sleights, Riku's");
         assert!(ok.contains(&(903, "Party".into())) && ok.contains(&(0x814E, "Surprise!".into())));
         assert_eq!(SLEIGHT_WORDS.len(), 27);
         assert!(ok.contains(&(902, "Sleights".into())));

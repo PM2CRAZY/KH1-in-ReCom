@@ -360,8 +360,9 @@ fn art() -> Option<u32> {
 }
 
 /// KH1's items are live (Combat = KH1, Sora's story, a save) and the wrappers are in.
+/// 0.163.0 (fork owner, 2026-11-23: Sora's features for Riku): in Riku's story too (his items).
 fn live() -> bool {
-    INSTALLED.load(Ordering::Acquire) && super::items::installed() && super::mp::active()
+    INSTALLED.load(Ordering::Acquire) && super::items::installed() && super::mp::live()
 }
 
 fn lock() -> std::sync::MutexGuard<'static, Option<ItemsTab>> {
@@ -1422,6 +1423,14 @@ static BUBBLE: Mutex<(usize, usize, Vec<(i32, i32, i32, i32, i32, i32)>)> = Mute
 /// margin, `0x1402B1D50`, and centred or left-aligned in the window's width, `0x1402B0820`).
 /// Without Re:CoM's font (no width): `raw` as it is.
 unsafe fn bubble_line(main: usize, raw: &str, what: &str) -> Vec<u8> {
+    // 0.163.0: Riku's own name in his story's lines.
+    let riku_text;
+    let raw = if super::stats::riku_story() {
+        riku_text = raw.replace("Sora", "Riku");
+        riku_text.as_str()
+    } else {
+        raw
+    };
     let fnt = bubble_fnt(main);
     if fnt == 0 {
         return sh::c_text(raw);

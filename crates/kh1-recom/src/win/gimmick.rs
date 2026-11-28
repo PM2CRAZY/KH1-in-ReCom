@@ -245,7 +245,7 @@ pub unsafe fn prize_add(kind: u32, arg: u32, mode: i32) -> bool {
     }
     let b = base();
     let pl: usize = rd(va(b, data::MAIN_PLAYER));
-    if !mv::kh1_sora(pl) || rd::<usize>(va(b, PRIZE_PLAYER)) != pl {
+    if !mv::kh1_fighter(pl) || rd::<usize>(va(b, PRIZE_PLAYER)) != pl {
         // Combat = Re:CoM or Riku's story: Re:CoM's own pickup.
         return false;
     }
@@ -280,7 +280,7 @@ pub unsafe fn prize_add(kind: u32, arg: u32, mode: i32) -> bool {
 
 /// Triangle on "Stagger": the held card is played through Re:CoM's own writes.
 pub unsafe fn use_card(pl: usize) {
-    if !ON.load(Ordering::Acquire) || !mv::kh1_sora(pl) {
+    if !ON.load(Ordering::Acquire) || !mv::kh1_fighter(pl) {
         return;
     }
     let Some(card) = held() else {
@@ -375,7 +375,7 @@ pub unsafe extern "win64" fn prize_spawn(factory: usize, desc: *const PrizeDesc,
             let pos = (*desc).pos;
             let c = cbtl_now();
             let pl: usize = rd(va(base(), data::MAIN_PLAYER));
-            let mode = if mv::kh1_sora(pl) { "combat = kh1: held on pick-up, Stagger" } else { "Re:CoM's (combat = recom or Riku's story)" };
+            let mode = if mv::kh1_fighter(pl) { "combat = kh1: held on pick-up, Stagger" } else { "Re:CoM's (combat = recom or Riku's story)" };
             note(|| format!("drop: {} at ({:.2}, {:.2}, {:.2}), prize {prize:#x}, receiver handle {:#x}; {mode}", gm::describe(kind), pos[0], pos[1], pos[2], if c != 0 { rd::<u32>(c + cbtl::RECEIVER) } else { 0 }));
         }
     }
@@ -397,7 +397,7 @@ pub unsafe fn after_kh1_hit(enemy: usize, row: Option<usize>, interrupted: bool)
     let Some(boss) = gm::break_boss((rd::<usize>(enemy).wrapping_sub(b)) as u32) else {
         return;
     };
-    if !mv::kh1_sora(rd(va(b, data::MAIN_PLAYER))) {
+    if !mv::kh1_fighter(rd(va(b, data::MAIN_PLAYER))) {
         return;
     }
     let hit = gm::Hit {
@@ -480,7 +480,7 @@ pub unsafe fn on_guard_block(owner: usize, c: usize) {
     let Some(boss) = gm::break_boss((rd::<usize>(enemy).wrapping_sub(b)) as u32) else {
         return;
     };
-    if !mv::kh1_sora(rd(va(b, data::MAIN_PLAYER))) {
+    if !mv::kh1_fighter(rd(va(b, data::MAIN_PLAYER))) {
         return;
     }
     let serial: i32 = rd(c + COLL_SERIAL);
@@ -577,7 +577,7 @@ pub unsafe fn after_hp(enemy: usize, before: i32) {
         return;
     };
     let after: i32 = rd(enemy + EN_HP);
-    if after <= 0 || !mv::kh1_sora(rd(va(b, data::MAIN_PLAYER))) {
+    if after <= 0 || !mv::kh1_fighter(rd(va(b, data::MAIN_PLAYER))) {
         return;
     }
     let handle: u32 = rd(enemy + HANDLE);

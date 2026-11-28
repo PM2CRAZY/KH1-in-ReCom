@@ -6,91 +6,25 @@ Mods Manager's GitHub install (`PM2CRAZY/KH1-in-ReCom`) from the default branch 
 builds the game-made files on first launch from the player's own KH1 and Re:CoM files, and again
 after an update changes the asset step.
 
-Sources read: OpenKH's own source, `github.com/OpenKH/OpenKh` at `b67a743` (2026-10-22), cloned
-outside the repo: `OpenKh.Tools.ModsManager` (Services `ModsService`, `RepositoryService`,
-`ConfigurationService`, `OpenkhInstallation`; ViewModels `MainViewModel`), `OpenKh.Patcher`
-(`PatcherProcessor`, `Metadata`) and `OpenKh.Research.Panacea` (`dllmain.cpp`, `OpenKH.cpp`,
-`Panacea.cpp`). Tags: Checked (source / GitHub API / code) or Assumption. No OpenKH binary was run
-here and nothing was tried in game.
+## 1–3. OpenKH's GitHub install, Build, and how Panacea finds mod files
 
-## 1. How OpenKH's GitHub install works
+How OpenKH and Panacea work in general (not this mod's) is in the KH modding workspace:
+`knowledge/OpenKH/openkh-mods-manager-panacea.md` (its §§ 1–4 are this note's old §§ 1–3 and 8.1's
+first two points). What applies to this mod:
 
-- **Which branch.** "Install a new mod" with `owner/repo` (`ModsService.InstallModFromGit`): with no
-  branch given it first asks `raw.githubusercontent.com/<repo>/main/mod.yml`; when that is not
-  there it asks the GitHub API for the repository's `default_branch` and checks
-  `<default_branch>/mod.yml`. A third path part picks a branch (`owner/repo/branch`, or the
-  dialog's branch field). Checked (source).
+- **Which branch** (§ 1 there: `main/mod.yml` first, then the default branch):
   - `PM2CRAZY/KH1-in-ReCom`: public, default branch `testing`, the only branch; `main/mod.yml` and
     (before this change) `testing/mod.yml` both answered 404. Checked (GitHub API, 2026-11-05).
     So the install takes `testing`. Typing `PM2CRAZY/KH1-in-ReCom/testing` pins it even if a
     `main` branch ever appears.
-  - **`mod.yml` must be at the repository root** (the check is `<branch>/mod.yml`). Checked (source).
-- **Where the clone goes.** `GetModPath(name)` = `InstalledModsPath/<owner>/<repo>`, and
-  `InstalledModsPath` = `<installedModsPath or the OpenKH folder>/mods/<game selected in the Mods
-  Manager>`. So with Re:CoM selected: `<openkh>/mods/Recom/PM2CRAZY/KH1-in-ReCom` (the name as
-  typed). If a mod of that name exists, OpenKH asks to overwrite and then **deletes the old folder**
-  first (`CleanModFiles`). Checked (source). The game used is the one selected **at install
-  time**: `mod.yml`'s `game:` does not move it (only `MoveFromCollection` reads it). Checked
-  (source). So players must pick Re:CoM in the Mods Manager before installing.
-- **How the clone is made.** LibGit2Sharp `Repository.Clone`, the whole history (no depth), the one
-  branch, submodules on. Checked (source). The repository is 76 MB (GitHub API `size` 76,475 KB,
-  2026-11-05), mostly the build bot's DLL commits; it grows with each version.
-- **How update works.** "Check for updates" (`FetchUpdates`): `git fetch`, counts commits behind
-  the tracked branch. "Update" (`RepositoryService.FetchAndResetUponOrigin`): `git fetch`, then a
-  **hard reset** to the tracked branch's tip with forced checkout. Checked (source). A hard reset
-  rewrites tracked files and leaves untracked and ignored files alone (libgit2 removes them only
-  with `REMOVE_UNTRACKED` / `REMOVE_IGNORED`, which are not set). Assumption (libgit2's rules; not
-  run here). Nothing is built on install or update: no script hook exists. Checked (source).
-- **`mod.yml` fields** (`OpenKh.Patcher.Metadata`, camelCase YAML): `title`, `originalAuthor`,
-  `description`, optional `game`, `dependencies`, `isCollection`, `collectionGames`, `assets`. An
-  optional `icon.png` (128 × 128) and `preview.png` (≤ 512 × 288) at the root are shown in the
-  list. Checked (source, `docs/tool/GUI.ModsManager/creatingMods.md`). For Re:CoM: `game: Recom`
-  (the folder name). The patcher's game filter compares `game.ToLower()` with a list holding
-  `"Recom"`, so for Re:CoM it never skips the mod. Checked (source).
-
-## 2. What Build does
-
-- **Wipes the live folder first.** `RunPatcherAsync` deletes `CompiledModPath` =
-  `<compiledModPath or the OpenKH folder>/mod/<game>` (`<openkh>/mod/Recom`) and then copies every
-  enabled mod's assets into it. Checked (source). Panacea's `mod_path` is that folder's parent
-  (`MainViewModel` writes `panacea_settings.txt` with `CompiledModPath/..`). Checked (source).
-  So anything the DLL writes into `mod/Recom` is gone after the next Build.
-- **A `copy` asset whose source is missing is skipped with a warning**: "File not found: … Skipping.
-  Please check your mod install of: <title>", and the rest of the build goes on. Checked (source,
-  `PatcherProcessor.Patch`, the `needToCopyOriginalFile` branch). `CopyFile` would throw, but it is
-  not reached for a missing mod source. Checked (source).
-- `dll/…` is copied like any file to `<mod_path>/recom/dll/…`. The patcher's "non-game file" names
-  are `scripts/` and `dlls/` (plural), which only changes `patch-package-map.txt`. The owner's
-  working `dll/kh1-recom.dll` loads, so the copy is enough. Checked (source + the owner's logs).
-
-## 3. How Panacea finds the mod files
-
-- Panacea runs from the game's `DBGHELP.dll` / `VERSION.dll` proxy. In its `DllMain`
-  (`DLL_PROCESS_ATTACH`) it reads `panacea_settings.txt`, appends `/recom` to `mod_path`, and
-  runs `Panacea::Initialize`, which installs its hooks and calls `LoadDLLs(mod_path)`: every
-  `<mod_path>/recom/dll/*.dll` is `LoadLibrary`'d, then each one's `OnInit(folder)` is called with
-  `folder` = `<mod_path>/recom`. **All of this runs under the loader lock**, before the game's own
-  code starts. Checked (source: `dllmain.cpp`, `OpenKH.cpp`, `Panacea.cpp`).
-- **New file names come from one listing made at start.** The game's `SetReplacePath` (hooked)
-  creates `FakePackageFile`, which scans `<mod_path>/recom` (and `raw/`) **once** and keeps each
-  name and size. A name Re:CoM's archives lack (`PLAYER/0021/PL0021.MDL`, …) exists for the game
-  only if it was there at that scan. Checked (source). `SetReplacePath` is the game's own start-up
-  code, so it runs after every `DllMain` / `OnInit`. Assumption (strong: it is called from the exe's
-  code, which starts after the loader has run every DLL's attach).
-- **Replacements of names in `Recom.hed` are looked up at each open.** `LoadFile*` / `GetFileSize`
-  check `<mod_path>/recom/raw/<name>` and `<mod_path>/recom/<name>` with `GetFileAttributes` every
-  time. Checked (source). For a `raw/` name that is not in the listing, `LoadFile` dereferences a
-  null file-info (`fileinfo->CurrentFileName`). Checked (source). So a file written while the game
-  runs is not safe to use.
-- **Conclusion (0.141.0).** The files must be in `<mod_path>/recom` **before `OnInit` returns**. A worker
-  thread can't do that: it would race the listing, and waiting for a thread under the loader lock
-  deadlocks (the thread can't start until the lock is free). Written there during `OnInit`, they
-  are used in the **same run**: no restart, no Build.
-- **Corrected (0.142.0, § 8):** only the **names** must be there at the listing. Panacea reads a
-  listed file's content and size from disk at each open, so empty files made in `OnInit` and filled
-  in later work, as long as the game opens none of them before. The build now runs after `OnInit`.
-- `dev_path=` / `extract_path=` (Panacea settings, also listed and looked up) are global folders the
-  player sets, not per mod. Not used.
+- **When the files must be there** (§ 3 there):
+  - **Conclusion (0.141.0).** The files must be in `<mod_path>/recom` **before `OnInit` returns**. A worker
+    thread can't do that: it would race the listing, and waiting for a thread under the loader lock
+    deadlocks (the thread can't start until the lock is free). Written there during `OnInit`, they
+    are used in the **same run**: no restart, no Build.
+  - **Corrected (0.142.0, § 8):** only the **names** must be there at the listing. Panacea reads a
+    listed file's content and size from disk at each open, so empty files made in `OnInit` and filled
+    in later work, as long as the game opens none of them before. The build now runs after `OnInit`.
 
 ## 4. The DLL and its folders
 
@@ -228,17 +162,8 @@ run in game (no Windows here).
 
 ### 8.1 What Panacea needs, and when
 
-- **Content and size are read at each open.** Panacea's `LoadFile` / `LoadFileWithSize` /
-  `LoadFileWithMalloc` / `GetFileSize` look for `<mod_path>/recom/raw/<name>` (`GetRawFile`) and
-  `<mod_path>/recom/<name>` (`TransformFilePath`) with `GetFileAttributes` at every call and read the
-  file then: a loose file's size by `ftell`, a raw entry's from its own header. The listing
-  (`FakePackageFile`) is used only for `GetFileInfo` (that the name exists, and the raw route's
-  `fileinfo->CurrentFileName` with HD assets). Checked (source, `Panacea.cpp` at `b67a743`).
-- **Re:CoM sizes a file through the hooked call.** Its loader `0x1402427D0` (from `0x14023BBD0`)
-  calls `GetFileSize` `0x1402C4530`, allocates that, then `LoadFileWithSize` `0x1402C48F0`. The only
-  unhooked caller of `GetFileInfo` `0x1402C4AA0` is a seek (`0x1402C4990`). So a name listed with
-  size 0 loads with its size at the open. Checked (decomp; Panacea's patterns found at those
-  addresses in the Steam exe).
+- Panacea reads content and size at each open, and Re:CoM sizes a file through the hooked
+  `GetFileSize`, so a name listed with size 0 loads with its real size: see the workspace note's § 4.
 - **The new names** (those `Recom.hed` lacks): only the Keyblade groups' files,
   `PLAYER/00GG/PL00GG.MDL` + `raw/…/PL00GG.RTM` for GG = 21..36 and 38..43, and `PL00GG.EET` +
   `raw/…/PL00GG.EFF` for 21..36: 76 names (`keyblade::new_resource_names`). Every other output

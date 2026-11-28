@@ -11,6 +11,1956 @@ Work only on branch `testing`. Stages are newest first.
 
 ---
 
+## Stage 437 (fork branch Re-Re-Reverse/Rebirth): Riku's first Ansem fight is fought at Combat = KH1 (Ansem at 240 HP), not skipped, version 0.198.38 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, after a tester's "First Ansem fight works now or rather it skips it."): "mas eu realmente não gostaria que fosse um skip, poderia ser uma fight com o ansem mais fácil para as skills do Riku, ela skipa?"; to the plan: "sim!"; to Ansem's HP (120 / 160 / 240): "24".
+- **Found** (reverse-engineer, `knowledge/ReCoM/recom-riku-ansem-tutorial.md` § 5, Checked (decomp + files) unless tagged): room 1100's script ends only at state 40 (a won Duel) → `@000` (the 9 cards, clears (1, 0xA) / (1, 7) / (1, 0x28), sets (1, 2)) → `@_ma` waits 40 frames on (1, 2) and calls 0xF8 → `0x140237160` back to 2102. Ansem's card AI `0x140424CB0` runs only while (1, 7) is set, else `CHumanBoss`'s `0x140199E10`; the lesson boxes come only after a Rapid Break. His damage `0x14017DAB0` has no tutorial check; his death (`CBossAnsem` vtable `0x1406840F0`, `CBossDeadDemo` `0x140187DC0`) sets (1, 2) in Riku's story but skips `@000`'s cards and clears (Assumption: not seen). Row 0 at B12: Ansem (`EN0122`) 320 HP, attack 3 (2 / 3 / 4 a hit by difficulty), the Guardian (`EN0123`) 320 / 3; no KH1 twin or proxy. A KO of Riku ends nothing in 1050..1198; whether the game over comes there: open.
+- **Change** (`story_skip::{RIKU_ANSEM_ID, RIKU_ANSEM_HP, riku_ansem_hp, RIKU_FIGHT_SESSION, RIKU_ANSEM_HELD_AT_1}`, `win::story_skip::{riku_fight_armed, riku_ansem_made, riku_won, riku_frame}`, `win::stats::stat_init`): the request still arms in 2102 → 1100; the battle loads and is fought. At Ansem's stats init his HP (and the gauge's max, `max_hp`) is 240 / 320 of Re:CoM's (difficulty kept), at either Damage setting. Every fight frame: (1, 7) and (1, 2) clear (no card lesson, the script not done). When his HP reaches 0 (or sits at 1 for 120 frames, for Re:CoM's 1-HP hold `0x140180920`, seen not read): the lesson's saved writes ((0, 0x24) |= 0x10 | 0x20), byte (1, 4) = 1, the 9 cards (Dark Break, Dark Firaga, Dark Aura, Impulse, Maelstrom, Barrage and their Dark twins), then each frame the ending's clears and (1, 2) = 1: the script leaves through its own exit and 2102 goes on. Leaving 1100 without a win (game over, reload) disarms; 2102 asks for the fight again. All logged (`story skip: Riku's Ansem fight ...`).
+- **Checked**: `cargo test -p kh1-recom` (834 passed; `riku_ansem_hp`); the Windows build.
+- **Not checked**: in game: the fight itself, the death demo with the Guardian still up (its state 8 waits for no kind-0x1008 objects), the game over in 1100, Ansem's attacks against a cardless Riku.
+
+## Stage 436 (fork branch Re-Re-Reverse/Rebirth): the BBS hair keeps Re:CoM's painted sideburn; the kid's pointed sideburn strand dropped, version 0.198.37 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, with a screenshot: Riku in the default attire, BBS hair, an arrow at the pointed lock at his right temple): "cabelo ta quase perfeito do bbs essa costeleta ainda ta estranha, parece do wolverine, não acho que vc precisava ter tirado a costeleta pinta da cabeça base". Reverses Stage 412's sideburn choice (the owner then: "tem a do cabelo mesmo e tem a da cabeça base ao lado, ficou estranho").
+- **Found** (`model-editor`, Checked (files, `sideburn_probe`)): the arrowed lock is the BBS mesh sideburn, a separate strand of 7 triangles a side (UV islands 7 / 17; tip (77, −7, 31) mm, root (89, 27, 16) mm from `head`); removing only the triangles with a corner in `SIDEBURN` left its top triangle across the temple skin (a blue sliver in 205's swings), so the whole island goes.
+- **Change** (`kh1-recom-assets/src/bbs_hair.rs` only): `without_sideburn` drops every hair triangle in a UV island with a corner in `SIDEBURN` (14 a group), called by `hair()`; the `painted_temple_window` override removed, so Re:CoM's painted lock shows again; the cheek move (`SIDEBURN_REST`, `face` / `set_face`) removed. All BBS groups: 183 / 193 / 187 / 197, 185 / 195 / 189 / 199, 205 / 206, and the Keyblade groups built on them (212 / 213).
+- **Checked**: `cargo nextest run -p kh1-recom-assets` (252 passed; `sideburn_probe`: nothing moved at the temple, 0 strand corners, the painted lock seen from the side; `swaps_rikus_hair_for_the_kid_s`: 14 dropped; `temple_owner_views`); the Windows build. Renders: workspace `local/assets/recom/riku-hair/out/temple/sb_before` / `sb_after`, `temple_owner/sb_after` (the screenshot's angle), `bbs_cam/0101_sb_*`, `0111_sb_*`, `dark/bbs_sb_*`, `dark_mode/bbs_sb_*`.
+- **Not checked**: in game. Known: the painted lock is short and a little paler / softer than the BBS strands; a 3-5 mm skin patch in front of its top, between the hair and a side tuft (reads as a hairline).
+
+## Stage 435 (fork branch Re-Re-Reverse/Rebirth): the battle's Dark Mode keeps Riku's Keyblade with every hair (one look table), version 0.198.36 (2026-11-27)
+
+- **Ask** (fork owner, verbatim): "no darkmode a keyblade tbm nn troca, já coloca essas regrs para o futuro"; then "para os MEUS mods coloque a Modularidade como princípio BAZILAR as coisas precisam ser intercambiáveis e compatíveis umas com as outras!"; to the plan: "1", "sim". Rules: workspace `CLAUDE.md` 12, `docs/design-philosophy-instructions.md` § Modularity, § Riku's Dark Mode keeps every look.
+- **Found** (read-only investigation, Checked (code)): the blade is parts 0 / 1 of the model on `wep0` (Dark Riku: bone 105); the Dark Mode hair groups were built with no blade (`step.rs`, `build_dark_mode_kh2`), `dark_mode()` hard-coded `blade: 0` and `dark_entries` chose by hair only, so no Keyblade of Heart group existed for Dark Riku.
+- **Change** (`model-editor`): assets: `DARK_MODE_LOOKS` (`kh1-recom-assets/src/riku_skin.rs`), one row per (Dark Riku's group, hair, blade), the 4 Soul Eater rows then 6 new ones; one builder `build_dark_mode` (the BBS / KH2 builders take an optional blade, `with_blade(flip = true)`), one loop in `step.rs`; the manifest's `dark_mode` rows carry `"blade"` (older DLLs keep each hair's first row, the Soul Eater's). New groups: 209 / 210 (Re:CoM hair + Keyblade of Heart), 212 / 213 (BBS), 216 / 217 (KH2, on the existing 139-bone pack copies). DLL: `dark_entries` through `group_for` (Riku's own look rule, no copy); the Keyblade follows Riku's choice whatever his attire; fallback: the Keyblade on Re:CoM's hair, then his own group, missing groups logged (`dark_missing`); KH2 rows still wait for all pack copies. Hit volume and trails stay the Soul Eater's. About 142 MB more asset output (HD `.RTM` copies).
+- **Checked**: tests (`the_battle_dark_riku_keeps_rikus_keyblade`, `the_battle_dark_riku_keeps_the_keyblade`: each group free in Recom.hed, byte-equal to its Soul Eater twin but the weapon, pack and EET / SES included; the blade's vertices on bone 105 where 161 / 171 have them); the Windows build. Renders: workspace `local/assets/recom/riku-hair/out/dark_mode/` (`recom_heart*`, `bbs_heart*`, `kh2_heart*` `_0.198.36`, `ref161_0.198.36`, `ref171_0.198.36`): the Keyblade in the right hand in every clip, the fist closed on the handle in the guard as on 161.
+- **Not checked**: in game (the swap at the next battle; Re:CoM's texture lookup with 161 and 209 loaded together); part 0 (untextured) not drawn by the renderer; no measured hand-to-handle distance.
+
+## Stage 434 (fork branch Re-Re-Reverse/Rebirth): the Dark Mode BBS hair's neck skirt tucked under the hair, version 0.198.35 (2026-11-27)
+
+- **Ask**: Stage 432's (fork owner, verbatim): "percebi que o cabelo do bbs tem alguns espaços vazios no modo dark mode, testei pulando e atacando, já veja ai"; the `model-reviewer`'s pass on 0.198.33 / 0.198.34 (installed at the owner's "instala ai k") found the skirt's coat rising ~4 cm into the middle nape spike from level / low cameras in every pose, and thin dark slivers through the hair (under the left ear, jump f9, guard f0, rise f9).
+- **Found** (`model-editor`, Checked (files, renders, `dark_mode_hair_hole_scan` now also counting skirt pixels in front of the hair)): the skirt ended on the hair's outer corners; in idle it was in front of the hair in 15362 px (sphere scan). Binding its top corners to the neck's bones instead did not lower the crossings over the neck and doubled the holes in the air swing (not kept).
+- **Change** (`ddd_hair.rs`): each nape skirt top corner is a new vertex rigid on `head`, at the hair corner moved `NECK_SKIRT_TUCK` = 3 cm toward the head centre, with the edge corner's texel (a sweep: 0 / 1.5 / 3 / 4.5 cm → 15362 / 4662 / 2324 / 1417 px in front of the hair, holes unchanged up to 3 cm, growing at 4.5 cm). Test-only tuning switches `NECK_TUCK`, `NECK_TOP=edge`.
+- **Checked**: `cargo nextest run -p kh1-recom -p kh1-recom-assets` (1082 passed, 2 skipped); the Windows build; holes worst 11-15 px per clip (as 0.198.33); skirt in front of the hair in idle 4597 px (worst 12 px); the idle wedge and the under-ear sliver gone; jump f9 / guard f0 / rise f9 as 0.198.32. Renders: workspace `local/assets/recom/riku-hair/out/dark_mode/` (`cmp435_reviewer_frames.png`, `cmp435_reviewer_zoom.png`, `cmp435_culled_205.png` / `_206.png`, `cmp435_level_views.png`, `bbs_c435/`, `diff_205_c435/`).
+- **Open** (three tries on this defect: the hair texture, the coat texture, the tuck; stopped by the stop rule): from a level camera in the most extreme frames (`p003_057` f10, `p003_036` f4, `p003_037` f0) a small dark spike still rises into the nape hair and coat shows beside the neck behind the jaw (worst 219 px). Not checked: in game.
+
+## Stage 433 (fork branch Re-Re-Reverse/Rebirth): Riku's hairs are earned in his story (BBS at Vexen, KH2 at Riku Replica I), version 0.198.34 (2026-11-27)
+
+- **Ask** (fork owner, verbatim): "modularidade e senso de rencompensa após esforço são os pontos mais importântes para diversão, então por isso as nossas features de costméticos precisam ser desbloqueádas a partir da narrativa ou de ações específicas nos jogos"; on the hair unlocks: "um defeito MUITO comum dos jogos é liberar os cosméticos APÓS o endgame, se acabou a maioria vai dropar o jogo, precisa estar contida no loop principal"; "vish ent tem que ser até antes o do bbsh"; to "BBS at Vexen's win (B10 exit hall), KH2 at Riku Replica I's (B8)": "perfeito, sim!". Rules written: workspace `CLAUDE.md` rules 12-13, `docs/design-philosophy-instructions.md` § Modularity, § Cosmetics are earned, § Riku's Dark Mode keeps every look.
+- **Addresses** (Checked (decomp + exe + files), Stage 399 / `knowledge/ReCoM/recom-riku-story-progress.md`): Re:CoM's story int (0, 0x2A) through the variable reader `0x1401B08C0`: the hall scripts set 0x80 at Vexen's win and 0x400 at Riku Replica I's.
+- **Change**: `riku_unlocks::hair_unlocked` (pure; `HAIR_BBS_WIN` 0x80, `HAIR_KH2_WIN` 0x400); `win::unlocks::riku_hall_bits`; `win::riku_skin::hair_unlocked` (also `all_unlock`, development builds only): `chosen` wears an unearned hair as Re:CoM's, `refresh` puts the setting back with a log line, and the Costumes page refuses a locked hair with sound 5 and "Riku must defeat Vexen once to wear this hair." / "Riku must defeat Riku Replica once to wear this hair." (`menu::HAIR_*_LOCKED`, in the text-width test).
+- **Checked**: `cargo test -p kh1-recom` (833 passed; `hairs_are_earned_at_vexen_and_the_replica`); the Windows build.
+- **Not checked**: in game (a save before / after Vexen and Replica I; a mid-story save).
+
+## Stage 432 (fork branch Re-Re-Reverse/Rebirth): the battle's Dark Mode BBS hair has no see-through gaps at the nape, and its sway follows his own slots, version 0.198.33 (2026-11-27)
+
+- **Ask** (fork owner, verbatim): "percebi que o cabelo do bbs tem alguns espaços vazios no modo dark mode, testei pulando e atacando, já veja ai"; offered four ways for the skirt's crossing: "2" (the neck's own texture); then "instala ai k" (installed before a separate `model-reviewer` pass, at the owner's ask).
+- **Found** (`model-editor`, Checked (files; tests `dark_mode_neck_open_edges`, `dark_mode_hair_hole_scan`)): without Re:CoM's hair and its nape base, Dark Riku's neck has an open back edge (from `neck1` / `neck2`, 0.8 cm under the head bone and 6.3 cm behind, to the face's back edge 9.2 cm out); the culled inside of the neck shows the background through it while his jumps and swings move `neck1` 3-7 cm in the head's frame (worst 221 px at 2.5 mm / px). KH2's hair (207) hangs over it (worst 34 px). 205 / 206 swayed on Riku's slot map (his stance, slot 21, took the run's sway).
+- **Change** (`kh1-recom-assets`): `HairTarget::neck_skirt` (BBS on 201 / 211, so 185 / 189 too, keeping 205 = 185's model), `in_neck_skirt_window` / `NECK_SKIRT_*`: 32 two-sided triangles per group from the open edges to the nearest hair corners, on the edge's own texture (`n_zz120_03` coat / `n_zz120_01` skin on 205; `_13` / `_11` on 206). `BbsHairSource::bake_ann_slots` and `riku_skin::build_dark_mode_bbs` on `dark_slots()`, called from `step.rs`.
+- **Checked**: `cargo nextest run -p kh1-recom -p kh1-recom-assets` (1082 passed, 2 skipped without `RECOM_HED`); the Windows build. Worst see-through per clip after: jump 172 → 15 px, air swing 221 → 13, finisher 177 → 13, air finisher 139 → 13 (what remains is the ear interior and forehead from 45° below, as on 185). Renders: workspace `local/assets/recom/riku-hair/out/dark_mode/` (`cmp432b_culled_205.png` / `_206.png`, `bbs_c432/` against `bbs_c432_before/`, `diff_205_c432/`, `diff_206_c432/`).
+- **Open**: the skirt still crosses in front of the neck by up to 11.2 cm in the air swing `p003_057`, the finisher and the jump (now drawn as coat), and shows dark coat wedges between the nape spikes from low and behind cameras (`closeup_back_walk_f0_p-15.png`, `orbit_low_180.png`): for the owner to judge in game. Not seen: the game itself.
+
+## Stage 431 (fork branch Re-Re-Reverse/Rebirth): the battle's Dark Mode keeps the KH2 hair (groups 207 / 208, 139-bone copies of his 11 sleight / event packs), version 0.198.32 (2026-11-27)
+
+- **Ask** (fork owner, verbatim): offered, after Stage 429, "(a) build 139-bone copies of the 11 packs, as Stage 395 did for Riku's event packs, plus a second hook at `0x14024ED00`" or "(b) fit KH2's hair on his 18 hair bones (128)": "a".
+- **Found** (`model-editor`, Checked (decomp, exe bytes, files)): both play paths, sleights `0x1401F73A0` and events `0x1401F7290`, end in `0x1401A3580`, which at `0x1401A35F3` calls `0x14024ED00(ctrl, id, slot, start)` when the blend is < 0, else `0x14024D860` (the existing `pack_pick` hook); most sleight calls pass −1, and so does Dark Riku's dash `0x1401F7290(…, 1310, …, −1)` in `0x1402007E0` (`CPlayerDRiku` vtable `0x1405A50E8` slot 0x140). His sleight groups (`0x14020F720` → `0x14020FB10`): 1087 / 1088 / 1089 / 1093 / 1311-1313, plus 1310 and the event packs 4003 / 4043 / 4083: all 128 bones. His pack slots differ from Riku's (his 21 / 13 / 14 / 22 / 23 / 96 / 34 play Riku's 31 / 28 / 21 / 32 / 33 / 26 / 44; action tables `0x1407C6300[3]` / `[5]`). Free numbers (PLAYER table `0x1408055D0`, 553 rows; Recom.hed): 207 / 208, 1187-1189, 1193, 1410-1413, 4103 / 4143 / 4183.
+- **New hook** `0x14024ED00` (`win::models::pack_set`, `sites::MODEL_HOOKS`): prologue `48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20` (15 bytes, Steam exe); its only reference is the call at `0x1401A35F5`; no branch or pointer lands inside the moved bytes. Both hooks share `copy_for`.
+- **Change**: assets (`riku_skin.rs`): `DARK_MODE_KH2_HAIR_GROUPS` (207 / 208), `DARK_PACKS` / `DARK_ALT`, `build_dark_packs`, `build_dark_mode_kh2`, `kh2_hair_rig::bake_slots` / `Kh2HairSource::bake_pack_slots` on his own slots (`DARK_SLOT_OF`), manifest key `dark_packs`; 207 / 208 written only when all 11 copies were built. DLL: `riku_skin::{DARK_PACK_SOURCES, dark_packs, dark_mode_usable}` (the KH2 group is not used unless all 11 copies are on disk), `win::riku_skin::{dark_packs, dark_kh2_hair}`; the copies get table rows and are queued while chars 5 / 6 point at 207 / 208. Default and BBS unchanged. About 49 MB more asset output (207 / 208 with HD textures as 184 / 188; the 11 copies 1.2 MB).
+- **Checked**: `cargo nextest run -p kh1-recom -p kh1-recom-assets` with `RECOM_GAME` / `RECOM_HED` (1078 passed; `the_battle_dark_riku_gets_the_kh2_hair` with the step's real sources: 139 bones, 56 clips, non-hair channels equal, `.RTM` = 184 / 188's, the copies equal on 201's and 211's model; `dark_riku_slots_follow_rikus_rows`; `the_battle_dark_riku_takes_the_kh2_hair_with_his_pack_copies`; the BBS test now with the step's sources too); the Windows build. Renders: workspace `local/assets/recom/riku-hair/out/dark_mode/` (`kh2_c431/` against `recom_c431/`, `diff_207_c431/`, `cmp431_*.png`).
+- **Found, not changed**: Stage 429's BBS groups 205 / 206 used Riku's slot map on Dark Riku's pack (his slots 21 / 28 / 33 get the wrong sway); Stage 395's `queue_if_missing` tests for an `.RTM`, which a pack-only group never has (Riku's event copies may be queued again at each room build); Riku's own KH2 hair (109 bones) has no copies of his 102-bone sleight packs 1092, 1300-1303 (the same mechanism fits: 1192, 1400-1403 free).
+- **Reviewed** (`model-reviewer`, 2026-11-27): region × pose PASS for 207 / 208 (idle orbit low / high, walk, run, swing 034, finisher 036, guard 225, cast 227, sleight 043 from a copy, event 200 from a copy); `PL0207.MDL` = the approved `PL0184.MDL` but the root name, `.RTM` equal; the slot map right. Note: in deep bows the hair stands straight back from the head (same rig and bake as 184; no reference for these clips). Stage 429's BBS 205 / 206 confirmed to sway wrong on his slots 21 (battle stance: the run's sway), 28 and 33.
+- **Not checked**: in game (the copies loading, a sleight and the 30 DP switch, Halloween Town's 208, lighting).
+
+## Stage 430 (fork branch Re-Re-Reverse/Rebirth): Riku's KH1 damage at Damage = KH1 (his enemies on KH1's records, his Strength from vanilla's ratio), version 0.198.31 (2026-11-27)
+
+- **Ask** (fork owner, verbatim): told his enemies keep Re:CoM's HP and damage in his story (Stages 264 / 0.162.0 / 303): "como assim desfaz oq e porq"; then "psé mas precisa se assemelhar ao do sora nesse ambito, dos danos igualmente ao dos mods de acordo com a gameplay do riku do jogo vanilla"; on the numbers (Strength = 0.7 × his AP, Dark Mode × 1.5, Lv1 = Sora's 7): "ss".
+- **Found** (`gameplay-designer` spec; `reverse-engineer`, Checked (files + exe), `knowledge/ReCoM/recom-combat.md`, `recom-riku-combo.md`): `BattleCardList` row 0x01 (Kingdom Key) and 0x12 (Riku's card) both 100 / 100 / 150 by column (0x12 also 150 in column 3); `+0x43C` is copied from `stats + 0x10` (`0x1401F0BC0`): 10 for Sora at every level (`0x14023A386`), Riku's AP (10 at a new game, +1 per AP row; the Riku / Dark Riku swaps copy it); Dark Riku's swing reads column 3 (`0x140204F80`). In Sora's story the enemies' attacks stay Re:CoM's on Sora's Re:CoM HP (`docs/design-philosophy-instructions.md` § Phase 4), so Riku's do too.
+- **Change**: `win::stats::sora_rules` (Sora's story, or Riku's with his KH1 combat): the twin, proxy and boss-twin records apply in Riku's story too (KH1 HP at Damage = KH1, Defence, floor, cap, resistances; sleights scale by KH1 / Re:CoM HP as Sora's). `riku::kh1_strength` (0.7 × his swing AP, Dark Riku's × 1.5, half up: AP 10 → 7, Dark 11; AP 30 → 21) and `win::stats::riku_kh1_hit`: his swing at Damage = KH1 is KH1's damage of the row on the record with that Strength and the equipped weapon's KH1 numbers without their own Strength, written as the hit's value (`body + 0x92`, as Sora's swing) before Re:CoM's handler, with KH1's cap at the join (`damage_cap::Source::Kh1`); logged `damage: riku swing row ...: KH1 Strength ...`. Damage = Re:CoM: unchanged (card AP, the share of Re:CoM HP). His HP and the damage he takes stay Re:CoM's.
+- **Assumptions**: the ×1.5 swing of `+0x420 & 0x4000000` (trigger `+0x829` unknown) and Dark Riku's +20 power are left out; 0x12 is the Soul Eater by name (no card name read); Berserk not applied to Riku (`berserk_share` stays Sora's).
+- **Checked**: `cargo test -p kh1-recom` (831 passed; `rikus_kh1_strength_keeps_vanillas_ratio`); the Windows build.
+- **Not checked**: in game (a Traverse Town Shadow in his story: `stats: ... KH1 HP`, 6 hits at AP 10; Dark Mode 3; bosses and Re:CoM-only enemies through their proxies). Known: his Strength stops at 21 (AP 30) where Sora's reaches 51 at Lv99, so late floors may take long; to look at after a test.
+
+## Stage 429 (fork branch Re-Re-Reverse/Rebirth): the battle's Dark Mode keeps the BBS kid hair (groups 205 / 206); KH2's not yet, version 0.198.30 (2026-11-27)
+
+- **Ask** (fork owner, verbatim): "reparei que quando o personagem se transforma no DarkMode o cabelo é resetado para o Default"; asked whether to build the hair variants for the battle's Dark Riku: "SIM pode".
+- **Found** (Checked (decomp)): Re:CoM's Dark Mode is Dark Riku (`CPlayerDRiku`, ctor `0x1401FF880`), built by the player factory `0x14020EC70` for chars 5 / 6 only if `0x1405A6910[char] + 10000` is loaded; the player ctor `0x1401E4C20` takes his group from `0x1405A6910[char]` (`+0x39C`) and his rows bind in the pack named `0x1407C6338[char]`; `0x140211960` preloads `[5]` for char 3 and `[6]` for char 4 (`0x140211A5B`). Our `group_load` hook (`0x140211AA0`, which calls `riku_skin::refresh`) runs before `0x140211960` in `0x1401AD040` and in `0x140145C50`'s script ops 0x1C / 0x1D. Nothing wrote chars 5 / 6 and no hair group of his existed (Stage 406). No `mov` / `cmp` immediate of 201 / 211 / 10201 / 10211 in the exe names his PLAYER group (the hits are jump-table series and a category-12 entity); Assumption: no computed reference. PLAYER table rows of 201 / 211 (Checked (exe bytes)): RTM, TXA, MDL, ANN, (BIN 201 only), EET, SES, SND, contiguous.
+- **Found** (Checked (files), test `riku_skin::tests::probe_pack_bone_counts`): besides his own pack, Dark Riku plays 128-bone clips from 11 packs: sleights 1087, 1088, 1089, 1093, 1310..1313, event packs 4003, 4043, 4083. BBS's hair keeps him at 128 bones; KH2's makes him 139, so none of those would play (frozen pose; a wait on the motion end never passes, `knowledge/ReCoM/recom-skeleton-limits.md`). And a sleight plays through `0x1401F73A0` → `0x1401A3580`, which with blend < 0 takes `0x14024ED00` (looks the pack up itself), not the hooked `0x14024D860` (`pack_pick`). Recom.hed has files for 214 / 215.
+- **Change**:
+  - Assets (`kh1_recom_assets::riku_skin::DARK_MODE_BBS_HAIR_GROUPS`, `step.rs`, `keyblade::new_resource_names`): groups **205** (from 201) and **206** (from 211) = Dark Riku's model with BBS kid Riku's hair (`build_hair_from` on his own model, his own pack as the step writes it with the guard and cast clips, his EET / SES, RTM / TXA). The manifest lists them under a new key `dark_mode` (`[{"dark": 201, "skin": 205, "hair": 2}, …]`; older DLLs ignore it). KH2's hair: not built for him.
+  - DLL (`riku_skin::{dark_mode, dark_entries, DARK_GROUPS, DARK_ANN_NAMES}`, `win::riku_skin::{apply_dark, dark_recom_names}`): `preload` adds the `dark_mode` groups as skins (same file check; their rows copy Dark Riku's, `add_rows`); `apply` (start, camp, each room / battle build) points chars 5 / 6 (`0x1405A6910 + 20`, `0x1407C6338 + 40`) at the hair's groups and pack names ("PL0205" / "PL0206"), each write checked against what is there (Re:CoM's 201 / 211 and pointers whose text is "PL0201" / "PL0211", read before the first write), names first, groups after, names put back if the groups fail; Re:CoM's hair or KH2's: Dark Riku's own groups. Chars 3 / 4 unchanged.
+- **Checked**: `cargo nextest run -p kh1-recom -p kh1-recom-assets` with `RECOM_GAME` / `RECOM_HED` (1074 passed, 0 failed; `keyblade::tests::new_names_are_not_in_recom_hed` counts and checks the twelve new names); tests `kh1-recom` `riku_skin::tests::the_battle_dark_riku_takes_the_hair` (manifest parse and refusals, entries 205 / 206 for BBS, 201 / 211 for Re:CoM's and KH2's, chars 3 / 4 unchanged, rows copy Dark Riku's); `kh1-recom-assets` `the_battle_dark_riku_gets_the_bbs_hair` (groups free; 128 bones, his bone names; his pack's 54 clips (the test builds his pack without the guard / Terra sources; the asset step's pack has 56, with the guard `p003_225` / recoil `p003_226`: rebuilt and rendered by the `model-reviewer`, non-hair channels unchanged; the test to take the step's sources before commit) in the same slots and names, every non-hair channel unchanged; the `.MDL` byte for byte the Dark Form's BBS group 185 / 189 with his root name `ex_1580_sk`; the `.RTM` byte for byte 185 / 189's, so their globally looked-up texture names agree when loaded together; his own EET / SES). Renders (`battle_dark_camera_checks`, workspace `local/assets/recom/riku-hair/out/dark_mode/{bbs,recom}_cam`, `bbs_0211_cam`; sheets `cmp_swing034.png`, `cmp_swing036.png`, `cmp_close.png`): idle orbit, walk, run, his first swing `p003_034` and finisher `p003_036` from four sides, nape and ear close-ups: the hair stays on the head, nape closed, no tab; the same shape as the Dark Form's BBS group in game. The Windows build.
+- **Reviewed** (`model-reviewer`, 2026-11-27): region × pose PASS for 205 / 206 (face, ears, nape, back, silhouette; idle, walk, run, swing 034, finisher 036, guard 225 / 226, casts); every diff box off the head is Re:CoM's long hair gone or BBS spikes; the thin ear stalks from behind / below are as the approved Dark Form BBS. Not seen: game lighting, the 30 DP switch, sleight packs, Halloween Town's 206.
+- **Not checked**: in game (the switch at 30 DP showing the hair; a sleight in Dark Mode with it; Halloween Town's 206). The user must press Build (new asset output). KH2's hair on the battle's Dark Riku: open (needs 139-bone copies of the 11 packs and the `0x14024ED00` path); Riku's own KH2 hair (109 bones) has no copies of his sleight packs 1092, 1300..1303 (102 bones): his sleights with that hair may freeze (found, not changed).
+
+## Stage 428 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard defends from the press and blocks every hit from in front, version 0.198.29 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, on 0.198.28 in game): "a defesa segue uma merda, eu aperto o X e ela não conta, assim que apertar o X em teoria ela tem que estar defendendo igual o KH1, preciso que vc pare de tanto retrabalho sobre esse ponto"; on the proposal: "a defesa é a defesa e se movendo é esquiva parsa". Rule written: `docs/design-philosophy-instructions.md` § Riku's Guard (final).
+- **Found** (the owner's 0.198.28 log): 12 Guards started, each with its guard object on 183 ms (11 frames) after the press (KH1's live window 10..36 of motion 212, Checked (files + decomp), `knowledge/KH1/kh1-sora.md` § Guard in detail), and hits off the blade got through (`hit got through (not on the blade, not in front)`); 5 presses while running were rolls (KH1's Dodge Roll rule, kept).
+- **Change** (Riku and Dark Riku only; Sora unchanged): `riku::guard_motion` gives his KH1 guard motion (212, 54 frames) a live window 0..36, set with his swing timings (`Kh1Sora::set_riku_moves`, put back for Sora); `win::attack::blade_guard_pair`: a hit that is not on his blade but comes from in front (KH1's cosine, `guard_faces`) and is not one KH1's types / priorities let through goes to Re:CoM's own pair test with his body guard on (±100°, `set_guard`): its block (2) is his block (`blocked in front (off the blade, Re:CoM's body guard)`, KH1's block records when the enemy is a KH1 one). From behind: through, as before.
+- **Checked**: `cargo test -p kh1-recom` (829 passed; `rikus_swing_timings_are_his_clips` checks the guard window 0..36 and Sora's 10..36); the Windows build.
+- **Not checked**: in game (that a press right before a hit blocks it; a Defender's strike from in front; a shot from behind gets through).
+
+## Stage 427 (fork branch Re-Re-Reverse/Rebirth): Riku's ground swings close in as Re:CoM's homing moves him; his chain window a frame later, version 0.198.28 (2026-11-27)
+
+- **Ask**: Stage 425's (the approach from his own rows, approved with "ss"); found by the plan's item 8 review (mechanic-reviewer, read-only) before the owner's test.
+- **Found** (the review, Checked (decomp + code)): Re:CoM's homing turns and moves him through body `+0x54` (`0x1401F5F40`) and `+0x80` (`0x1401D5630` → `0x1401D5670`); `swing_exe` runs Re:CoM's exe, then `win::movement::reapply` wrote KH1's facing and displacement over both every frame, so 0.198.26's homing bytes and `+0x854` did nothing. `+0x854` was also Re:CoM's `+0x84C`, which can differ from the KH1 soft target his swing was picked for. The chain window opened a frame early: Re:CoM's "frame > `+4`, time > 500" on KH1's frame clock (+`HIT_LEAD`) is the hit start + 1 and frame 12.
+- **Change**: `reapply` leaves Riku's ground swings to Re:CoM (its homing and his clip's root); his air swings keep KH1's velocity. `apply_row` writes `+0x854` = the target `target_of` gives (lock, KH1 soft target, Re:CoM's pick). `riku::CHAIN_NOT_BEFORE` = 12, window from max(hit start + 1, 12).
+- **Checked**: `cargo test -p kh1-recom` (829 passed; `rikus_swing_timings_are_his_clips` updated); the Windows build.
+- **Not checked**: in game (that he closes in on a far target and turns to it; that KH1's position / facing sync takes Re:CoM's result without a jump). Left from the review (low): Riku's Counterattack keeps Sora's motion 213 timing on his finisher row; his clash spheres do not sweep (Sora's pass uses KH1's `sweeps`).
+
+## Stage 426 (fork branch Re-Re-Reverse/Rebirth): Riku's swings clash with enemy attacks (his blade), version 0.198.27 (2026-11-27)
+
+- **Ask**: Stage 422's (fork owner, verbatim): "alguns ataques parece que não pegam"; the plan's item 5 (clash), approved with "ss".
+- **Found** (the attack review, read-only): 0.169.0's attack-meets-attack pass (`riku_pair`) only read a weapon volume of shape kind 2 (two spheres); Riku's is kind 7 (the 0.198.22 log: "his weapon volume is shape kind 7: no KH1 clash test for his swings"), so his swings never clashed and traded hits where Sora's clash.
+- **Change** (`win::attack::riku_pair`): for a volume that is not kind 2, the spheres are his blade's, as his KH1 Guard builds them (`guard_blade_of`: grip to end on the bone Re:CoM puts his weapon volume on; `atk::blade_shapes` with the KH1 swing record's radius); then 0.169.0's pass as before (clash type / priority, his KH1 recoil, the marked swing meets no hurt body that frame). Kind 2 unchanged.
+- **Assumption**: the Guard's blade (bone origin as grip, Re:CoM's `(−0.8, 0, 0)` end) stands for his swing's blade; kind 7's own layout not read.
+- **Checked**: `cargo test -p kh1-recom`; the Windows build.
+- **Not checked**: in game (a clash with a Shadow's or Soldier's attack: `riku: ... clash` / his recoil).
+
+## Stage 425 (fork branch Re-Re-Reverse/Rebirth): Riku's combo in his own order and rhythm on KH1's rules (Riku and Dark Riku), version 0.198.26 (2026-11-27)
+
+- **Ask**: Stage 422's (fork owner, verbatim): "eu já falei que era para reproduzir o sistema do KH1 ENTRETANTO adaptando totalmente a jogabilidade do Riku! e respeitando as especialidades dele, e até o momento está pouco fluído"; on the item-4 spec (order, rhythm, approach, Dark Mode, each from Re:CoM's Riku): "ss".
+- **Found** (reverse-engineer, `knowledge/ReCoM/recom-riku-combo.md`, Checked (decomp + exe + files)): Re:CoM's Riku pick `0x1401F7520` (Dark Riku's own `0x140204F80`, vtable `0x1405A5210 + 0x128`) chooses the situation by the last swing and the target: a new combo opens with 6 airborne (Dark: 7), 1 without a target, 5 when the target's `+0x50` point is more than 1.0 m above him, 3 past 3.5 m, 2 when the target is π/4..3π/4 off his facing, else 1; after 1 / 2 / 6 → 5 (above or airborne) else 3; after 3 / 5 → 6 airborne else 1; the last swing is 4 (7 airborne; Dark: 7 after a 7). The next swing is taken only after the swing has hit (`+0x644`) and starts past the hit start and frame 10, cutting the clip; with nothing pressed the clip plays out. Clip lengths at 60 Hz: Riku 48 / 56 / 64 / 80 / 40 / 38 / 54, Dark 42 / 64 / 48 / 60 / 44 / 60 / 60; the finishers and Dark 0xA3 do not chain. Homing `+6..+9` per row; `+0x854` = `+0x84C`.
+- **Change** (the KH1 controller `Kh1Sora`, `riku_moves = Some(dark)` while the player is Riku; `win::movement::run_frame` switches it and logs `riku attack: swing pick and timings: ...`):
+  - **Order** (`riku::situation`, `situation_row`, `Kh1Sora::riku_attack`): Re:CoM's pick on KH1's combo counter and length (KH1's abilities still set the length; the counter's last swing is his finisher). Situation → KH1 row of the same clip: 1 → 13, 2 → 11, 3 → 14, 4 → 8, 5 → 17 in the air or KH1's jump-up row 1 from the ground (same clip; KH1's hop toward the target, its counter reset as KH1's jump-up), 6 → 18, 7 → 16. Sora's combo modifiers are not offered to Riku (Sora's clips).
+  - **Rhythm** (`riku::swing_motions`, `Kh1Sora::set_riku_moves`): the requests 200..206 take his clip lengths, his hit windows (+`HIT_LEAD`) and a combo window from max(hit start, frame 11) to the clip's end on the rows Re:CoM chains. KH1's "a swing that hit nothing takes no next press" stays: as Re:CoM, a press counts once the swing has hit. His clips are no longer cut at KH1 Sora's motion lengths.
+  - **Approach** (`attack::riku_table`, `win::attack::apply_row`): his rows also carry his homing bytes `+6..+9` and `+0x854` = `+0x84C` (Re:CoM's homing: turn to the target until `+6`, close in at 8 / 60 to 2.0 m before `+7` while nothing is hit). Sora unchanged.
+  - **Dark Mode**: the same with Dark Riku's rules, rows, windows and clip lengths.
+- **Assumptions**: `riku_combo_target`: the target's aim point (the same `+0x50` point Re:CoM reads) against Riku's position for `+0x4B4`; the distance `0x1401A3050` taken as flat; the angle wrapped to ±π; the `0x1401F0620` probe (1 → 6) and Dark `+0x418 & 0x80000` left out; clip frame count = length (±1).
+- **Checked**: `cargo test -p kh1-recom` (829 passed; new `rikus_combo_follows_recoms_pick`, `rikus_swing_timings_are_his_clips`, `rikus_ground_combo_is_his_own_order_and_rhythm`, `rikus_far_opener_and_a_miss`, `riku_tables_take_his_own_hit_windows` with the homing bytes); the Windows build.
+- **Not checked**: in game (feel, the homing with KH1's facing, the jump-up into his air combo, Dark Mode). Left: the clash for his swings (plan item 5), the DP "hit taken" rule.
+
+## Stage 424 (fork branch Re-Re-Reverse/Rebirth): the KH1 Guard's facing test in 3D (KH1's cosine); a missed parry after KH1's 54 guard frames, version 0.198.25 (2026-11-27)
+
+- **Ask**: Stage 422's (fork owner, verbatim): "os danos a defesa está melhor mas ainda está problemática". The plan's item 6 (Guard), approved with "ss".
+- **Found** (the Guard review, read-only): `riku::guard_faces` tested a flat yaw angle (±100°, Re:CoM's body-guard rule), KH1 tests a cosine against the 3D direction, so a height difference changed the outcome; `win::dark_points::GUARD_SPAN` was 60, commented "KH1's guard motion: 60", but motion 212 is 54 frames.
+- **Addresses** (Checked (KH1 decomp), 2026-11-27): `0x1402B4640` builds the guard owner's flat facing from its yaw (`y = 0`) and the vector owner → attacker (`+0x50` positions, or the attack's own points `+0x70` / `+0x10` when its `+0x30 & 0x400`), and passes when `0x1402A8C70(facing, d)` (the cosine, `dot / (|a| |b|)`, clamped) ≥ record `+0x64` (−0.1736). Motion 212 is 54 frames (`knowledge/KH1/kh1-sora-data.md`, Checked (files)).
+- **Change**: `riku::guard_faces` is KH1's cosine (flat facing · 3D direction / length ≥ cos(half)); a point straight above or below passes (KH1's zero flat part gives 0 ≥ −0.17). It is the Guard blade's facing test for Riku and Sora (0.183.3), so Sora's KH1 Guard follows KH1 too. `GUARD_SPAN` = 54.
+- **Checked**: `cargo test -p kh1-recom` (`rikus_guard_faces_the_front`: 110° behind at the same height fails, 3 m above passes, straight above passes; 825 passed); the Windows build.
+- **Not checked**: in game. Left from the review: the DP "hit taken" rule (+2) never fired in the 0.198.22 log (it waits for HP to fall inside Re:CoM's damage check; where HP falls is not yet found); a shot's facing is judged from the bullet's own position (KH1 uses the attack's own points only with flag 0x400; Assumption kept).
+
+## Stage 423 (fork branch Re-Re-Reverse/Rebirth): log lines for Riku's EXP and refused presses; Riku's story named in the battle log, version 0.198.24 (2026-11-27)
+
+- **Ask**: Stage 422's (fork owner, verbatim): "tenho a impressão de que só ao tomar danho estou ganhando xp"; "alguns ataques parece que não pegam". The plan's item 7 (logs), approved with "ss".
+- **Found** (the Guard / EXP review, read-only): no path grants EXP on damage (the mod's damage check writes none); Re:CoM's EXP comes only from the defeat orbs through the prize add `0x1401F4AB0`, and the 0.198.22 log had no EXP line to tell when they arrived. Assumption (to settle with this log): the orbs are pulled within 5 m and fade after 10 s, so with KH1's knockback EXP may arrive only when Riku walks over the spot, often while being hit.
+- **Addresses** (Checked (decomp), 2026-11-27): `0x1401F4AB0`'s switch: kinds 0xCB..0xD1 call `0x1401E5730` with 1 / 10 / 60 / 5 / 30 / 99 / 1400; `0x1401E5730` adds to the prize player's (`DAT_14087B390`) `+0x440` (EXP) and raises `+0x444` (level).
+- **Change**: `win::drops::prize_add` logs each EXP prize (`exp: prize 0xcb (+1): EXP a -> b, level x -> y; HP h, action a`, 200 lines); `win::movement::riku_refusals` logs Riku's refused Attack presses (`riku attack: press refused (LastSwingMissed)`, 200 lines); the battle-start line says "Riku's story" in Riku's KH1 battles and the `mp:` lines "player level" (they named Sora for Riku). No gameplay change.
+- **Checked**: `cargo test -p kh1-recom` (825 passed); the Windows build.
+- **Not checked**: in game (the lines themselves).
+
+## Stage 422 (fork branch Re-Re-Reverse/Rebirth): Riku's and Dark Riku's swings hit in their own Re:CoM hit windows, version 0.198.23 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, on 0.198.22 in game): "as animações de combate do sistema do Riku estão meio estranhas ainda e mal adaptadas os danos a defesa está melhor mas ainda está problemática, alguns ataques parece que não pegam, tenho a impressão de que só ao tomar danho estou ganhando xp preciso de uma validação e ajuste do sistema de combate"; told his clips play in KH1 Sora's rhythm: "então ela é tocada no ritmo do KH1 mas eu já falei que era para reproduzir o sistema do KH1 ENTRETANTO adaptando totalmente a jogabilidade do Riku! e respeitando as especialidades dele, e até o momento está pouco fluído"; on the numbered plan (rule, research, hit windows, Riku's own chain, clash, Guard, logs, review): "ss". This stage is the plan's item 3; the rule (item 1) is in `docs/design-philosophy-instructions.md` § Riku's combat.
+- **Found** (two read-only reviews of the 0.198.22 log and code): Riku's KH1 swings wrote KH1 Sora's motion hit frames (minus `HIT_LEAD`) into the row Re:CoM plays (`kh1_row_bytes`), while the clip is Riku's own: his finisher was live on 12 of its 30 swing frames (25-37 against his 18-48), his lunge lost 38 → 29, and every Dark Mode swing was off. A swing that hit nothing also refuses the next press (KH1's rule), so a miss ended the combo. The log: 41 swings, 33 hits, 5 misses with a hittable enemy near.
+- **Addresses** (Checked (exe), bytes read 2026-11-27): Re:CoM's attack rows `0x1407C6C70 + id × 16`; Riku's rows 0x97..0x9D hit windows `+4/+5` 12-26, 12-32, 20-38, 18-48, 8-26, 4-16, 10-38; Dark Riku's 0x9E..0xA4 4-22, 4-42, 8-26, 18-40, 8-26, 8-30, 4-50; read by Re:CoM's window test `0x1401F5DC0` (Checked (decomp), the review).
+- **Change**: `attack::RIKU_ROWS_1_7` / `DARK_ROWS_1_7` (the exe's bytes) and `attack::riku_table`: a copy of the KH1 table whose `ROW_MAP` swing rows take his own row's `+4/+5` as they are (Re:CoM reads them itself: no `HIT_LEAD`); clip, combo window, kind and flag 0x80 stay the KH1 row's. `win::attack::build_table` builds Riku's and Dark Riku's tables from the live rows (refused and logged when they are not the Steam exe's); `table_for` picks the table by player (Dark Riku in Dark Mode); `kh1_row_of` knows all three. Sora unchanged.
+- **Checked**: `cargo test -p kh1-recom` (`riku_tables_take_his_own_hit_windows`; 825 passed); the Windows build.
+- **Not checked**: in game. Known left (next items of the plan): KH1's combo window opens before some of his hits end (row 13: window 22, his hit to 26; row 14: 26 / 38; air 18 / 26), so a press in that gap before the blade touches still counts as a miss; his clips are still cut at KH1's motion lengths and chained in KH1 Sora's order; no clash for his swings (his weapon volume is shape kind 7).
+
+## Stage 421 (fork branch Re-Re-Reverse/Rebirth): PL4062's pants and the left hand's fingers 4 / 5 in both level-up packs, version 0.198.22 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, on the two things Stage 420 found and left: `PL4062` with the same pants order, and the left hand's fingers 4 / 5 swapped in PL4042 and PL4062): "corrige ai".
+- **Addresses**: none (assets only). Which screen plays group 14062: not identified.
+- **Found** (Checked (files)): in `PL4042` `p002_042` and `PL4062` `p002_020` (90 frames each) the slots `l_fing4c/b/a` hold `l_fing5c/b/a`'s channels and the other way round (each slot's constant translation is the other finger's rest offset); `PL4062` has Stage 420's femur rotation too. The right hand is in order.
+- **Change** (`pants_order`): `femur_moves` checks the children of `l_femur`, `r_femur`, `l_hand` and `r_hand`, and moves a child's single-child chain (a finger's joints) with it when every chain slot's constant translation is its new bone's rest offset; still only a complete permutation per parent, whole channel blocks, no value changed. `FIXED_PACKS = [4042, 4062]`: the step writes both fixed packs; `build_event_packs` fixes both before the KH2-hair copies (`PL4142`, `PL4162`).
+- **Checked**: `the_level_up_pants_are_in_the_models_order` over both packs: 14 moves each (8 pant, 6 finger), every other channel byte-identical, the other event packs untouched; PL4062's panels: clearance 0.4-3.5 cm, stand-off 0.0-6.1 cm, inside PL0101's envelope (Re:CoM's: crossing to -7.5 cm, stand-off 14.5-26.3 cm). Left-hand close-ups, Re:CoM's against fixed, frames 0 / 15 / 24 / 45 / 75 / 89, front / 45 deg / back (the workspace's `local/assets/recom/riku-win/levelup/hands/sheet_4042.png`, `sheet_4062.png`): the fixed fingers close and rest as a hand, no new crossing; the difference is small (fingers 4 and 5 have near-equal shapes). `tools/test-affected.sh`, the Windows build.
+- **Not checked**: in game (which screen plays 4062; that Panacea serves both replaced files); PL4062's legs as renders (numbers only; its frame 45 hand close-up shows the panel at the strap).
+- The user must press Build (the asset output changed).
+
+## Stage 420 (fork branch Re-Re-Reverse/Rebirth): Riku's level-up pants (Re:CoM's PL4042 channel order fixed), version 0.198.21 (2026-11-27)
+
+- **Ask** (fork owner, verbatim): "a animação do riku quando termina uma luta ta meio estranha na calça com o traje normal" (with a screenshot of the level-up bonus screen: "é na tela de levelup quando escolhe oq upar"); on being told it is Re:CoM's own file: "quero corrigir sim". Done by a `model-editor` agent; reviewed by a `model-reviewer` agent.
+- **Addresses**: the level-up screen `0x14010EF10` asks for motion group `0x36DA` = 14042 for Riku (`PLAYER/4042/PL4042.ANN`, one clip `p002_042`, 90 frames, 102 bones). Checked (decomp, files).
+- **Cause** (Checked (files)): vanilla, not the mod (with `riku_hair = recom` the mod served no 4042 and no PL0101 model). Re:CoM's `p002_042` stores four children of each femur in a rotated slot order: slot `belt3` holds `belt4`'s channels, `belt4` `cuffs1`'s, `cuffs1` `cuffs2`'s, `cuffs2` `belt3`'s, both sides (each slot's fixed translation is the other bone's rest offset within 1 mm; every `PL0101.ANN` clip uses each bone's own). So the outer panel (`cuffs1`) was drawn on the wrong side of the thigh and the inner one (`cuffs2`) where the strap goes (the jutting top edge). Over the 90 frames: crossing into the thigh down to -7.5 cm (`l_cuffs2`, frame 5) / -6.0 cm (`r_cuffs2`), stand-off from the stance's hang 15-26 cm (PL0101's own clips: at most 4.3-12.8 cm).
+- **Change** (`kh1-recom-assets`): new `pants_order` (`femur_moves`, `fix_femur_children`, `fixed_pack`, `fix_bytes`, `FIXED_PACKS = [4042]`): moves whole channel blocks back to their bones, only on a complete swap among a femur's children, no value changed; `step` writes the fixed `PLAYER/4042/PL4042.ANN`; `riku_skin::build_event_packs` fixes 4042 before making the KH2-hair copy (`PL4142`). Riku's Halloween model (`PL0111`) has the same skeleton (fixed too); the BBS hair plays PL4042 itself.
+- **Checked**: `pants_order::tests::the_level_up_pants_are_in_the_models_order` (the 8 moves, other channels byte-identical, no crossing past 0.5 cm, stand-off within PL0101's range, Re:CoM's file fails both, other event packs untouched); after: no crossing (closest +0.9 cm), stand-off 0.0-4.6 cm. Renders, textured, frames 0..89 sampled, front-low / ±45 / sides / back: the workspace's `local/assets/recom/riku-win/levelup/{before_0.198.20,after_0.198.21,diff_0.198.21}/`, sheets `riku-win/sheets/lvl_fix_*.png`. `tools/test-affected.sh` (1065 passed), the Windows build.
+- **Not changed (found)**: `PL4062` `p002_020` has the same pants shuffle; PL4042 and PL4062 swap the left hand's finger 4 / 5 chains. Dark Riku's packs (4003 / 4043 / 4083) are clean.
+- **Assumption / not checked**: that Panacea serves the replaced `PL4042.ANN` as it does `PL0101.ANN`; the blend into the clip; the screen's lighting; in game. The user must press Build (the asset output changed).
+
+## Stage 419 (fork branch Re-Re-Reverse/Rebirth): Thunder's vortex held at the raised grip, not on the blade, version 0.198.20 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, on 0.198.19 in game): "thundaga ainda ta estranho"; to which part (the chest sheet, the vortex on the blade, the motion / timing, Thundara too): "Vórtice na lâmina"; to the options (1 on Root at the raised blade's spot, 2 back to the left hand, 3 no vortex): "1".
+- **Addresses**: none (assets only).
+- **Change** (`riku_skin::{spell_events, thunder_vortex_at}`): Thunder's vortex (`ex_1580` 11, scale 0.8, levels 2 and 3) on `Root` at the grip's spot on KH1's release frame of Terra's raise, ground (`230`) (-0.11, 1.51, 0.52) m, air (`236`) (0.00, 1.50, 0.41) m (model frame, +z the facing), instead of on `wep0`, where the 60-tick program turned and swung with the blade into the recovery.
+- **Checked**: `cast_effects_meet_the_gesture` now also asserts Root unturned on the release and the point within 6 cm of the grip: Riku 1.2 / 1.0 cm, Dark Riku 2.8 / 2.8 cm. `tools/test-affected.sh`, the Windows build.
+- **Assumption / not checked**: that an EET offset on `Root` is in Root's frame (as Re:CoM's own Barrage event's (0.1, 0.4, 0.1) on Root reads); how it looks in game. The user must press Build (the asset output changed).
+
+## Stage 418 (fork branch Re-Re-Reverse/Rebirth): Riku's spell effects meet Terra's casts (the raise keyed on the raised blade; Thunder's vortex on the blade), version 0.198.19 (2026-11-27)
+
+- **Ask** (fork owner, verbatim): "nós trocamos as animações do Riku para as do Terra para as Magias, mas não ajustamos os VFX de cada uma, algumas ficaram estranhas, revise todas..."; to the five-part proposal (re-key the raise, Thunder's vortex to the blade, a test, before / after renders, version and test request): "sim".
+- **Addresses**: Re:CoM's hand point `0x1401F0B30` (the DLL's shots and hand effects start there): the weapon's bone (`player+0x3D0`, `0x140224F50`: its attach bone or bone 2, row block `+0xA0`) at `0x1407C7E50` = (-0.8, 0, 0), the blade's end. Checked (decomp; the point as in `riku::BLADE_END`). No new hook.
+- **Review of every cast effect** (Checked (files): bone positions of the built clips, model space, facing +z): pose-free effects (Root / `chest1`: Gravity, Stop, Aero's gusts, the Dark Firaga flash, Thunder's chest bolt, Cure's sparkle on bone 0) fit any clip. Pose-bound: the Dark Firaga glow (`l_hand`, Fire), Blizzard level 3's shard (`ex_1580` 10, `l_hand`), Thunder levels 2 / 3's vortex (`ex_1580` 11, `l_hand`), Aero level 3's ribbon (`wep0`) and the DLL's shots / hand effects (the blade's end, on KH1's release frame). Thrust (`315` / `316`, Fire / Blizzard): hands and blade 0.37-0.58 m in front at about 1.1 m from the release to the key's end: fit. Raise (`317` / `318`): keyed 10..14, its lowest point: on the release the blade was 0.57 m behind the body at 0.88 m and went up 5 frames later (Terra's 12 -> 13), and the left hand swings back to 0.47 m behind the body while the blade rises.
+- **Change** (`kh1-recom-assets` `riku_skin`): `TERRA_RAISE_G` / `TERRA_RAISE_A` keyed 13..17 (the blade up in front at 1.51 m, held to Terra's 18): the swing up ends the charge and the release meets the raised blade; KH1's release and free frames unchanged, so gameplay timing is unchanged (Thunder / Aero, Cure, Gravity / Stop; ground and air; Riku, Dark Riku, the skin). `spell_events`: Thunder's vortex (levels 2, 3) on `wep0`. The Fire / Blizzard clips, the wind-ups and the Guard: unchanged.
+- **Checked**: new test `cast_effects_meet_the_gesture` (Riku's and Dark Riku's built casts, release to key end: blade and blade hand >= 0.1 m in front of the chest; the raise's blade over the shoulder; Blizzard's left hand in front on the release): now >= 0.34 m in front and +0.30..+0.33 m over the shoulder; the 10..14 keys fail it (-0.61 m at frame 30). Mesh sheets before / after (`terra_mesh_sheets`, p002_230 and 236, frames release-8..+12): before, the blade behind the back on the release; after, raised in front. `cast_clips_put_the_key_moment_on_kh1s_release`, `terra_motions_on_riku`, `tools/test-affected.sh`, the Windows build.
+- **Assumption / not checked**: how each effect looks in game (no effect can be drawn outside the game); Thunder's vortex turning with the blade bone; the raise's swing up now 2-6 frames before the release (Terra's own speed). The user must press Build (the asset output changed).
+
+## Stage 417 (fork branch Re-Re-Reverse/Rebirth): Dark Mode's own three shortcuts for Riku; debug keys only in development builds, version 0.198.18 (2026-11-27)
+
+- **Ask** (a tester, relayed by the fork owner, verbatim): "I don't know if it's possible, but I have a suggestion I wonder if it would be possible to have a separate shortcut menu for Riku's dark mode. As it seems if you switch to dark mode and you have non dark mode moves on your shortcut menu you can't use the shortcut menu it has no shortcuts, but if you have dark mode sleights already on your shortcut menu before switching to dark mode then the shortcut menu works."; to the three options (a separate set; an automatic swap to the twins; both): "3".
+- **Cause** (Checked (code + decomp)): Riku had one set of three slots; in Dark Mode a slot works only for an id on Dark Riku's list (`crate::riku::DARK_SLEIGHTS`), through `riku_world` / `riku_learned_sleights(true)`. That list follows Re:CoM: Dark Riku's sleight start `0x140206830` lets 0x66..0x68 through, but his sleight init `0x1402042F0` has no case for them (they would do nothing), and Re:CoM gives him the Dark twins instead (below). (First written as "the start refuses 0x66..0x68", then as "the mod's list alone": both corrected by the `reverse-engineer`, the workspace's `recom-riku-sleights.md` § 4.)
+- **Dev: Riku's spells** (fork owner, verbatim: "quero testar as magias habilita"): in development builds `kh1_all_spells = on` also gives Riku all seven KH1 spells at level 3 (`win::command_menu::riku_spell_levels`; not written to the save); a released DLL ignores the key (`DEV_KEYS`).
+- **Re:CoM's rule for the first fill** (Checked (exe + decomp), `recom-riku-sleights.md` § 4): no card stack forms 0x66..0x6B; they are duel rewards, and the duel end `0x140162DD0` gives 0x69 / 0x6A / 0x6B instead of 0x66 / 0x67 / 0x68 when the main player is Dark Riku (`+0x420 & 0x400000`); the stack check `0x1401669F0` forms Inverse Burst 0x65 where Riku forms Holy Burst 0x64 (stock flag `+0x98 & 0x100`); Dark Riku runs 0x62 and 99 (0x63, LV3, 0x62's use counter). So `crate::riku::TWINS` = 0x66→0x69, 0x67→0x6A, 0x68→0x6B, 0x64→0x65; 0x62 / 0x63 kept. The Dark Mode flag `+0x41C & 0x4000000` comes from (0, 0x24) 0x08 (`0x1401F0C50`), set only by `WORLD00/2102` right before it gives card 0x6D (and by Re:CoM's debug helpers `0x1400D1A00` / `0x1400D1FC0`, which give both); `riku_dark_mode` now gives both as well.
+- **Fill fix**: nothing is written or marked set up while Dark Riku has learned nothing (as Riku's own fill, Stage 414); a slot of Riku's set holding a Dark-only sleight says "Dark Mode only: set it in the Dark Mode set (Left/Right)." (`customize::text::DARK_ONLY_HELP`).
+- **In game** (the owner's dev build, log): `riku_dark_mode` set the bit; 30 DP → `dark points: 30 DP: Dark Mode` → `Dark Mode on (DP 8)` → `first Dark Mode`: Dark Mode reached from a new game.
+- **Rule** (§ Every KH1 feature follows Re:CoM's own game rules): neither game has one (Re:CoM has no shortcuts, KH1 no Dark Mode). Adapted from Re:CoM giving Dark Mode its own sleights: a set of its own, offered once Riku has reached Dark Mode in this save (the Dark Mode costume's bit `DARK_SEEN`, 0.151.0). Debug, development builds only (see below): `all_unlock = on` shows the rows from the start, as it unlocks the costume (fork owner, verbatim: "SE TIVER conseguiria colocar pra debug desbloquear o darkmode?"; "mas somente para debug enquanto estamos desenvolvendo, não vai chegar de jeito nenhum isso para o pessoal que for instalar!"). The transformation itself needs no unlock past the first battle: Re:CoM gives D Mode (card 0x6D) in `WORLD00/2102` step 170, right after battle 1100 (the workspace's `recom-riku-sleights.md`), and ours starts it at 30 DP.
+- **Save** (`crate::riku::dark_block`): `save + 0x26D0 ..= 0x26D3`, right after the mod's last block (`abilities::SKILL_EXT_LAST` 0x26CF), inside the spare tail `0x246B ..= 0x2817` that no Re:CoM code reads or writes (Checked (exe), `docs/recom-keyblade-equip.md`); 3 slot bytes (as Riku's own) and a flags byte (bit 0: set up). Old saves read zero there: set up at first need. Added to `spare_range_nonzero`'s own bytes.
+- **Change**: `crate::riku::{dark_twin, dark_fill, TWINS, DARK_KING}`; `win::mp::{riku_dark_shortcuts, set_riku_dark_shortcuts}`; `win::command_menu::riku_dark_shortcuts` (the first time: Riku's set with Impulse / Maelstrom / Barrage → Dark Impulse / Dark Maelstrom / Dark Barrage when taught; spells, Dark Riku's own sleights and the King's 0x62 / 0x63 kept; Holy Burst and the rest emptied; logged); `riku_world` reads it while the main player is Dark Riku. Riku's Customize (`win::keyblades::DarkSet`, `cz_slot`, `cz_picks`, `cz_rows`): rows 3..5 "Dark" + the button, their picker = his spells, Dark Riku's learned sleights, the King's two he can start; their help "In Dark Mode: hold L1 and press ..." (`customize::text::dark_slot_*`); the status panel shows the cursor's set. Riku's own set and Sora's page unchanged.
+- **Debug only in development builds** (fork owner, verbatim: "sim mas pode até tirar das releases ,não deixa chegar pro cara que vai baixar, deixa isso só aqui para desenvolvimento mesmo"; "todos os tweaks de debug vc pode tirar alias e só entregar a versão de usuário com os locks e tudo certinho"; "se tiver como até deixa isso por alguma rotina no git se for possível pra nn ficar vc alterando na mão na hora das releases"): the debug keys `all_unlock`, `riku_free_magic`, `riku_dark_mode` (new: the owner, verbatim, "claro que não!!!! o que a gente estava usando era uma SKIN pro RIKU NORMAL usando a mesma do DarkMode, oq eu to falando de testar é a GAMEPLAY do DarkMode que consumimos o Modelo para a SKIN!"; on, Riku's story gets the saved story bit (0, 0x24) 0x08 that `WORLD00/2102` sets after his first battle and the player build `0x1401F0C50` turns into Dark Mode, `+0x41C & 0x4000000`, the workspace's `recom-riku-ansem-tutorial.md` § 4.4 (Checked (decomp); the bit's meaning there an Assumption until seen in game); `win::story_skip::dev_dark_mode`, from Riku's frame, written into the save as the story would, logged `DEV riku_dark_mode: ...`), `kh1_all_spells`, `kh1_all_abilities`, `kh1_test_items`, `debug_attack` (`settings::DEV_KEYS`, 7) are read and written only with the new cargo feature `dev` (`crates/kh1-recom/Cargo.toml`), which only `tools/dev-install.sh` turns on. A released DLL (`tools/build-win.sh`, the release workflow's build) ignores their lines without a warning, never writes them, and the default ini no longer lists them, so every unlock, cost and item follows the game. A development build logs `DEV BUILD (feature dev): ...` at start. Routine (`.github/workflows/patched-release.yml`, step "No development build in a release"): the release stops if `build-win.sh` asks for a cargo feature or the DLL has that marker (tried on both DLLs: the user build passes, the development build is refused); the workflow's `cargo test --workspace` (no feature) runs `settings::dev_key_tests`.
+- **Assumption**: "Dark" + the glyph reads well on the row (squeezed as every row); the status panel keeps its three button labels for both sets.
+- **Riku's Customize page: two sets of KH1's three rows** (fork owner, verbatim, approving the `ui-ux` agent's review of the page: "ativa o agente responsável"). Replaces the six-row layout and the `DARK_SEEN` gate written above. Each choice from the rules, not a new question (§ Every KH1 feature follows Re:CoM's own game rules; the `ui-ux` agent's "Decide what the rules already decide"):
+  1. **Layout** (rule 2, adapt Re:CoM's navigation): back to KH1's three rows (`0x140302950`). Two sets, Riku's and Dark Mode's, switched with Left / Right on the slot list as Re:CoM's Sleights page switches its tabs (`0x1400EB7E0` state 4: `0x140111A70(camp, 0x408000)` index − 1, `0x802000` + 1, wrapping, sound 1, draw mode 10; Checked (decomp)). Wraps (two sets), sound 1, rows, help and status panel rebuilt, the cursor stays on its row; only when the Dark set exists; not in the picker. Square (Re:CoM's Sleights List, camp bit 0x80) and L1 / R1 (pad 4 / 8, paging) unchanged. `win::keyblades::{Page::switch_set, cz_index, LEFT, RIGHT}`, `Content::Customize::dark_shown`; `cz_rows` removed (always `customize::SLOTS`). Which set is on screen: the Dark rows read "Dark" + the button and their help names Dark Mode (our own text; Re:CoM's tab pictures mean its card kinds and are not used). The header plate is not changed (Assumption: re-titling it mid-page would replay its sequence 7; not tried). Log `customize: Riku: Dark Mode set shown (Left)` / `Riku's set shown (Right)`.
+  2. **Texts** (`customize::text`): Riku's own set when the Dark set exists, `SWITCH_SLOT_HELP*` ("Hold L1 and press Triangle. Left/Right: Dark Mode set."); the Dark set, `DARK_SLOT_HELP*` ("In Dark Mode: hold L1 and press Triangle. Left/Right: Riku's set."); its picker, `DARK_PICK_HELP*` ("Choose the spell or sleight for Dark Mode's L1 + Triangle."); glyph, word and Circle forms, all in `customize::tests::texts_fit_the_help_box` (≤ `menu::HELP_MAX` 66). Riku without the Dark set and Sora keep their help. Assumption: "Left/Right" in words (Re:CoM's escapes `0xF564..` checked for the shortcut buttons only, no D-pad glyph read).
+  3. **Empty slots read "<glyph> None"** (rule 2, KH1's own: its slot list `0x140302950` shows sysmsg 0xD4 "none" on an empty slot; `customize::text::NONE`, our word, as before): `customize::text::slot_row`, in both of Riku's sets and on Sora's page, which is the same code (`Page::row_text`, `Content::Customize { picking: None }`). Words form "Square: None".
+  4. **Gate** (rule 1 / 3, Re:CoM's own learned test): the Dark set exists once `0x14023AB00(0x6D)` (`abilities::sleight_learned_fn`, D Mode's card) answers learned, which Re:CoM gives in `WORLD00/2102` step 170 after battle 1100 (the workspace's `knowledge/ReCoM/recom-riku-sleights.md` § 1-2), instead of `dark_points::dark_seen()`. Development builds keep `all_unlock` (feature `dev`).
+  5. **Riku's own picker no longer offers Dark Riku's own sleights** 0x5F, 0x60, 0x61, 0x65 (rule 3, "No shortcuts past the game": Riku's own sleight start `0x140216AB0` refuses them, `crate::riku::SLEIGHTS`): it lists `riku_learned_sleights(false)` and the King's; the Dark set's picker is unchanged. A slot of his own set that already holds one keeps its byte and shows greyed (`customize::unequipped`, its existing help line). No save data changes.
+  Not touched: `crate::riku::{dark_fill, dark_twin, TWINS, DARK_KING, DARK_SLEIGHTS}`, `win::command_menu::riku_dark_shortcuts` (the first-fill rule waits for a reverse-engineering answer), `settings.rs`, `win/story_skip.rs`. Recorded for the game: the workspace's `knowledge/ReCoM/recom-riku-sleights.md` § 3.5 (the Sleights page's tab keys, Riku's list's group / row-look bytes).
+  Checked: every `kh1-recom` test with and without `--features dev` (822 each; `customize::tests::{dark_mode_rows_name_their_buttons, texts_fit_the_help_box, slot_rows_show_the_bound_name_beside_the_button}` updated), the Windows build with `--features dev` (`tools/dev-install.sh`, no new warning) and the Windows check without it. **Not checked**: in game (the switch, the texts' width on the plate, a held Left / Right repeating the switch as Re:CoM's tabs do).
+- **Checked**: `settings::dev_key_tests::debug_keys_live_only_in_development_builds` and every `kh1-recom` test with and without `--features dev` (822 each), `riku::tests::dark_modes_set_starts_with_the_twins`, `customize::tests::dark_mode_rows_name_their_buttons`, `keyblades::tests::spare_range_ignores_our_byte`, all affected tests, the Windows build (no new warning). **Not checked**: in game.
+- **The Dark Mode set's mark** (fork owner, 2026-11-27, verbatim: "ficou bom, só que era bom colocar talvez algum ícone que ajudasse o usuário a ver se nn ele só vai ter a escrita pra se guiar, não? pode ser o ícone de heartless que já era pra estar funcionando nos sleights que só o Riku em DarkMode consegue usar"; `ui-ux` agent).
+  1. **The DP emblem in the command menu** (Stage 321) is not broken: the owner's log (0.198.18) has the manifest's `"dp_icon": 6453` in `kh1-hud.json` (asset step of 2026-11-27 09:52), `hud = kh1` with `hud_kh1_menu` at its default on, and `customize: ... Dark Riku's sleights []` at every page open. Since 0.198.15 the lists show only what Re:CoM has taught (`0x14023AB00`), and Re:CoM teaches Dark Break / Dark Firaga / Dark Aura (0x5F..0x61) at the won end of the Ansem tutorial battle `WORLD00/1100` (the workspace's `recom-riku-sleights.md` § 2); `riku_dark_mode` gives only D Mode (0x6D). So no DP sleight (0x5F / 0x60 / 0x61 / 0x65) was in a list to carry the emblem. Not changed.
+  2. **The mark** (rule 2, Re:CoM's own UI data for a Re:CoM camp page): the Dark Mode set's three rows take Re:CoM's camp row **0x12F** (entry 4 of its list table `0x1407C11F0`, already a checked site: red plate 0x8000003C and Dark Riku's wing, sprite group 89 tinted 0x800000A0) instead of the blue magic row 0x133; Riku's own set and Sora's page keep the blue row. That wing is the mark Re:CoM's own Sleights List puts on Dark Riku's sleights (0x5F first: flags 0x08 → sequence 0xE3, 0x60 / 0x61: 0x09 → 0xDC, table `0x1407C1150`; both the same red plate with the wing tinted 0x80000080), and no other sequence of `camp.lad` draws it. Checked (files: the owner's `FORM/0100/FO0100.SPR`, base `camp.lad` and `UK_camp.lad`; `UK_camp.imz` cropped: sprite group 89 is a dark wing, 82 the heart, 85 the Mickey symbol, 84 the magic symbol); Checked (exe: the two tables). The row's icon slot replaces the magic symbol at the row's left; the word "Dark" stays. `keyblades::row_look::DARK`, `customize::slot_look`, `win::keyblades::Page::row_look`; the switch's log line names the row.
+  3. **Departs from the ask**: the owner suggested the Heartless emblem of the command menu ("pode ser"). That picture is in `FO0104.RTM`'s level-up atlas and the mod's `kh1hud` set, not in the camp's atlas (`FO0100.RTM` `camp.imz`): a camp row can only draw it through a new `camp.lad` sprite on new pixels in every language's `camp.imz` (an HD pack replacing `camp.imz` would lose them), or through a separate `kh1hud` control on the camp's draw list (not tried in the camp: whether `kh1hud:00` is registered while the camp is open is unknown). Re:CoM's own mark for "sleights only Dark Riku uses" is the wing, so the page uses it with no asset change.
+  Checked: `customize::tests::dark_mode_set_takes_recoms_dark_wing_row` (slots 3..5 → variant 4, and entry 4 of the checked table is 0x12F). Assumption: the red wing reads well on the red plate (Re:CoM draws exactly this row); not seen in game.
+
+## Stage 416 (fork branch Re-Re-Reverse/Rebirth): Re:CoM's Sleights List on Riku's KH1 Customize page (Square); the rule "every KH1 feature follows Re:CoM's rules", version 0.198.17 (2026-11-27)
+
+- **Ask** (fork owner, verbatim): the same message as Stage 415 ("... e o alnce do menu listando sleights no jogo, acessível na aba Customize no modo KH1 foi implementado?"); to the plan (Square opens Re:CoM's own list, its "Sleights" prompt bar on the page, our input waits while it runs, first bytes checked): "ss". Then: "coloca no mod já, regras que reforçam todas as novas features e implementações precisarem seguir ou adaptar as regras normais do Jogo quando implementar a jogabilidade do KH1!".
+- **Addresses** (the workspace's `knowledge/ReCoM/recom-riku-sleights.md` § 3, Checked (decomp + disasm); first bytes checked in `sites::KEYBLADE_CALLEES`, 20 each, read from the exe): the list's update `0x1400EBE30(camp)` (sub-state `camp+0xAC`: 0 open .. 4 closing, −1 idle; answers 1 the frame it has closed; it reads the pad itself: Square / cancel close, confirm opens Re:CoM's sleight help on a learned row, `?????` on the others); the prompt bars `0x1400DEC60(camp, mode, slot, variant)` (mode 1 show, 4 close; Riku's variant 9); the camp's fresh press `0x140111AE0(camp, bits, 0)` (0 while the input lock `camp+0x8C` is set). Re:CoM's deck page opens the list at `0x1400DBCE3..0x1400DBCFE` (Square 0x80 → `+0xAC = 0`, `+0x8C = 1`) and calls the update every frame (`0x1400DBDAC`). No hook.
+- **Change** (`win::keyblades::Page::{sleights_list_open, sleights_list_step, close}`, `SleightsList`): Riku's Customize page (his story, Combat = KH1) shows Re:CoM's slot-0 prompt bar (variant 9) when it opens and closes it with the page (as `0x1400DBD30`). Square (slots or picker) does what the deck page does; while the list runs our page's input is skipped and `0x1400EBE30` runs each frame, then once more after it answers 1 (it lowers the input lock), then our help line comes back. Sora's Customize unchanged.
+- **Rule** (`docs/design-philosophy-instructions.md` § Every KH1 feature follows Re:CoM's own game rules, or adapts them): find Re:CoM's rule for the nearest thing first and cite it; follow it or adapt it (written in the Stage); no "counts as learned / available" shortcuts; check a new game and a mid-story save; ask when unsure.
+- **Assumption**: the list draws correctly over our page in the Config states 0x4A..0x4C, and its sleight help (`CTechHelp`, `0x14012BF80`) runs there (the camp's trailer runs the prompt bars there, Checked; the rest not seen); the prompt bar's text `0x500909` is Re:CoM's "Sleights" (not read).
+- **Checked**: `tools/test-affected.sh` (1058 passed), the Windows build (no new warning). **Not checked**: in game.
+
+## Stage 415 (fork branch Re-Re-Reverse/Rebirth): the King's sleights only once Re:CoM has taught them (B11), version 0.198.16 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, with a screenshot of Riku's Customize picker at 0:34 listing Mickey Miracle and Holy Burst): "algumas habilidade relacionadas ao mickey tbm estão desbloqueadas desde o início do jogo faz sentido e o alnce do menu listando sleights no jogo, acessível na aba Customize no modo KH1 foi implementado?"; to the three-part proposal: "ss".
+- **Cause**: `win::party::learned` counted the King's Party sleights as taught whenever Riku's story ran with `riku_kh1_movement` (0.150.0's Assumption "Re:CoM's Riku forms his sleights from cards", shown wrong by Stage 414). Re:CoM teaches 0x62..0x64 in B11's hall `WORLD00/2103` (the workspace's `knowledge/ReCoM/recom-riku-sleights.md`, Checked (files + decomp)).
+- **Change** (`win::party::learned`): Re:CoM's own test `0x14023AB00` alone decides, in both stories; so Riku's Customize picker, page 2's Party list and his L1 shortcuts show the King's sleights only after B11. The King met bit stays the battle's availability rule (`sets`). Sora's story unchanged.
+- **Not built here**: Re:CoM's Sleights List on Riku's KH1 Customize page (Stage 416).
+- **Checked**: `tools/test-affected.sh` (1058 passed), the Windows build (no new warning). **Not checked**: in game.
+
+## Stage 414 (fork branch Re-Re-Reverse/Rebirth): Riku's sleights only once Re:CoM has taught them, version 0.198.15 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, with screenshots of Re:CoM's Sleights List at 0:02, all `?????`, its Shortcuts page's "Sleights" button and our Customize page): "mas eu te passei um print dele no modo recom, e na listagem de sleight que fica  quando vc acessa o menu de shortcuts inclusive falei pra vc implementar esse sleight lists no modo kh1 nessa tela e vc nn fez.. mas minha duvida é no jogo normal os sleights vem daquele jeito ali parece... ou estou enganado?"; to the four-part proposal: "ss" (`docs/design-philosophy-instructions.md` § Riku's sleights).
+- **Found** (the workspace's `knowledge/ReCoM/recom-riku-sleights.md`, Checked (files + decomp)): Re:CoM's learned test `0x14023AB00` reads the save's card states (save + 0x2840); a new Reverse/Rebirth game has none (Checked (game: the owner's screenshot)); the Ansem tutorial's end (battle 1100) teaches 0x5F..0x61 and 0x66..0x6B, `WORLD00/2102` D Mode (0x6D), B11's hall `WORLD00/2103` the King's 0x62..0x64 and Inverse Burst (0x65); Riku's level-up teaches none. 0.147.0's "Re:CoM's Riku forms them from cards" (Assumption) was wrong: every list showed all of them from the start.
+- **Change** (`crate::riku::learned_ids`; `win::command_menu::riku_learned_sleights`, `riku_world`; `win::keyblades::Page::open`, Riku's Customize): his and Dark Riku's Sleights lists, his L1 shortcuts (a shortcut works only for a listed id) and his Customize picker hold only the ids Re:CoM answers as learned; the one-time shortcut fill waits until something is learned. At Combat = KH1 the story skip of battle 1100 (Stage 374, `story_skip::riku_tutorial`) gives the same nine cards, so they appear right after his first battle, as in Re:CoM. The King's Party sleights keep their own rule (the King met bit, set by the same 2103 script).
+- **Not built**: Re:CoM's Sleights List on his KH1 Customize page (the camp's Sleights List states not found yet).
+- **Checked**: `riku::tests::only_the_sleights_recom_taught_are_listed`, all tests, the Windows build. **Not checked**: in game.
+
+## Stage 413 (fork branch Re-Re-Reverse/Rebirth): the BBS hair's temple fixed in game (one texture name per group); the skirt work cancelled, version 0.198.14 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, on 0.198.13 in game, a Dark Form side close-up: a yellow triangle at the temple and a darker flat patch in front of the ear): "costeleta ficou até pior...".
+- **Addresses**: none new (Re:CoM looks textures up by name across every loaded model, `0x1402A5140`, Checked in `keyblade.rs`).
+- **Found** (Checked (files: the installed DLL's strings, the built `.RTM` names; probe `bbs_hair::tests::temple_game_view`, which renders each picture as the game samples it)): 0.198.13 named all four BBS hair pictures `rk_hair_bbs`, so the Dark Form's moved temple triangles drew Riku 0101's picture, whose texels there are the kid's yellow vest: mean colour of those triangles in their own picture (125, 72, 59), in 0101's (166, 96, 50); the owner's patch (143, 67, 46), the yellow (231, 161, 18). TIM2 and DDS agree within 1; no mipmaps. Then (`model-reviewer`, no-go): a skin fleck inside the hair on the model's -x temple of 0101 / 0201: a z-tie, the sideburn pulled to 2 mm dipped 0.4-0.5 mm under the temple skin (2 / 2.5 / 3 mm: 0.5 / 0.3 / 0.1 mm under; 3.5 mm clear on both sides).
+- **Change**: one picture name per group (`ddd_hair::RIKU_0101_BBS` `rk_hair_bbs`, `RIKU_0111_BBS` `_ht`, `RIKU_0201_BBS` `_df`, `RIKU_0211_BBS` `_dh`; the Keyblade-of-Heart twins share their base's); `bbs_hair::SIDEBURN_REST` 0.002 → 0.0035 (cheek clearance 2.6-3.5 mm).
+- **Checked**: `sideburn_probe` (lock covered, no skin over the hair on any side), `temple_game_view` (0101, 0111, 0201, 0211); 247 asset tests; renders the workspace's `local/assets/recom/riku-hair/out/temple/` (`b12_4/` 0.198.12, `fix3_own/` after); `model-reviewer` go: one sideburn, the temple in the cheek's tone, no yellow, no hole, no gap; leftovers at normal size: a ~5 px orange sliver at the sideburn tip (0101 / 0111) faintly visible, a tip smudge / diagonal step / collar specks barely visible, none worse than 0.198.12.
+- **Skirt: cancelled** (fork owner, verbatim: "cancela os ajustes da saia, o jogo simplesmente não suporta direito ent deixe a ultima versão que tinha ficado boa e que eu validei"). `tails.rs` is back to its committed state (0.198.8-0.198.12's motion, the one the owner validated; `riku_skin` calls `animate` as before); Stage 412's clearance and every later try are removed from the code. What was tried and measured (`model-editor`, `model-reviewer`), for whoever comes back to it: (1) push the tails off the legs: crossing gone but the tails stood out like stiff wings (reviewer no-go); (2) retarget the tail swing to Riku's thighs (cycle phase, root follow): idle fixed (-9.6 → -0.3 / -1.0 cm), stance / battle idle / Guard still -5 to -9 cm (the back tips against the calves); (3) retarget + drape: Guard -8.5 cm, 16-125 deg steps; (4-6) a spring-cloth bake with thigh and shin capsules (bone particles, plus the coat's vertices, then the whole coat): -3.5 to -7.8 cm and 180 deg flips; (7) skinning the coat's vertices partly to the femurs / tibias (Re:CoM supports 1-6 bones a vertex, `knowledge/ReCoM/recom-mdl-skinning.md`): best per-vertex fit still -9.4 cm, stretch up to 195 %. **Cause** (Checked (files, probes)): Dark Riku's coat has 45 vertices on 38 tail bones; the legs pass through the middle of its large panels (barycentric 0.17-0.83), so no motion or skinning of its vertices can clear them; only subdividing the coat (or reshaping it) could. The attempts' code is kept outside the repo.
+- **Not checked**: in game.
+
+## Stage 412 (fork branch Re-Re-Reverse/Rebirth): Riku's casts end in the next pose; the Dark Form's loose hands; the BBS hair's single sideburn (the skirt's leg clearance written, off), version 0.198.13 (2026-11-27)
+
+- **Ask** (fork owner, verbatim, on 0.198.11-0.198.12 in game): casts: "quero testar também as animações de magia, tem mudanças muito bruscas entre a animação e voltar para o estado idle"; "todas as magias...."; "magia é o riku normal e o ddark mode"; "o sora tem as animações do proprio jogo, e estão ok, as animações de magia que falam são do riku msm que trocamos pelas do terra do BBS". Hands: "as mãos o RIku Darkmode são muito estão muito grosseiras no andar ... também precisa melhorar, parado a mão esquerda tmb fica meio esquisita"; "no riku dark mode a animação de andar até sem esada ficou estranha ninguém caminha fazendo um C com a mão". Skirt: "no geral a animação da saia dele ficou Muito boa, mas em idle ela atravessa a perna esquerda"; "no caminhar a saia chega a atravessar a perna tbm"; "animação de defesa tbm"; "no começo da anim de pulo tbm". Sideburn: "uma coisa que ficou estranha no cabelo BBS tbm é a costeleta do cabelo, tem a do cabelo mesmo e tem a da cabeça base ao lado, ficou estranho". Rule for all: "não atravessar nem mesmo deixar muita folga.. e também deixar natural!". Done by `model-editor` agents (one per piece) and the main session (DLL).
+- **Addresses**: action tables `0x1407C6370` / `0x1407C67F0` (what plays after a cast; Checked (exe), the research of this stage, `knowledge/ReCoM/recom-combat.md` § Motion). No new hook.
+- **Casts** (`riku_skin::{ease_cast_ends, ease_to_next, RIKU_FALL, DARK_STANCE, DARK_FALL}`, in `build_with` for packs 101, 201 and the skin 121; `riku::idle_after_cast`, `win::movement::play`):
+  - Found (Checked (files, test probe)): the Terra cast clips ended in Terra's recovery pose, 50-96 cm (hands, blade) from the next pose; the DLL blends out over 10 frames (`riku::OUT`). After a ground cast the game queues the idle (battle stance 0x2A: `p002_031` / `p003_021`), after an air cast the fall (row 6: `p002_006` / `p003_007`).
+  - Change: after the gesture's end (`CastClip::key_out`) every bone eases to the next pose's frame 0, fully in by KH1's free frame; wind-ups 227 / 233 unchanged (Fire's release follows them); scale unchanged. DLL: Riku's idle request after one of his cast rows (current or previous) plays the stance 0x2A, field or battle, as after a swing (the field idle was 86 cm from the eased end).
+  - Checked: `cast_ends::casts_end_in_the_next_pose` (last and free frames within 2 cm of the next pose, measured 0.0; frames up to the gesture's end unchanged < 1 mm; no faster move than the clip's own, ≤ 0.25 m a frame; no bone > 30 deg a frame: worst 12.8 in the clip, 4.6 in the blend; blade / hands no nearer the head or chest than before, nearest 25.3 cm); the 5 cast tests; `riku::tests::the_idle_after_a_cast_is_the_stance`. Renders: the workspace's `local/assets/recom/riku-hair/out/cast_ends/`.
+- **Hands** (`hands::{loosen, LOOSE, joints, tips, chain, LOOSE_OFF, NO_LOOSE}`, `Clearance::side` for the left hand, the clearance limits shared with `relax`; in `build_with` before `relax`, the skin's pack only):
+  - Found (Checked (files)): Dark Riku's own hand is not clawed; the skin plays Riku's idle / walk / run, whose fingers make a fist (index joints 55-84 deg) closed by Riku's thumb; Dark Riku's thumb rests ~70 deg further out (sum of bends 147 vs 77 deg), so on the skin it stays off the fingers: thumb tip to index 1.01-1.07 hand lengths in the walk (Riku 0.84-0.93) = the "C"; the right hand mirrors it (Stage 409).
+  - Change: in idle, walk and run the 15 left-finger bones take Dark Riku's own loose hand (his walk `p003_002` / run `p003_003`, lined up by the arm swing; the idle takes his walk hand: his idle's thumb tip is bent back 12 deg); the right mirrors as before.
+  - Checked: `loose_skin_hands_are_relaxed` (every frame: joints in range MCP 90 / PIP 100 / DIP 80, back ≤ 5, or no worse than 0.198.12; thumb nearer the index in idle and walk; no finger across the coat; no other bone moved; Riku's pack identical). Thumb to index: idle 0.80+ → 0.60, walk 0.72+ → 0.60, run 0.54-0.90 → 0.54-0.71 (fist kept where the hand passes the coat: weight 0 at a few run frames). Riku's default: 0 changed regions in 64 views.
+- **Skirt** (`tails::{leg_segments, clear_legs, ease_pushes, close_loop, NO_CLEAR}`; `riku_skin` passes the model to `animate`):
+  - Found (Checked (files, probe `tails_leg_probe`)): Dark Riku's tail motion laid on Riku's legs crossed them by up to 9.7 cm (idle -9.6 / -2.5 cm on +x / -x, walk -9.1 / -8.8, run -8.2 / -8.1, jump -8.4 / -8.1, stance -8.3 / -9.7, Guard -9.1 / -9.4); on his own legs his clips cross ≤ ~1 cm.
+  - Change: tails pushed off the legs tips first by the smallest swing that leaves 0.6 cm, then each bone settles back toward the clip's hang (drape on the thigh); pushes eased over 2 frames; loop seams closed. Dark Riku's own clips untouched.
+  - Checked: `tails_clear_the_legs`, `skirt_motion_probe`, `dark_skirt_checks` (with the Guard). Deepest crossing +x / -x, widest gap: idle +0.3 / +0.4, 0.8 cm; walk +0.4 / -1.2, 1.2; stance +0.4 / +0.4, 0.7; battle idle +0.5 / +0.3; battle walk +0.4 / -0.7, 1.1; Guard -0.2 / -0.1, 1.1. **Known, second round**: run -3.4 / -1.6 (gap 7.7 cm), jump start -2.6 at frame 1, the blends into the jump (earlier variant: -8.8 / -7.1); a tail standing off the thigh in the stance and Guard front views; a slight flare on one side in idle from behind.
+- **Skirt, review** (`model-reviewer`, no-go on the skirt only): the cleared tails stood off the legs like stiff wings in the stance and the Guard (100-170 px past the hip line in 700 px renders), one tail jutting out at idle frames 25 / 50 / 70, flaps at walk frame 14 (sheets in the session scratchpad; frames `out/dark/skirt_clear_after/`). **Shipped off**: `tails::NO_CLEAR` defaults to true, so 0.198.13 builds the skirt as 0.198.12 (crossing as before); `tails_clear_the_legs` turns the clearance on for itself. Second round pending.
+- **Sideburn** (`ddd_hair::{HairSource::painted_temple_window, unpaint_temples, LOCK_EDGE, FILL_FROM}`, `HairReport::temple_unpainted`; `bbs_hair::{TEMPLE_WINDOW, SIDEBURN, SIDEBURN_REST}`):
+  - Found (Checked (files, `sideburn_probe`)): the second sideburn is a lock painted on Re:CoM's face texture at each temple (3-4 `head` triangles a side, 7.8-9.2 cm out from the head bone), covered by Riku's own hair, uncovered by the BBS swap; on PL0101, PL0111 and PL0201, both sides. The face texture is not edited (the `.TXA` animates eyes and lips by its name).
+  - Change: those triangles point at a copy of their face patch in the BBS hair's own texture, the lock and 8 texels around it refilled from the lit skin around it; the BBS sideburn's tip and root sit 2 mm off the cheek (before 6.5 / 7.5 mm at the tip).
+  - Checked: `sideburn_probe`, new `bbs_camera_checks` (0101 / 0111); KH2 hair unchanged (0 regions in 81 views). Not clean: a faint shading seam beside the sideburn tip (0101 / 0111); a few skin-coloured specks at the collar edge in the Dark Form's low walk view.
+- **Dev tools** (no game change): `tools/test-affected.sh` runs `cargo nextest` when installed (`KH1_TEST_RUNNER=cargo` forces `cargo test`; no doc tests in the workspace); `tools/dev-install.sh` builds the DLL with `KH1_DLL_PROFILE` (machine-local, e.g. a thin-LTO `testing` profile), unset = release as the GitHub release.
+- **Checked**: the whole affected test set, 1057 passed (nextest, 6 min 25 s).
+- **Not checked**: in game; groups 131 / 211 and the KH2 / BBS hair groups for the hands and casts (rendered: the base groups).
+
+## Stage 411 (fork branch Re-Re-Reverse/Rebirth): the BBS hair's dark shard roots lifted (less "scaly" from behind), version 0.198.12 (2026-11-26)
+
+- **Ask** (fork owner, verbatim, on 0.198.11 in game, a screenshot of the back of the BBS hair from a high camera): "cabelo do bbs parece escamado tem como melhorar?"; then four screenshots (side, back, side, front) and one at the normal camera distance; "ss" to the numbered plan (1 lift the dark roots in the texture, 2 measure whether our crown is shorter than BBS's, 3 the dark wedges).
+- **Addresses**: none (assets only).
+- **Found** (Checked (renders, the workspace's `local/assets/recom/riku-hair/out/bbs/`)): the in-game back (rows of shards, 3-4 from the crown down) matches the build's back-face-culled render (`hair_back_cull.png`) in outline and rows; no part of the crown is missing in game. The kid's own model drawn the same way (`source_back.png`) has the same rows at the same height, so the fit (`SCALE`, `SHIFT`) did not shorten the crown (plan item 2: no change). The "scales" are the kid's shards painted with dark roots: each row's tips lie over the next row's roots, so every row ends on a dark band. The hair's texels (filled atlas): median brightness 79, 10th percentile 35, 75th 100.
+- **Change** (`bbs_hair::{SOFTEN_KNEE 110, SOFTEN_KEEP 0.5, soften}`): the hair's texels (`is_hair_texel`) darker than 110 (mean of r, g, b) move half-way toward 110, colour scaled as a whole (hue kept); brighter texels and non-hair texels unchanged. Applied after `bleed` to the atlas the swap uses (every BBS hair group: Riku, Halloween Town, Dark Form). The classification still reads the original atlas. The dark wedges (plan item 3) are part of the same shards and are lifted with them.
+- **Checked**: test `soften_lifts_only_dark_hair_texels`; the BBS hair tests; renders before (`out/bbs_0198_11/`) and after (`out/bbs/`).
+- **Not checked**: in game.
+
+## Stage 410 (fork branch Re-Re-Reverse/Rebirth): KH1's Guard holds against every attack it clashes with (priority 98-100 too), and ends when a hit gets through (Sora and Riku), version 0.198.11 (2026-11-26)
+
+- **Ask** (fork owner, verbatim, on 0.198.9 against the Defender): "outro ponto o timing da defesa e a janela ainda está estranho teste com o Defender"; asked what felt off: "Animação fora do tempo", "Golpe passa defendendo"; on the first reading (KH1 lets a priority-100 attack hit): "PRECISA SER IGUAL AO KH1 e no KH1 a defesa funciona", "do jeito que foi usado ela funciona!", "detalhe não é só no caso do defender, eu preciso de uma correção geral".
+- **The owner's log** (0.198.9): the Defender's strike (request 209) and spin (208) met Riku's blade from in front during the live window and "got through (… its type or priority)"; the guard object then stayed live 684 / 887 ms (normally 433) while Re:CoM's damage reaction played.
+- **KH1** (`mechanic-reviewer`, Checked (decomp)): the Defender's strike / spin / bash rows (`0x15C` / `0x1CC` / `0x3FC`) are type 0, priority 100 (row `+0x3C` copied unchanged to the attack's `+0x68` by `0x1402B2DC0`; only weapon-bone rows add the weapon's `+0x33`, clamped 1..99, `0x1402B3150` / `0x1402B3270`). `0x1402B4A20` / `0x1402B4BC0`: the guard (priority under 98, 70 under) gets a kind-7 clash record; the mace returns 0x10 (unmoved), is not marked and still meets bodies. But the player's records go through his own loop `0x14029BBD0`, the clash record first (the clash pass `0x1402B47A0` runs before the body pass in `0x1402B4460`; records go to the list's tail `0x1402BFE60` and are taken from its head `0x1402BF160`): kind 7's `0x14029D5F0` plays 0x6F, queues the idle, sets flag 0x80 (`0x140297F30`) and lowers the combo counter; the mace's hit record that follows does 0 HP and no reaction (`0x1402BEEE0`: HP only when `actor+0 & 0x1000080` is clear). The enemy gets no record. In every case the guard holds. Any reaction replaces the Guard motion and so ends its hit track (`0x1402B8E10` → `0x14029F980`).
+- **Change**: `kh1_core::enemy::guard::Meeting::a_unharmed` (`b` stopped, or `a` got a clash record). `win::attack::kh1_guard`: a KH1 enemy attack that gives the guard a clash record is `Stopped` with that record (kind 7 for 98-100: Riku's recoil row 0x3A / Sora's 0x6F, protection, no Counterattack), the enemy unmoved; general, not the Defender's case only (the Neoshadow's dive and rising slash, the Wyvern's bite …). `kh1_enemy::sweep` (Sora's swing against enemy rows): a row that gave Sora a clash record does him no harm that frame (Re:CoM's test of it against him answers 0). The guard object goes off when Re:CoM's damage check (`win::attack::damage_check`, `0x1401E6DE0`) starts its hit reaction (action 0xC) on the guarding player, with no KH1 clash record pending that frame (first try, at the pair's result 1, was a no-go of the `mechanic-reviewer`: a result 1 is not a reaction, e.g. under the post-block protection or with a second attack in the frame, and it left the port's guard off for the rest of the Guard). The start-up log line now names the guard clip's two sources (Terra's Block with BBS FM, else KH1 Riku's).
+- **Review** (`mechanic-reviewer`): GO after the guard-off moved to the damage check. Open (not blocking, older than this Stage): two attacks in one frame, one blocked with a KH1 record, the other still costs HP (KH1: the first record's flag 0x80 makes it harmless).
+- **Checked**: tests (`rikus_guard_against_the_neoshadows_windows` now asserts the guard holds against all three Neoshadow attacks; `sweep`'s dive case), all affected crates. **Not checked**: in game.
+- **Not changed**: the window (frames 11..36 after the press, KH1's 10..36 one frame later) and the pose (same clip clock, 1-3 frames ahead of the window); the Defender's fireball (Re:CoM bullet, Re:CoM's block and turn-back as before).
+
+## Stage 409 (fork branch Re-Re-Reverse/Rebirth): Riku's right hand relaxed in the field walk and run (weapon put away), version 0.198.10 (2026-11-26)
+
+- **Ask** (fork owner, verbatim): "ficou PERFEITO empunhando a espada, mas sem espada na mão pode deixar o movimento das mãos mais natural, no andar corrida... antes faça uma release daquelas!" (0.198.9 released first: `v0.198.9-patched-20aa45d`).
+- **Where** (Checked (renders `hand_grip_checks` with the new `NO_WEAPON`, `HAND_POSES`, `HAND_BONE` switches)): in the field walk and run (`p002_002` / `p002_003`) Riku's right hand keeps the handle's hollow "C" with nothing in it; his left hand hangs loose in the walk and opens with the swing in the run. Same on the Dark Form skin (Riku's clips on Dark Riku's model).
+- **When those clips play** (Checked (exe)): `0x1401F9380` picks rows 2 / 3 when player `+0x418` bit 1 is set, else 0x12 / 0x13 (0x2B / 0x2C in the battle stance); the draw-weapon `0x1401F5D30` clears it (`and dword [reg+0x418], 0xFD` at `0x1401F5D4A`) and the instruction at `0x140216090`, just before Riku's draw `0x1402160A0`, sets it. So rows 2 / 3 play only with the weapon put away. The field idle (row 1) also plays with the weapon out (`0x1401F9380` cases 2 / 0x1F) and is not changed. The mod's own picker (`rows::row_for`) follows the same rule.
+- **Change** (new `hands.rs`, called in `riku_skin::build_with` after the grip, on Riku's pack (`PL0101` / `PL0111`) and the Dark Form skin's (121 / 131)): in `p002_002` / `p002_003` the 15 right-finger bones take the left twins' rotations at the same frame, mirrored through the rest pose (`P_b = Rw_r · S · Rw_lᵀ`, right local = `P_c · L_l · P_parent⁻¹`; the model is mirror-symmetric at rest within 2e-6 m). The hand, arm and body keep the clip's motion. Dark Riku's own pack (the Dark Mode, battle only) is not changed.
+- **Reviews** (`model-reviewer`): (1) no-go: on the Dark Form skin, run frame 11, the opened fingers went ~2 cm through the coat tail. Fix: `hands::Clearance` (right-finger vertices to the coat's `*_skt*` triangles); per frame the mirror's weight is lowered in tenths until the fingers keep `CLEAR` 1.5 cm, eased over ±3 frames. (2) no-go: a tip still showed through the tail from the outer side, 1.2 mm from it: an unsigned distance near the clip's own contact counts a tip on the far side as clear. Fix: the relaxed shape keeps `MIN_GAP` 6 mm where the clip's own hand is nearer (else 1.5 cm), no finger vertex may change side of the coat (parity of the coat crossings from the wrist), and each eased in-between weight is checked again (in-between shapes are no nearer than the clip's own). The skin's run weights: 0 at frames 1-2 and 11-12, 0.29-0.43 elsewhere, up to 0.71 on the back swing; Riku's own pack and the walk stay at 1. At weight 0 the hand is 0.198.9's (renders `hand_0201_v9` = the build with `hands::OFF`, identical to `rv12` at run 11). Test `relaxed_skin_hand_keeps_clear_of_the_coat` (the skin pack against the same build without the relax). (3) `model-reviewer` GO: run 11 from the outer side identical to 0.198.9 (`hand_0201_v9q` with the new `NO_RELAX` switch), no fingertip on the tail beyond 0.198.9's in any of the run's 22 frames, no pop frame to frame; Riku's pack, the walk and the grip clips unchanged.
+- **Checked**: test `hands::tests::relaxed_right_hand_mirrors_the_left` (every frame: right fingers within 1 mm of the mirrored left; no other bone moves); renders `hand/hand_0101_relax`, `hand_0201_relax` (`walk0`, `walk12`, `run3`, `run9`, whole body). Not checked: in game; the blend into and out of the walk / run (the game blends the clips; the fingers turn from the "C" to the loose hand over the blend).
+
+## Stage 408 (fork branch Re-Re-Reverse/Rebirth): Riku's right hand closed on his weapon (default attire and Dark Form), version 0.198.9 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, two screenshots of the hand on the Soul Eater (default attire and Dark Form): "dps tbm quero verificar se tem como melhorar o encaixe da espada na mão do Riku tanto darkmode quanto skin default, acho que tem muita folga na mão é não é acurado com a realidade"; asked whether the default attire's hand (Re:CoM's own grip) changes in every mode: "Always"; "precisa ficar natural", "e anatomicamente correto", "sem dentruir com as animações, lógico"; the pose of the screenshots: standing in battle, KH1 gameplay; "sim" to taking the grip from Riku's own clips.
+
+- **Addresses**: none (assets only).
+- **Found** (Checked (files, renders)): `wep0` sits in the hand in every clip (the blade is not off, test `riku_skin::grip_probe`); the handle is a cylinder of 1.1-2.3 cm radius with rings only at its ends (`handle_profile`). The owner's open hand is the battle stance `p002_031` (Riku's action row 0x2A): an open "C", the thumb tip 2.7 cm from the index (renders `hand_<grp>_before/stance_*` match both screenshots). Riku's own `p002_053` frame 16 holds the handle in a closed fist (thumb 0.2 cm from the index, `closed_grip_search`); Dark Riku's own `p003_008` frame 3 (0.6 cm).
+- **Change** (`crate::grip::close`, in `riku_skin::build_with` on Riku's pack (101, 111) and on the Dark Form skin's (121, 131) after the tails; every group built on them takes it): per clip and frame, the 15 right-finger bones turn toward that grip by a weight growing with the frame's thumb-index opening (0 at 0.8 cm, 1 at 1.8), smoothed over 5 frames; a hand the clip already closes is left as it is; nothing else changes. Test renders `kh2_hair::tests::hand_grip_checks` (`out/hand/`, right hand with the weapon, 8 views incl. along the handle; `VIEWS`, `HAND_HALF`).
+- **Tried and dropped**: bending each finger at its joints until it met the handle (`grip.rs`'s first version): Dark Riku's hand closed, Riku's did not (his fingers already touch the handle's side; the opening is between the thumb and the index).
+- **Review** (`model-reviewer`, no-go): (1) an empty fist in `p002_078..081` (incl. the looped idle `p002_079`), where the hand lies flat along the weapon (opening 6.7-10 cm); (2) the fingers' own motion frozen (guard `p002_225`, item use `p002_034`, `p002_039`, 081: 3-22 deg/frame → 0); (3) up to 1 cm into the handle on the Dark Form skin (`p002_039`, `p002_004` f16); (4) the test's "before" for the skin already had the grip, and its camera moved with the fingers. Fixes (`grip.rs`): the weight fades to 0 between 4.5 and 6 cm of opening (`NOT_HOLDING`, `FADE`: the hand is not around the handle); the grip is an offset from the clip's least-open holding frame (`grip · least⁻¹ · frame`), so the fingers keep their motion; per frame, no finger deeper into the handle (its end rings' median radius) than the clip's own or the grip's own pose plus 3 mm (`MAX_DEPTH`), the weight lowered in tenths; `NO_GRIP` (test) builds the skin without it; the close-ups centred on `r_hand`, new views (`idle79`, `s81`, `item34`, `s39`, `jump16`). Renders `g10`: the battle stance closed on both models (Riku's thumb 2.7 → 0.18 cm from the index; Dark Riku's "C" of 4.5 cm closed); `p002_079` unchanged on both.
+- **Second review** (`model-reviewer`, no-go): (A) the per-frame weight closed and opened the fist inside a clip (walk twice a cycle; the skin's item use and guard); (B) `p002_010` opened wider than its own pose (skin up to 10 cm). Fixes: one weight per clip from its median opening (the per-frame limits only lower it); per frame, the opening no more than the clip's own + 5 mm (`MAX_WIDER`), the weight lowered in tenths. Test `grip_close_report` asserts it on Riku's and Dark Riku's packs and lists any frame-to-frame turn of the grip over 12 deg (none). Renders `g11`: the battle stance closed on both models.
+- **Third review** (`model-reviewer`, no-go on the Dark Form skin only; Riku's pack passed): the skin's `p002_010` opened past its own clip (2.5-4.8 → 1.0-7.0 cm) and its walk's fingers moved faster (4.0 → 14.7 deg/frame). Cause: the skin was retargeted from Riku's already-gripped pack, so its own grip's limits measured an already-changed clip. Fix: the skin retargets Riku's pack as it was before the grip (`ann_plain`) and takes only Dark Riku's grip. Test `skin_grip_bounds` (the skin's pack from `build_with`, with and without `NO_GRIP`): no clip's fingers faster than their own + 2 deg/frame (it passes; the first version of this test and the "no turn over 12 deg" check above converted the clips' radians to radians again and measured almost nothing; fixed).
+- **After the third review**: `skin_grip_bounds` then failed on the skin's jump (`p002_004`: still fingers moving 8.3 deg/frame): the per-frame limits lowered the weight in some frames only. Now the limits pick one weight for the whole clip (the largest, from the clip's own down in tenths, that keeps every frame within them). The tests' switch is per thread (`grip::OFF`; an env var raced between parallel tests). Renders `g12`: the battle stance closed on both models.
+- **Fourth / fifth review**: each finger's tip no farther from the handle's axis than the clip's own + 5 mm (fingers 3-5 had stood straight off the handle in the skin's `p002_010` in a build between reviews); `model-reviewer` GO: one constant turn per clip, finger speed equal to the clip's own in every clip checked, the stance closed (Riku 2.7 → 0.2 cm, Dark Riku 4.5 → 0.6), walk / guard / 078 / 079 / 081 untouched, body unchanged (≤ 4e-5). To look at in game: the Dark Form's jump (`p002_004`, fingertips 6 mm onto the braid).
+- **In game (owner, 0.198.9)**: "ficou PERFEITO empunhando a espada".
+- **Not checked**: in game; the KH2 / BBS hair groups (built on these packs) not rendered for the hand.
+
+## Stage 407 (fork branch Re-Re-Reverse/Rebirth): the Dark Form skin's coat tails move, version 0.198.8 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, a screenshot of the Dark Form's coat tails: "no darkmode queria ver se é possível animar a saia do riku fica muito estática"; later "tem como melhorar ainda mais a animação da saia?"; "yes" to the numbered plan (1 Dark Riku's own tail motion where the clip's role is known; 2 a baked follow-through elsewhere; 3 whole-body renders and `model-reviewer`; 4 the owner's test, commit, release).
+
+- **Addresses**: none (assets only).
+- **Found** (Checked (files), test `riku_skin::skirt_probe::skirt_motion_probe`): the skin's 38 coat-tail bones (`*_skt*`) stay at rest in all its 64 clips (0.0 deg; the skin plays Riku's motions, which have no tail bones); Dark Riku's own clips turn them up to 10.7 deg idle, 19.2 walk, 110 run, 120-130 jump / fall. His slots pair with Riku's by number (`p002_NNN` / `p003_NNN`); idle, walk, run and jump also by length and loop (100 / 80 loop, 32 / 34 loop, 22 / 20 loop, 17 / 17); the other numbers differ in length or loop (not paired).
+- **Change** (`crate::tails::{COPY, SPRING, animate}`, called in `riku_skin::build_with` after the skin's pack is made): for each skin clip whose tails are still at rest: Riku's idle (1, 31, 79), walk (2, 28, 32, 80), run (3, 21, 33) and jump (4, 26) take Dark Riku's slot 1 / 2 / 3 / 4 tail rotations, time-scaled (cycle onto cycle when both loop); every other clip gets a follow-through: each tail chain's root turns about its origin by a damped spring (1.6 Hz, damping 0.35, lever 0.35 m, at most 55 deg) driven by minus the root's world acceleration, looped clips simulated twice and the second pass kept. Clips whose tails already move (Dark Riku's own cast and flip clips in the skin) are kept. All Dark Form groups (121, 131, 161, 171 and the hair groups 184-199) take it (built on 121 / 131). Test renders: `FULL_BODY` (every bone and part 3's list B) and `kh2_hair::tests::dark_skirt_checks` (`out/dark/skirt_<tag>/`, `SKIRT_BEFORE=1` the old still tails).
+- **Checked** (renders `skirt_before` / `skirt_after`): run: the tails fan back as on Dark Riku; walk: a light swing; the first ground swing (simulated): the tails lag on the lunge (f6), follow (f12) and settle (f18), not through the legs in the side view. The probe asserts the skin's run and first swing turn the tails more than 10 deg.
+- **Review** (`model-reviewer`, no-go): (1) the tails popped where looped clips with a later loop start go back (slot 26 73 deg, 52 55, 57 52, 58 28, 35 11); (2) the rear thigh through the back tail in the first ground swing (frame 12, side), the spring having swung it forward to vertical. Fixes (`tails.rs`): Dark Riku's tails are copied only on clips that loop whole or not at all (slot 26 loops from frame 16: simulated); the follow-through simulates a loop's segment (`loop_start − 1` to the end) until its start repeats (≤ 0.1 deg, at most 12 passes) and eases the frames before it from rest into it; the springs act along the body's forward and side axes (the parent's rest +z / +x carried by its world pose) instead of the world's, with the tip forward at most 15 deg, back 55, sideways 35 (`SWING_LIMITS`); the drive is clamped to what holds the widest swing and the turn to 300 deg/s (`SWING_RATE`; the first fix still took 26-53 deg steps on acceleration spikes). Checked (probe, now a test): every looped skin clip's tail jump at its loop ≤ max(5 deg, 1.5 × its largest step) (slots 26 / 35 / 52 / 57 / 58: 0.1 / 0.1 / 0.1 / 0.3 / 0.1); the simulated clips' largest steps 9-14 deg; renders `skirt_fix`.
+- **In game** (fork owner, on 0.198.8 after the second review's go: "andando e correndo ficou perfeito, o problema foi pulando"; "retificando, pulando segurando o B"; "quickjump está perfeito tbm"; "pra vc saber eu segurei B e não soltei"): the held jump goes on through the apex, the fall loop and the landing, which took the follow-through starting from the tails at rest right after the copied jump's spread tails. Checked (exe: the action tables `0x1407C6370` / `0x1407C67F0`, rows 4-7): Riku's jump / apex / fall / land are `p002_004..007`, Dark Riku's `p003_004` / `_006` / `_007` / `_008`. Fix: [`COPY`] also takes Dark Riku's apex (6 → Riku's 5), fall (7 → 6) and land (8 → 7); the copy blends Dark Riku's frames as rotations (its Euler blend across a ±180 deg wrap made a 123 deg step on the apex; now 19). Checked (probe): the held jump's seams equal Dark Riku's own (jump → apex 6.7 deg, apex → fall 17.0, fall → land 39.3 against his 38.4); renders `skirt_jump4` (jump, apex, fall, land).
+- **Assumption**: the spring's constants; that copying Dark Riku's idle / walk / run / jump tails onto Riku's body motion reads right (their gait timing differs a little: 32 / 34, 22 / 20 frames).
+- **In game, after the held-jump fix**: fork owner, verbatim: "está perfeito agora" (walk, run, quick and held jump, before: "andando e correndo ficou perfeito").
+
+## Stage 406 (fork branch Re-Re-Reverse/Rebirth): KH2's and BBS's hair on the Dark Form skin, version 0.198.7 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, on 0.198.6 in game: "muito melhor! ficou quase perfeito, agora implementa todos os cabelos para o a Skin do riku Darkmode tbm , comita e lança uma release"; then "sim" to the numbered plan (1 commit and release 0.198.6 first, done: v0.198.6-patched-e39dd58; 2 research `PL0201`; 3 generalize the swap and put the KH2 and BBS hairs on it; 4 the event packs / clips at the new bone count; 5 camera checks and `model-reviewer`; 6 the owner's test, commit and a second release).
+
+- **Addresses**: none (assets only).
+- **Found** (Checked (files), test `dark_probe`): Dark Riku's `PL0201` / `PL0211` (the Dark Form skin's model, groups 121 / 131): part 0 has packets whose header words 2 and 4 hold a count other than the vertex count (49 vertices, 45 there), which the reader refused; part 3 has textures `n_zz120_03` / `_02` / `_01` (`_13` / `_12` / `_11` on 0211) and a list B of 7 packets: the coat tails only (`*_skt*`, `hip`, `waist`, on `_02`), no hair or head; his hair is on `_01` (with the face; 164 hair-bone vertices) and `_02` (with the coat; 90), plus pieces on `head` in `_02`'s hair islands. Every part of both models reads and writes back byte for byte with the change below.
+- **Change**:
+  - `mdl::MeshPacket::count`: header words 2 / 4's count kept as read when it is not the vertex count, written back the same.
+  - `ddd_hair`: `HairTarget::also` (a second hair texture: its triangles in hair islands that touch the head or a hair bone are removed, `HairReport::also_removed`); part 3's list B kept as it is when it has no hair or head vertex (and counted in the part's bounds); `RIKU_0201_KH2 / _BBS`, `RIKU_0211_KH2 / _BBS`.
+  - `riku_skin::{DARK_KH2_HAIR_GROUPS (184, 194, 188, 198), DARK_BBS_HAIR_GROUPS (185, 195, 189, 199), build_hair_from}`: the skin's groups 121 / 131 (built first) with each hair, with the Soul Eater and the Keyblade of Heart; RTM / TXA from Dark Riku's 201 / 211; in the asset step (`step.rs`) and the generated files list (`keyblade.rs`). The DLL needed no change: it picks the group by the look's dark / blade / hair (`riku_skin::group_for`), the camp menu's Hair row applies to every costume.
+  - Test renders: `kh2_hair::tests::{view_at, dark_camera_checks}` (`out/dark/<kh2|bbs|recom>_<tag>/`, `DARK_HAIR=`); renders framed by the body (no head / hair corner) with fixed margins, so a hair change no longer moves the picture; the run's side and nape views in every camera check.
+- **Checked**: test `the_dark_hair_groups_are_built_from_the_dark_skin` (all 8 groups; KH2 139 bones, BBS 128; every clip at the model's bone count; the body's hair changed; the coat's list B kept; the groups are free in Recom.hed); renders `out/dark/*_cam3` against the skin as it is (`recom_cam3`, `render-diff`): changes only on the head and hair; the first build left Dark Riku's `head` pieces of `_02` as dark spikes above the ears (`kh2_cam`), removed (`cam2`); KH2's hair on the Dark Form looks as on Riku (face close-ups side by side), down in the run and over the nape in the walk.
+- **Review** (`model-reviewer`, no-go): (1) a flat grey dome between the new hair and the collar in the walk from below (both hairs), and a grey tab in BBS's close-ups: Checked (test `dark_probe`, the `_02` triangles left after the swap): 8 whole `head` / `neck*` triangles of the old hair's base over the nape (|x| ≤ 2.8 cm, 0.8-4.5 cm under the head bone, 6-9 cm behind), in no hair island; now removed with the second texture's hair (`ddd_hair::ALSO_NAPE` [0.04, -0.06, 0.0, -0.05]); renders `out/dark/*_fix1`: the dome and the tab gone, the collar closed under the hair (no hole). (2) The reference render drew the face from the SD TIM2, the others from the HD DDS: now the HD asset; the face's skin pixels in both renders are identical (19 057 / 17 099 / 20 882 in three close-ups, `cam4`).
+- **In game** (fork owner, on 0.198.7 after the review's go, a screenshot of the Dark Form with KH2's hair: long straight locks sticking out sideways, "bizarro hein..."; "só aconteceu com o cabelo do KH2 no darkmode"; it stayed after a room change). Ruled out by measurement: the video-memory packet budget (largest packet 107 qw of 208), the PC converter's 48 bones per batch (largest 23), bone indices of 128 and up (Re:CoM's own Sora, PL0405/0407 and enemies skin vertices to them), a runtime writer of hair bones in the DLL (none), the clips (all 139 bones; posed with the game's own `PL0184` files no hair bone leaves the head, test `game_group_probe`). Cause, Checked (files: the game's `PL0184.MDL` against the test's, the rest matrices of the hair bones differ; code): `Kh2HairSource` kept one rig (`OnceCell`) from the first skeleton it saw; the asset step builds Riku's groups first, so the Dark Form got Riku's rig (his bone indices, his fit); the tests used a fresh source. Fix: one rig per skeleton (key: its bone names) and the hair's triangles take the rig of their skeleton; test `one_kh2_source_builds_riku_then_the_dark_form_as_a_fresh_one` (the shared source's Dark Form group is byte for byte the fresh one's, i.e. what the renders and the review saw). BBS's source makes its rig per model and was not affected.
+- **Assumption / known**: the KH2 hair makes the Dark Form 139 bones (the skin is 128): Riku's event packs have no copies at those counts, so the boss-end card get waits on them as it already does with the Dark Form skin (the soft-lock audit of 2026-11-25, item 1, not fixed). The Halloween Town Dark models (188 / 189 / 198 / 199) are built and tested, not rendered. The battle's Dark Mode (groups 201 / 211) is not changed.
+- **Not checked**: in game. The user must press Build.
+
+## Stage 405 (fork branch Re-Re-Reverse/Rebirth): the long back locks split off KH2 bones 101 / 104 and turned down in the walk and run, version 0.198.6 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, on 0.198.5 in game: "sim, e já aproveita e continue com a correção da nuca" (yes to separating the long back locks from the cap, Stage 402's proposal), two screenshots from behind with a box at the nape: "eu testei andando e corrento com a camera baixa"; then a side view of the run: "Cabelo levanta DEMAIS!".
+
+- **Addresses**: none (assets only).
+- **Found**: run, low camera (`images/5.png`, x 100-106, y 62): (191,188,211) above the collar, the background (196,193,215): a hole through the nape; walk (`images/6.png`): neck skin and the grey piece above the collar. Checked (fitted vertices per Re:CoM bone): the Re:CoM bones of KH2 101 (`b_hair2`) and 104 (`b_hair1`) carry no cap: all their vertices are 15.7-41.9 cm from the head's centre (the cap's skin is the head bone's lining); [`NO_TILT`] had kept them out of the extra turn. Checked (test `run_lean`, now `LEAN_SLOT` / `LEAN_CLIPS`): KH2's walk tilts the head 30 deg forward (bend 44.5 against the upper chest), Re:CoM's walk (clip 2) 6 deg (11.2); the run 37 / 1.4 (Stage 402).
+- **Change** (`kh2_hair_rig::{SPLIT, SPLIT_R [0.14, 0.17], SPLIT_Z -0.03, Rig::split}`, `extend_skeleton`, `Rig::new`, `tilt_hair`; `Kh2HairSource::hair_tris`; `EXTRA_TILT` run -36, walk -24): four bones appended after the 7 extra ones (`k2_hair_101a/b/c`, `k2_hair_104c`; parent `head`, the same rest and KH2 motion as their source; Riku 109 → 113 bones, the event pack copies follow the count). A vertex that follows `b_hair2` / `b_hair1`, 3 cm or more behind the head bone, goes to `101a` (1/3 of the turn) under 17.5 cm from the head's centre, `101b` (2/3) under 19.5 cm, `101c` (all) beyond; 104's all to `104c` (101a 100, 101b 136, 101c 304, 104c 196 corners). The first build had two steps (½ at 14-17 cm, 68 corners, then all): `model-reviewer` found a straight seam across the run's back from the high camera (`run_high_f6` / `f17`), softened with the three steps (`cam_0198_6d`). In the clips on KH2's walk and run, each turns by its fraction of `EXTRA_TILT` about the source's origin; the other back-rooted bones by all of it (as 0.195.1-0.196.5). The amounts are the measured world head-tilt differences (Assumption: that matching the world tilt is the right measure; the torso-relative difference is 20 deg run, 33 walk). `kh2_hair_moves_as_kh2` skips the tilted clips (they leave KH2's motion on purpose). New debug: `BONE_COLOURS` (hair flat-coloured by bone in the camera checks), walk views in `camera_checks` (`walk_{low,high,side90,side270}_f*`).
+- **Checked** (renders `cam_0198_6c` against `cam_0198_5` / `cam_walk_base`, `scripts/render-diff.py`): idle views unchanged; changes only in the walk and run views: the back hair lower in the side views, the nape covered down to the collar from below (run 6 / 17, walk); in the run face close-ups only hair moves (side locks by the neck, a fringe edge by a few pixels, a spike by the ear dropped), nothing new over the skin; 3-33 px render noise on the shirt and under the arm with no visible difference. All hair tests (34).
+- **Review** (`model-reviewer`, no-go on the two-step build): the run's nape hole of `images/5.png` is closed (312 background pixels above the collar → 0); the walk's grey piece of `images/6.png` is unchanged: Checked (`PICK`, the render's triangle at a pixel): head-bone triangles with the hair's texels, the KH2 hair's lining (Stage 392) seen from below, the neck skin under it; this change does not move it. Also: about 5 hair tips under the swung arm in run 11 (side), against 2 (not settled by renders); from the owner's low camera the run's outline reads as a dome with flatter locks. New debug `PICK=x,y` (camera checks print the triangle drawn there), walk nape close-ups (`closeup_back_walk_f*_p{-15,-25,0}`).
+- **After the review** (fork owner: "ele dando no-go tem que prosseguir para o que o agente apontou!"): (1) the seam: three steps (above); (2) the walk's nape: the nape curtain again (`HairSource::nape_curtain_hair`; `kh2_hair::{NAPE_HAIR_BOTTOM -0.055, NAPE_HAIR_BONE "chest1", NAPE_HAIR_TUCK 0.015, NAPE_HAIR_X 0.03}`), now on the hair's texels (one texel per strip, the hair vertex nearest its middle) and ending inside the collar: Checked (files, rest): the vest's top behind the neck is 4.5 cm under the head bone, on `chest1`; the curtain's bottom corners are 1 cm under it, pulled 1.5 cm toward `chest1`'s origin, on `chest1`, so they stretch as the neck bends and the vest covers them. Open head edges within 3 cm of the middle (2): 9 cm and 5 cm wide showed the curtain beside the neck from the front (`cam_0198_6e` / `6f` against `6d`: a flat plate, and with a texel per corner a stripe of other texels). `cam_0198_6g`: front views unchanged; the walk's nape at -15 / -25 deg covered in the middle (no grey piece, no skin there); left: a small skin triangle left of the middle at -15 and a thin skin line at -25; from the side and 25 deg, a narrow dark strip behind the neck where the lining's grey was.
+- **Second review** (`model-reviewer`, no-go: the owner's "Cabelo levanta DEMAIS!" reduced, not gone; "make this a number"): test `back_lock_angle`, per back-rooted lock (14) the root → tip direction against the head → chest line: KH2's own run 74.0 deg, walk 72.4; ours with no extra turn 80.0 / 79.8, -24: 73.8 / 74.0, -36: 71.1 / 71.2, and it stops gaining past -60 (68): against the back, KH2 is already matched; KH2's locks look low because its body leans far forward, Riku's is upright. Found on the way (Checked, `head_rest_convention` and a per-bone turn measure in `back_lock_angle`): each lock turned the asked angle about the head's side axis, but about the bone's origin, mid-lock; now about the lock's root (`tilt_hair` `roots`: the bone's KH2 vertex nearest the head bone at rest). New approach (the stop rule): in the walk and run the back-rooted locks (and the split ones) take [`MOVE_KEEP`] 0.5 of KH2's walk / run and 0.5 of KH2's idle at the same time (`rot_toward`, the hair hanging), then the extra turn (run -36, walk -24). Renders `blend_*` (side, run 6: 0.198.5, -36, keep 0.5, keep 0.5 + -36, keep 0.25) → 0.5 + -36 chosen. Assumption: 0.5. `cam_0198_6h` against `6g`: idle and orbit unchanged; run / walk only: back hair in a slant from the side, the nape covered by hair at walk -15 and run -25, no seam from the high camera; in the run face close-ups only the side locks by the neck move (and they cover more of the collar).
+- **Not checked**: in game; the motion of the walk / run hair is half KH2's (less lively than KH2's); the seam between the cap and the `a` / `b` bands in motion; jump, fall and flinch keep KH2's motion as it is.
+
+## Stage 404 (fork branch Re-Re-Reverse/Rebirth): 0.198.4's kept Re:CoM nape hair removed; close-ups in the camera checks, version 0.198.5 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, on 0.198.4 in game, two screenshots (the face from the front with a ring on the cheek; the back in idle with a ring round the hair and the vest): "você não viu isso??? , já cria um agente e skills especializad@s em validar esse tipo de alteração para esses errors não acontecerem mais".
+
+- **Addresses**: none (assets only).
+- **Found**: (1) the face: thin grey-blue lines across the cheek and beside the nose; (2) the back: a row of pale flat "teeth" of hair hanging over the vest under the KH2 hair. Both reproduced in close-ups (`cam_0198_4/closeup_face_idle_f25_y25`, `closeup_back_run_f6` / `f17`) and both gone with Stage 403's kept triangles left out (`cam_nokeep`). Stage 403's checks missed them: the 350 px sheet cells show the face at about 40 px, and `nape_f6` did show the pale block over the vest, misread as "a layer down to the collar".
+- **Change**: `HairSource::keep_recom_hair`, `HairReport::kept_recom` and `kh2_hair::{RECOM_NAPE_*, in_recom_nape_window}` removed: the swap is 0.198.3's (renders: the 21 views both versions have are identical, byte for byte). New `kh2_hair::tests::{render_focus, render_view}` close-ups (a world point and a half-width, 700 px) in `camera_checks`: the face from the front and 25 deg to each side (idle 0 / 25 / 50 / 75, run 0 / 6 / 11 / 17) and the back of the neck (idle, run), `closeup_*.png`. Test `recom_own_nape` (Re:CoM's own Riku textured) kept as a reference.
+- **Checked** (renders `cam_0198_5`): no lines on the face; no pale block on the vest; the nape as in 0.198.3 (open in the run from below: the owner's box of Stage 403 is back).
+- **Not checked**: in game. The user must press Build.
+
+## Stage 403 (fork branch Re-Re-Reverse/Rebirth): Re:CoM's own hair kept over the nape under the KH2 hair, version 0.198.4 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, on 0.198.3 in game, a screenshot from behind with a yellow box at the nape over the collar: "de fato a faixa estar vazando foi ajustada"; asked whether the box meant the grey piece above the collar, the bare nape, or both: "c".
+
+- **Addresses**: none (assets only).
+- **Found**: the box (x 78-115, y 84-102 of 222x238): neck skin in shadow (101,41,25) at the sides and a grey-blue piece (65,60,72) in the middle, above the gold collar, under the hair. Reproduced (render `cam_0198_3/nape_f6_p-15`: skin and the grey piece above the collar). Checked (render `cam_recom`, Re:CoM's own Riku textured, test `kh2_hair::tests::recom_own_nape`): Re:CoM's own hair comes down to the collar and covers both; its triangles there are on `head`, `b_hair2` and `b_hair3` (atlas texture). The swap removed them with the rest of Re:CoM's hair.
+- **Change** (`ddd_hair::HairSource::keep_recom_hair`, `HairReport::kept_recom`; `kh2_hair::{RECOM_NAPE_Y [-0.12, 0.0], RECOM_NAPE_Z -0.02, RECOM_NAPE_X 0.08, in_recom_nape_window}`): Re:CoM hair triangles with their centroid at rest 0-12 cm under the head bone, 2 cm or more behind it and within 8 cm of the middle are kept (71 triangles, Riku's atlas, texels unchanged); their hair-bone corners are moved onto `head` (same world position at rest), since KH2's motion now drives Re:CoM's hair bones. BBS and DDD keep none (the default).
+- **Checked** (renders `cam_0198_4`, textured): run 6 / 17 from below: the nape is covered by a layer of Re:CoM's hair down to the collar; no skin and no grey piece; the orbit, the run high / low and the run's sides show no odd piece. All hair tests (34).
+- **Not checked**: in game; the kept piece is rigid with the head, so with the head bent far back it may go into the collar (not seen in the renders); its colour is Re:CoM's hair texture, a little lighter than the KH2 hair in the renders. The user must press Build.
+
+## Stage 402 (fork branch Re-Re-Reverse/Rebirth): the nape curtain removed; the camera checks textured; KH2's own Riku in the same cameras, version 0.198.3 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, on 0.198.2 in game, a screenshot from behind in the run, an arrow at the top of the collar: "além de não ter ficado bom, vazou pelo pescoço a tentativa de forrar o vão que esta aparecendo não tem como melhorasr a parte de trás do cabelo como um todo?"; then "ss" to the numbered proposal (1 remove the curtain, 2 render KH2's own Riku in the same cameras, 4 texture the test renders; 3, the redo of the back, waits for the comparison).
+
+- **Addresses**: none (assets only).
+- **Found**: the screenshot's spot (x 100-128, y 140-146 of 276x264): a gold band with a light edge and dark red-brown pixels (73,21,11) over the vest's collar. Reproduced (render `nape_f6_p-15`, run frame 6, 15 deg from below, now textured): the gold band is Riku's own yellow collar (there without the curtain too); the dark red-brown strip beside and under it is Stage 401's skin curtain, shaded, in front of the collar. 0.198.2's checks drew the body flat grey-blue, so the curtain and the collar looked alike there.
+- **Change**: `Kh2HairSource` no longer gives `nape_curtain` (the swap's default, none): no curtain edges (`kh2_camera_checks` asserts 0). The camera checks draw the body with its own textures (`kh2_hair::tests::{body_textures, render_cam}`; Checked (files): part 3's texture table is `n_zz110_02` (vest), `n_zz110_01` (face / skin atlas), `rk_hair_kh2`, so its index 0 is the `.RTM`'s entry 1 and the reverse; they are matched by name). New debug test `kh2_hair_rig::kh2_self_cam::kh2_self_camera_checks`: KH2 Riku with his model, textures and the emulator's matrices of his run (slot 8, `emu_full`, two samples per frame) and idle, yaw every 45 deg at -35 / 0 / +35 deg (`out/kh2/kh2_self_cam/`).
+- **Checked** (renders): without the curtain the dark strip is gone (`cam_before_0198_3` vs `cam_0198_3`, run 6 / 17 from below); no background through the nape in the 12 run views and the 8-view orbit. KH2's own run (renders): Riku leans far forward and the back hair fans out in spikes from behind, as ours does from below; his nape is covered by KH2's vest, whose collar comes up the neck (Re:CoM's does not). From above, KH2's fan stays spread, while ours hangs long and smooth (Re:CoM's run is upright). Assumption: the different look comes from the different lean and collar, not from the hair motion (the hair bones follow KH2's own curves, Stage 397).
+- **3(a) measured, not built** (fork owner: "a", the run's back hair turned down by the body's difference): test `kh2_hair_rig::tests::run_lean` (Checked, emulator and clips): KH2's run tilts the head 37 deg forward of its rest (32.7-41.1) and bends it 46 deg against the upper chest beyond rest; Re:CoM's run (clip 3) 1.4 deg and 26 deg (clips 21 / 33: 16.5 / 30.5 and 17 / 22). Renders with `EXTRA_TILT` run -20 / -36 / -90 (`cam_tilt*`, `cam_chain*`, new side views `run_side_*` in `kh2_camera_checks`): the long back locks hardly move even at -90. Found (vertex counts per bone, run frame 6): they are on `b_hair2` (KH2 101, 540 vertices) and `b_hair1` (KH2 104, 196), the bones [`NO_TILT`] leaves out as "the skull cap"; they carry the cap and the long back hair together. A per-lock turn about the lock's root was tried and dropped (KH2's kept hair bones have no kept parents, so each lock is one bone already). `EXTRA_TILT` stays 0; the build is 0.198.3's.
+
+## Stage 401 (fork branch Re-Re-Reverse/Rebirth): the nape closed with a curtain of skin, not a copy of the hair; camera checks as renders, version 0.198.2 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, on 0.198.1 in game, a screenshot from a low camera behind Riku: "tampo mas ta um pouco estranho e ta estático tbm, sempre que fizer essas alterações tenta fazer um teste no jogo correndo com a camera pra cima e outra para baixo  e outra circulando o boneco em idle".
+
+- **Addresses**: none (assets only).
+- **Change** (`ddd_hair::with_hair` + `HairSource::nape_curtain`, `HairReport::nape`; `kh2_hair::{NAPE_BOTTOM -0.095, NAPE_Y [-0.03, 0.06], NAPE_Z -0.02, NAPE_X 0.09, NAPE_BONE "neck3", in_nape_window}`): 0.198.1's copy of the hair over the nape (76 spiky triangles rigid on `neck3`, the "estranho e estático") is removed. Each open head / neck edge of Riku's kept face behind and under the skull base (8 edges, Checked (files): `head` / `neck1`, 0-4 cm under the head bone) gets a two-sided strip of its own skin straight down to 9.5 cm under the head bone (the collar): top corners the edge's own (bones and texel), bottom corners on `neck3` (Checked (files): the neck's base, 10.3 cm under the head, at the collar), so it stretches with the neck. With the hair lifted, the nape shows neck skin instead of the background.
+- **Camera checks** (`kh2_hair::tests::{render_body_cam, camera_checks, kh2_camera_checks}`; the owner's three in-game checks, done as renders since the session cannot drive the game): run from behind with the camera low and high (four frames each), and the idle circled every 45 deg, light background so a hole shows; `out/kh2/cam/sheet.png`, plus nape close-ups of the run at 15 / 25 deg from below.
+- **Checked** (renders): in the run the nape shows skin under the lifted hair, no background through it; the orbit and the high camera show no odd piece. A small dark triangle at the top of the collar is Riku's own (there before any change). All hair tests.
+- **Not checked**: in game. The user must press Build.
+
+## Stage 400 (fork branch Re-Re-Reverse/Rebirth): a nape filler under the KH2 hair, version 0.198.1 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, on 0.197.7 in game: "eu testei o do bbs ta perfeito, e o do kh2 se vc correr vai perceber que na nuca pode ser necessário um enchimento ..."; then a screenshot from behind, running, an arrow at the nape.
+
+- **Addresses**: none (assets only).
+- **Found**: the screenshot shows the background (light grey) between the lifted hair and the collar, neck skin at its sides: a hole. Checked (files: the swapped model's open edges): Re:CoM's head ends at the back of the skull base (open `head` / `neck1` edges 0-4 cm under the head bone, 3-7 cm behind it) and the next surface is the collar (`chest1` edges about 8 cm lower): Re:CoM's own hair covered the nape. Reproduced (render, run frames 6 and 17 from behind): a dark notch over the collar, the neck skin around it.
+- **Change** (`kh2_hair::{NAPE_Y [-0.15, -0.03], NAPE_Z -0.02, NAPE_X 0.09, in_nape_window, nape_filler}`): the KH2 hair triangles over the nape at rest (centroid 3-15 cm under the head bone, behind 2 cm behind it, within 9 cm of the middle) are written again on `neck3`, pulled 8 % toward the head's centre (as the lining), same texels, two-sided, no plain-proxy copy: 76 triangles. They stay over the nape when the hair lifts.
+- **Checked**: all hair tests (`kh2_hair_does_not_cross_the_skin`; lining + filler 287 triangles); renders before / after (`out/kh2/rig/`: run 0 / 6 / 17 and idle 75 from behind): the notch and the bare neck are covered by hair in the run; at rest no straight-edged pieces (the Stage 398 issue).
+- **Not checked**: in game; whether the filler, rigid on `neck3`, shows when the head turns far from the neck. The user must press Build.
+
+## Stage 399 (fork branch Re-Re-Reverse/Rebirth): Riku learns his spells through his story (floors and bosses), version 0.198.0 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim: "já foi implementado quando desbloquear as magias do Riku e cada upgrade? ex Fire, Fira, Firaga?"; on the four ways (floor, boss, level, Dark Mode): "mas pela quantidade de magia e upgrade qual dessas estratégias sobra?"; to floors + bosses and the research: "sim"; to the spec's four questions: "dps de vencer malevola, não, deixa o al unlock quieto,  3 recalcula ss,".
+
+- **Read first** (the workspace's notes): `knowledge/ReCoM/recom-riku-story-floors.md` (searcher: his 17 battles, rooms, enemy groups, the player-ordered floors B11-B8 / B7-B4) and `recom-riku-story-progress.md` (reverse-engineer, Checked (decomp + exe + files) unless tagged): the floor reached is Re:CoM's (0, 0x35), the highest floor label (−12 = B12 … −1 = B1; raised only by the floor setter `0x140234630`, set to −666 at a new game); a boss's win is his enemy card's discovery state (≥ 2, `0x14015B3F0`; given by `CBossDeadDemo`'s reward `0x140187AA0`), except Vexen, Riku Replica I and II, whose wins are the hall scripts' bits of (0, 0x2A): 0x80, 0x400, 0x80000000; the spell bytes of our block (`save + 0x267A`) are free in Riku's save (Sora's sync never runs in his story).
+- **Rule** (`crate::riku_unlocks::{levels, derive, COUNTED, UPGRADES, FIRE_CARD}`, gameplay-designer's spec, approved): Fire when Maleficent is beaten (card `0x6D`); Blizzard on reaching B11, Thunder B10, Cure B9, Gravity B8, Stop B7, Aero B6; the k-th of 14 counted wins (the eight world bosses, Vexen, Replica I, Lexaeus, Darkside, Zexion, Replica II; not Maleficent, the Ansem tutorial or the final Ansem) gives Fira, Blizzara, Thundara, Cura, Gravira, Firaga, Stopra, Aerora, Curaga, Stopga, Graviga, Blizzaga, Thundaga, Aeroga, whatever boss it was (order-free); an upgrade waits for its spell; at most 3. In normal play Firaga lands at Replica I (B8), ahead of KH1's Stopra / Aerora (Riku has no Stop or Aero yet there).
+- **Runtime** (`win::unlocks::{riku_sync, riku_levels}`, `win::command_menu::riku_spell_levels`, `win::models::group_load`): derived from the save at a boss card's first pickup (the existing wrapper on `0x14015C7F0`) and at each room / battle build, merged into Riku's save's spell bytes (never lowered), each rise logged (`unlocks: Riku learned Fire …`, `Riku Fire -> Fira …`); his command menu and Customize read them (0.184.0-0.197.7: all seven at level 3). Old saves are recalculated from their progress (the owner's choice: their spells may drop). `all_unlock` unchanged (the owner: "deixa o al unlock quieto"); `riku_free_magic` unchanged.
+- **Checked**: `riku_unlocks` tests (the spec's table, each spell twice with -ra before -ga, no upgrade waits in normal play, waits and caps, cards and bits counted), all tests, the Windows build.
+- **Not checked**: in game. Assumptions: Zexion's Dark Mode end gives his card like the others; a lost battle never sets a hall bit (open question (b) of the note); a shortcut holding a spell not learned shows as Re:CoM's blank, greyed slot (read in the code, not seen). The user must press Build (no asset change; the DLL only).
+
+## Stage 398 (fork branch Re-Re-Reverse/Rebirth): the KH2 lining follows its locks; the BBS sway's jerk on `R_kamiB` fixed, version 0.197.7 (2026-11-26)
+
+Fork owner, 2026-11-26, verbatim, on 0.197.6 in game (`tools/status.sh`: game ran 0.197.6), four KH2 screenshots with arrows at straight edges across the locks (nape, behind the ear, the back) and two BBS screenshots boxing the lock above the right ear in idle: "ficou melhor de um jeito e ruim do outro percebi que vc preencheu oq faltava no cabelo do kh2 com o um mas algumas mexas ficaram esquisitas com a animação", "e o do bbs durante a animação de idle tbm tem uma movimentação brusca estranha dessa mecha".
+
+- **Addresses**: none (assets only).
+- **KH2, found** (Checked (render): the idle back view, 0.197.0 vs 0.197.6): the lining of Stage 392, rigid on `head`, shows over the locks that swing inward, as pieces with straight edges across the strands (the owner's arrows).
+- **KH2, change** (`kh2_hair::LINING_FOLLOWS = true`): each lining corner follows its hair corner's bone, 8 % inside it in every frame; the corners at the roots are on `head` already (KH2's cap bones), so the scalp seam stays covered. Tried on the renders and not kept: rigid at 20 % (clean at rest too, but a far swing can still uncover it).
+- **BBS, found** (Checked (files)): in the baked idle clips the `R_kamiB` bone (→ `r_hair4`, the right side above the ear, the owner's box) jumped 72-180 deg between frames (slot 1 frame 99; slots 31, 79); its kid angle z sits at ±180 deg and crosses it between the kid's frames 58 and 59, and `PamClip::local` interpolates the raw angle, so a time between whole frames (58.8) turned the lock the long way. The kid's own clip never steps more than 0.3 deg a frame.
+- **BBS, change** (`BbsHairSource::sway_local`): the kid's angles at the two whole frames around the time, interpolated the short way.
+- **Checked**: `bbs_hair_sways_as_the_kid` now also asserts every frame step of the five bones (idle < 1 deg, walk < 4, run < 12; the kid's run sweeps 37 deg in a few frames), the written turn equals the kid's (0.000 deg); `kh2_hair_does_not_cross_the_skin`, all hair tests; renders (`out/kh2/rig/`: idle side and back, run side and back) without the straight-edged pieces.
+- **Not checked**: in game. The user must press Build.
+
+## Stage 397 (fork branch Re-Re-Reverse/Rebirth): the KH2 hair at KH2's own speed in the idle clips; Dark Mode's hair looked at, not built, version 0.197.6 (2026-11-25)
+
+Fork owner, 2026-11-25, verbatim, after Stage 396's report (Dark Mode and item 5 left, the advice to test first): "prossiga".
+
+- **Addresses**: none (assets only).
+- **Item 5, found** (Checked (files)): Riku's looped idle clips `p002_001` (slot 1, 100 frames), `p002_031` (31, 80), `p002_079` (79, 40) have no `PL0101.EET` record and their names are not in `PL0101.SES`; the walk and run clips (2, 28, 32, 80, 3, 21, 33) are in the `.SES` (footstep cues), so their length stays. KH2's idle loop (120 frames) was stretched onto them: x1.20, x1.50, x3.00 (Stage 380).
+- **Change** (`kh2_hair_rig::{UNROLL [1, 31, 79], UNROLL_MAX 6, unroll_times, unroll}`, in `bake`): in the KH2-hair groups' `.ANN`, each of those clips is repeated whole until it and KH2's loop close together (slot 1 six times = 600 frames = 5 KH2 loops; 31 three times = 240 = 2; 79 three times = 120 = 1), every body channel sampled at its whole frames and written again; the hair then runs KH2's idle at KH2's speed. Assumption: nothing in Re:CoM counts Riku's idle loops by the clip's length (an idle fidget timed on it would come 3-6 times later).
+- **Checked**: `unroll_times_closes_the_loops`; `kh2_hair_moves_as_kh2` (the repeated clips' non-hair channels equal Re:CoM's at every frame within 0.001, the others byte-equal; worst hair vertex 8 mm); all hair tests.
+- **Dark Mode, found, not built** (Checked (files: `PL0201.MDL`)): Dark Riku's hair is on two textures (`n_zz120_01` 187 hair-bone triangles, `n_zz120_02` 91), his body part has a list B (`with_hair` handles only `PL0101`'s single list A), and the KH2 rig's bone append rejects his packets ("packet header not as Square writes it"). With the KH2 hair he would have 135 bones, which needs copies of his 128-bone event packs (4003 / 4043 / 4083) as Stage 395 did. Left for its own stage.
+- **Not checked**: in game. The user must press Build.
+
+## Stage 396 (fork branch Re-Re-Reverse/Rebirth): the KH2 hair in jump, fall, land, flinches, ledge grab and the first swing as KH2 has it; the ladder clips off the jump, version 0.197.5 (2026-11-25)
+
+Fork owner, 2026-11-25: item 4 of the seven ("todos", Stage 391): KH2's own hair motion in attacks and the other clips that played its idle sway.
+
+- **Addresses**: none (assets only).
+- **Found** (asset-analyst, the workspace's `knowledge/KH2/kh2-riku-motion-roles.md`): Riku's clip roles from his action table (`0x1407C6370`, rows 0x00-0x46, Checked (exe)), Sora's and KH1 Riku's bakes (Checked (files, 0.029 deg)): 4 / 5 / 6 / 7 jump / apex / fall / land, 37 / 38 flinch front / behind, 44 / 46 / 45 / 47 the ground swings, 16 ledge grab; 10 / 12 / 13 are rows 9 / 0xB / 0xC, the ladder set (hands above the head), which 0.195.0 had mapped to jump / fall. KH2 Riku has no guard, recoil, cast, card or dodge motion; his only spin (A400) turns the other way from Riku's 47 / 50. That Re:CoM plays rows 4-7 for Riku's jump: Assumption (not logged).
+- **Change** (`kh2_hair_rig::{CLIP_MAP (19 pairs), KH2_LAND 22, KH2_HANG 30, KH2_DAMAGE_FRONT 42, KH2_DAMAGE_BACK 50, KH2_SWING 608}`, `Kh2HairSource::motions` reads every slot the map names): added 4 → A003 jump, 5 / 6 → A004 fall, 7 → A005 land, 16 → A100 hang, 37 → A200, 38 → A202, 44 → A301 (low-medium in the note, the only swing kept); removed 10 → jump, 12 / 13 → fall (now KH2's idle sway). The other 30 clips keep the idle sway. The BBS sway (Stage 394) reads only the walk / run pairs: unchanged.
+- **Checked**: `kh2_hair_moves_as_kh2` (worst hair vertex off KH2's exact motion: jump 14 mm, fall 10, flinch 11, swing 9; idle / walk / run unchanged 7-10), all hair tests; renders (`out/kh2/rig/c4_f8`, `c6_f8`, `c37_f3`, `c37_f10`, `c44_f6`, `c44_f12`): the hair streams back in the jump, rises in the fall, swings forward in the flinch, whips across in the swing.
+- **Not checked**: in game; the blends into and out of these clips. The user must press Build.
+
+## Stage 395 (fork branch Re-Re-Reverse/Rebirth): Riku's event motions play with the KH2 hair (109-bone copies of his event packs), version 0.197.4 (2026-11-25)
+
+Fork owner, 2026-11-25: item 1 of the seven ("todos", Stage 391); to the fix the reverse-engineer recommended (a new hook at `0x14024D860` and new PLAYER groups): "ss".
+
+- **Found** (reverse-engineer, the workspace's `knowledge/ReCoM/recom-skeleton-limits.md` § event packs and `recom-battle-entry.md` § Boss end; Checked (decomp, files), not seen in game): Riku's event motion packs are 102 bones (4002 the boss end's card get, and 4012, 4032, 4042, 4052, 4062, 4072, 4082 of other event states; Dark Riku's 4003 / 4043 / 4083 are 128). `0x14024E9F0` skips a clip whose bone count (`clip+0x10`, i16) differs from the controller's (`+0x40`, i16): with the KH2 hair (109 bones, Stage 379) the motion never ends and its clock stays at 0, so the boss end in Riku's story (`0x140187DC0` states 10 / 0xE / 0x13) never leaves the room. A pack is fetched by global id (`10000 + group`) in `0x14024D860(ctrl, id, slot, start, …)` (callers `0x1401A3580`, `0x140112470`, `0x14045E530`).
+- **Assets** (`riku_skin::{EVENT_PACKS, EVENT_ALT 100, build_event_packs}`, `Kh2HairSource::bake_pack`, `kh2_hair_rig::bake(…, by_slot)`): when a KH2 hair group was built, each 102-bone pack of `EVENT_PACKS` gets a copy `PLAYER/41x2/PL41x2.ANN` (4102 … 4182): the 7 extra hair bones appended and the hair's channels baked as the KH2 hair does, with KH2's idle sway in every clip (`by_slot = false`: these slots are not `PL0101`'s). Manifest `kh1-riku-skin.json`: `"event_packs": [[4002, 4102], …]`. New names in `keyblade::new_resource_names` (placeholders for Panacea).
+- **DLL** (`riku_skin::{event_packs, add_event_rows, event_alt_id}`, `win::riku_skin::{event_packs, kh2_hair_look}`, `win::models::{pack_pick, clip_bones}`, new hook `sites::MODEL_HOOKS` "motion pack pick (0x14024D860)", 15 bytes `48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 30`): the PLAYER table copy gets one `.ANN` row per copy group (its own file only, so no Re:CoM file takes our id); the player-group wrapper (`0x140211AA0`) queues the copies in Riku's story when the look is the KH2 hair; `pack_pick` plays the copy's id when the requested pack is one of Riku's event packs, its clip's bone count differs from the controller's and the copy's clip matches. In every case Re:CoM plays itself nothing changes (the branch is taken only where Re:CoM would play nothing); Re:CoM's hair, BBS (102 bones) and all-Re:CoM settings never take it.
+- **Checked**: `the_event_packs_have_kh2_hair_copies` (all eight, 109 bones in every clip, slots / frames / loop / flags as Re:CoM's, every non-hair bone's channels byte-equal), the manifest and row tests in `riku_skin`, `new_names_are_not_in_recom_hed` with this machine's `Recom.hed`, all tests, the Windows build.
+- **Not checked**: in game: that the copies load (queued at each room / battle build like the Keyblade groups), that the boss end now plays Riku's card get and leaves the room, the log lines `riku skin: event pack 14002 played from its copy 14102 (109 bones)`. Assumption: the sound / effect lookups of `0x1401A3580` keep Re:CoM's id (they are not changed). Dark Mode with the KH2 hair (135 bones) is still not built (Stage 393). The user must press Build.
+
+## Stage 394 (fork branch Re-Re-Reverse/Rebirth): the BBS hair sways as the kid's does in BBS, version 0.197.3 (2026-11-25)
+
+Fork owner, 2026-11-25: item 6 of the seven ("todos", Stage 391): some sway on the BBS hair, rigid on `head` since 0.194.1 (Re:CoM's own hair-bone motion split the kid's layers, seen in game on 0.194.0).
+
+- **Addresses**: none (assets only).
+- **Read first**: the workspace's `knowledge/BBS/bbs-kid-riku-hair-motion.md` (asset-analyst, 2026-11-25, Checked (files)): the kid's hair hangs on `B_kami`, `L_kamiA`, `L_kamiB`, `R_kamiA`, `R_kamiB` under `atama`, keyed in every clip (idle ±1-2 deg, walk ±4-7, run ±13-20); his clips are loose one-clip PAMs in `bbs_fourth`: idle `n02di00001e` (60 frames), walk `00002e` (30), run `00003e` (20), 30 fps; no jump clip found.
+- **Change** (`bbs_hair::{SWAY_BONES, SWAY_CLIPS, SwayRig, BbsHairSource::{sway, sway_rig, sway_local}}`, `prepare_mdl`, `bake_ann`): each kid hair bone takes the nearest free Re:CoM hair bone whose parent is `head` (no children; no bone added, Riku keeps 102): `B_kami` → `b_hair2`, `L_kamiA` → `l_hair3`, `L_kamiB` → `l_hair4`, `R_kamiA` → `r_hair3`, `R_kamiB` → `r_hair4`; that bone's rest origin moves to the kid bone's pivot (carried by the fit), its rest rotation stays. The kid's vertices whose dominant bone is a hair bone follow it (the rest, and the lining, stay on `head`). In every clip of the look's `.ANN`, the five bones turn, about their pivot and in Re:CoM's head frame, as the kid's clip turns the kid bone against `atama`, from the kid's idle at frame 0 (the pose the fit was made on): Re:CoM's walk slots (`kh2_hair_rig::CLIP_MAP`'s walk, an Assumption there) take the kid's walk, the run slots his run, every other clip his idle; a looped clip runs a whole number of the kid's loops stretched to its length, a one-shot the kid's own time. Without the three PAMs the hair stays rigid as 0.194.1.
+- **Checked**: `bbs_hair_sways_as_the_kid`: the written channels decode to the kid's turn within 0.001 deg (idle and run, every frame); 102 bones; `inv3_inverts`; all hair tests. Renders (the workspace's `local/assets/recom/riku-hair/out/bbs/pose/`: idle, walk 0 / 8 / 16, run 0 / 5 / 10 / 15, side, back, front): the back of the hair shifts between run frames, no split layers or holes seen, nothing into the face.
+- **Not checked**: in game (whether the sway reads, whether a lock separates from its neighbours at the run's extremes: the kid's vertices are bound to one bone each here, BBS weights some of them to two). The user must press Build.
+
+## Stage 393 (fork branch Re-Re-Reverse/Rebirth): the KH2 and BBS hairs on the Halloween Town attire, version 0.197.2 (2026-11-25)
+
+Fork owner, 2026-11-25: item 7 of the seven ("todos", Stage 391): the hairs on Dark Mode and Halloween Town, which showed Re:CoM's hair.
+
+- **Addresses**: none (assets, the ini's comment, README).
+- **Found** (Checked (files)): `PL0111` (Halloween Town) has `PL0101`'s skeleton (102 bones, the same names in the same order, the head at the same rest point) and its atlas is `n_zz110_11`. Dark Mode's models `PL0201` / `PL0211` have 128 bones under other names and atlas `n_zz120_*`: the KH2 hair's 7 extra bones would give 135, which Dark Riku's event packs (128 bones: 4003, 4043, 4083) would not play (the workspace's `knowledge/ReCoM/recom-skeleton-limits.md`), so Dark Mode waits for item 1 (the event packs).
+- **Change** (`riku_skin::{KH2_HAIR_GROUPS, BBS_HAIR_GROUPS}` now (new group, base group, with the Keyblade, atlas), `build_hair(base, …)`, `ddd_hair::{RIKU_0111_KH2, RIKU_0111_BBS}`, `step.rs`): groups 186 / 196 (KH2) and 187 / 197 (BBS) = group 111 with the hair (Soul Eater / Keyblade of Heart); manifest `riku: 111`, so the DLL picks them with `Look::halloween` (no DLL code change). The hair's texture keeps its one name for all groups (`rk_hair_kh2` / `rk_hair_bbs`, the same picture).
+- **Checked**: renders (the workspace's `local/assets/recom/riku-hair/out/halloween_kh2/`, `halloween_bbs/`): both hairs sit on the Halloween face as on the default one (same counts: 1336 / 366 Riku triangles, 824 / 632 hair); `the_kh2_hair_groups_are_built_from_rikus_101`, `the_bbs_hair_groups_are_built_from_rikus_101` (all four groups each), `new_names_are_not_in_recom_hed` with this machine's `Recom.hed`.
+- **Not checked**: in game (Halloween Town with each hair and Keyblade). The user must press Build.
+
+## Stage 392 (fork branch Re-Re-Reverse/Rebirth): a lining under the KH2 hair, version 0.197.1 (2026-11-25)
+
+Fork owner, 2026-11-25: item 3 of the seven ("todos", Stage 391): the BBS hair's lining, which closed its gap in game (0.194.3: "sumiu o gap"), under the KH2 hair, after the shifts (Stages 381-388) did not close its gaps ("pelo visto deslocar não é a estratégia").
+
+- **Addresses**: none (assets only).
+- **Change** (`kh2_hair::{LINING 0.08, LINING_Y -0.03, LINING_Z 0.06, in_lining_window, lining}`, `SrcTri::lining`, `HairSource::lining_in_plain`): the KH2 hair's triangles with their centroid at or above 3 cm under the head bone and behind 6 cm in front of it (the back and sides of the skull, not the long hair below, not the fringe) are written again on `head`, pulled 8 % toward the head's centre (`HEAD_CENTRE`), same texels, two-sided like the hair: 211 triangles. A copy with a corner behind Re:CoM's kept face, or within 3 mm of it (`skin_depth`, `SKIN_MARGIN`), is left out (the first try cut the face at the ears in 33 triangles: `kh2_hair_does_not_cross_the_skin`). The lining gets no flat copy in the plain proxy (part 2; the flat copies showed as flat polygons, 0.196.4); BBS's lining keeps its copy (as 0.194.2, seen in game).
+- **Checked**: `kh2_hair_does_not_cross_the_skin`, `kh2_hair_sits_on_the_face`, `swaps_rikus_hair_for_kh2s` (613 + 211), all hair tests; renders before / after (`out/kh2/rig/`: idle side, run back): hair under the locks behind the ear and over the nape in the run.
+- **Not checked**: in game (whether the gaps the owner saw are closed; the lining is rigid with the head, so a lock swinging away shows it). The user must press Build.
+
+## Stage 391 (fork branch Re-Re-Reverse/Rebirth): the KH2 and BBS hairs on their own texture at full size, Riku's atlas and its name kept, version 0.197.0 (2026-11-25)
+
+Fork owner, 2026-11-25, verbatim: "como melhorar ainda mais o cabelo do BBS e do KH2?"; to the seven proposals (1 the boss end with 109 bones, 2 the KH2 texture at full size, 3 a lining under the KH2 hair, 4 KH2's attack motions, 5 KH2's speed, 6 BBS sway, 7 Dark Mode / Halloween Town): "todos". This stage is item 2.
+
+- **Addresses**: none (assets only).
+- **Found** (Checked (files: `swaps_rikus_hair_for_kh2s`' report)): the KH2 hair's islands went into Re:CoM's 1024 x 1024 atlas at 0.4 of their size (BBS 0.92). And (Checked (files: `PL0182.TXA`'s strings)) Riku's `.TXA` animates `EYE_BLINK`, `EYE_SHUT`, `LIP_*`… on `n_zz110_01.tm2` by name, while the swap renamed that atlas to `rk_hair_kh2` / `rk_hair_bbs`. Assumption (not seen in game): with the hair looks his eyes and lips did not animate.
+- **Change** (`ddd_hair::with_hair`, `HairSource::packed_atlas` (default false), `dds_argb`, `HairSwap::{hair_tex, atlas_dds}`): the hair's triangles get a new texture of part 3 (index 3 on `PL0101`), `<new_texture>` = the source's own picture at its own size (KH2 `-5.dds` 1024 x 1024; BBS's filled atlas), written opaque A8R8G8B8 with its TIM2 entry added to the `.RTM` (`keyblade::texture_entry`, as the Keyblade of Heart's); the source's UVs as they are (KH2's in 0..1, Checked (files)). Riku's atlas `n_zz110_01` stays as it is, name included. The skirt's vertices take the hair's texture with its texel. The old packing stays behind `packed_atlas() = true` (no source uses it). Test helper `dt::test_view` (the two pictures side by side for the debug renders).
+- **Checked**: renders (the workspace's `local/assets/recom/riku-hair/out/kh2/`, `bbs/`): the KH2 strands sharper than 0.196.16's at the same view, the fit unchanged; the BBS hair unchanged. All hair tests pass (`atlas_scale` 1.0 for both).
+- **Not checked**: in game: that Re:CoM draws part 3 with a third texture (Square's own enemy models have up to 4 in a part: `EN0122` part 0, Checked (files)); that Riku blinks again with the hair looks. The user must press Build.
+
+## Stage 390 (fork branch Re-Re-Reverse/Rebirth): KH2 hair: the locks behind and below the ear without sway (experiment), version 0.196.16 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.15 in game, with a screenshot boxing the locks above / behind the ear and the short locks below it: "quero fazer um experimento, deixe a animação dessas mechas mais retas"; "pq parece que a animação que está revelando o gap"; "esse é o cabelo do riku do kh2"; to the plan (the screenshot's side only, factor 0.0, render before / after): "sim".
+
+- **Addresses**: none (assets only).
+- **Found** (Checked (files: `P_EH000` bind-pose vertices per bone, head-relative)): on KH2's +x side the short locks below and behind the ear hang on bone 131 (x 6..9, y -6..1, z -3..2 KH2 units from the head), the lock above and behind it on 133 (x 11..12, y 2..8, z -8..0), the side of the back on 106 (x 10..14, y -12..1, z -25..-15). Checked (render): damping them changes only `body_side2` (the view of the owner's screenshot, face to the left), so the screenshot's side is KH2's +x. Assumption: these three bones are the boxed locks (bone positions, not a per-lock render).
+- **Change** (`kh2_hair_rig::{DAMP [(131, 0.0), (133, 0.0), (106, 0.0)], rot_toward, damp_hair}`, called in `bake` after the tilt): each frame of every clip, a damped bone's head-relative rotation is turned the factor's share of the way from KH2's bind pose to KH2's motion, and its origin moved the same share (0.0: the lock moves with the head only; 1.0: KH2's motion). Goes against Stage 380's "the same as KH2" for these three bones only, as an experiment: set a factor to 1.0 to undo.
+- **Checked**: `rot_toward_ends_and_middle`; `kh2_hair_moves_as_kh2` (damped bones left out of its 2 cm check against KH2's motion; the others still 7-12 mm); renders before / after (idle 25 / 75, walk 8, run 6, fall 8): the lock below the ear hangs straight down and covers more of the neck behind the ear.
+- **Not checked**: in game. Whether the gap is gone, and whether the still locks look stiff next to the swaying ones. The user must press Build.
+
+## Stage 389 (fork branch Re-Re-Reverse/Rebirth): KH2 hair: a skirt from the head's open edges to the hair, version 0.196.15 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.14 in game: "eu acho que é pq a cabeça base acaba antes da cabeça original e dai vem o cabelo e fica o vão"; to the plan: "sim".
+
+- **Addresses**: none (assets only).
+- **Found** (Checked (files: the 0.196.3 swap at rest, 32 open edges of the kept head, each against the nearest hair triangle)): the head's skin ends before the hair starts. Of the 24 open edges on the sides of the head 19 are more than 5 mm from any hair triangle and 14 more than 10 mm; at the +x ear top (92, 62, -27 mm from the head bone) 11 mm; the other open edges are the neck and chin (28 mm, outside the ear's height). No shift of the hair fixes it: the space moves with it (the owner's trials, Stages 381-388).
+- **Change** (`HairSource::skirt_edge`, `kh2_hair::{SKIRT_X 0.05, SKIRT_Y [0.04, 0.17], SKIRT_Z [-0.08, 0.06], in_skirt_window}`, `ddd_hair::with_hair`, `HairReport::skirt`): each open head edge (an edge of one kept triangle only, both ends on the head bone) whose midpoint is in the window, |x| past 5 cm, 4-17 cm up, within 8 cm behind to 6 cm in front, is joined to the nearest hair vertices (at most 30 mm away) by one or two triangles, both facings, that wear the hair vertex's texel (UV) and follow its bone (so they sway with the hair). 14 triangles at rest. DDD and BBS hair are unchanged (the default selects none).
+- **Not run**: the crate's tests (position trials without them, as asked); `kh2_hair_sits_on_the_face` was run alone: it passes (2 hair vertices more than 3 mm inside the face, the deepest 5.7 mm, with the shift at 0). Not checked in game. The user must press Build.
+- **Risks**: the skirt may cover the top of the ear or look stretched where the nearest hair vertex is far; the neck and chin edges are outside the window.
+
+## Stage 388 (fork branch Re-Re-Reverse/Rebirth): KH2 hair shift zeroed, version 0.196.14 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.13 in game: "pelo visto deslocar não é a estratégia,  os vãos ainda aparecem... pode zerar preciso de uma sugestão". The shifts tried (0.196.7-0.196.13: +6, 0, -24 ("ficou escrota"), +26, y -10, y -5, y -2 mm, in the owner's words relative to 0.196.6's z +12 mm) did not close the gaps.
+
+- **Addresses**: none (assets only). **Change** (`kh2_hair::SHIFT`): [0, -0.002, 0] -> [0, 0, 0]. Position trial: installed with `--no-test`; not checked in game. The user must press Build.
+
+## Stage 387 (fork branch Re-Re-Reverse/Rebirth): KH2 hair shift 3 mm up, version 0.196.13 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.12 in game: "sobe 3".
+
+- **Addresses**: none (assets only). **Change** (`kh2_hair::SHIFT`): [0, -0.005, 0] -> [0, -0.002, 0]. Position trial: installed with `--no-test`; not checked in game. The user must press Build.
+
+## Stage 386 (fork branch Re-Re-Reverse/Rebirth): KH2 hair shift 5 mm up, version 0.196.12 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.11 in game: "desloca 5 pra cima".
+
+- **Addresses**: none (assets only). **Change** (`kh2_hair::SHIFT`): [0, -0.010, 0] -> [0, -0.005, 0]. Position trial: installed with `--no-test`; not checked in game. The user must press Build.
+
+## Stage 385 (fork branch Re-Re-Reverse/Rebirth): KH2 hair shift: none to the front, 10 mm down, version 0.196.11 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.10 in game: "tira o deslocamento deixa em 0 e desloca para baixo uns 10"; before that: "faz a instalação sem testes nenhum até eu ver que ta bom" (position trials are installed with `tools/dev-install.sh --no-test` until he says the look is right).
+
+- **Addresses**: none (assets only). **Change** (`kh2_hair::SHIFT`): [0, 0, 0.026] -> [0, -0.010, 0] (Re:CoM metres, +y up, +z front): no shift to the front, the hair 10 mm down.
+- **Not run**: the crate's tests (position trial, as asked); not checked in game. The user must press Build.
+
+## Stage 384 (fork branch Re-Re-Reverse/Rebirth): KH2 hair 50 mm forward again, version 0.196.10 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.9 in game: "teste ficou escrota move 50 pra frente".
+
+- **Addresses**: none (assets only). **Change** (`kh2_hair::SHIFT`): z -0.024 -> 0.026 (50 mm forward; 14 mm in front of 0.196.6's 0.012, which the owner's "mais para trás" of 0.196.7 - 0.196.9 had moved back by 6, 12 and 36 mm). Nothing else.
+- **Found by the walk**: 6 mm back (0.196.7) and 12 mm (0.196.8) were seen by the owner before this; his word on 0.196.9 (36 mm back) is the one above. What he saw at 0.196.7 and 0.196.8 was not reported in these words.
+- **Checked / not checked**: see the test run below; not in game. The user must press Build.
+
+## Stage 383 (fork branch Re-Re-Reverse/Rebirth): KH2 hair 24 mm further back, version 0.196.9 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.8 in game: "vai mais uns 24 pra tras".
+
+- **Addresses**: none (assets only). **Change** (`kh2_hair::SHIFT`): z 0.0 -> -0.024 (24 mm more; 36 mm further back than 0.196.6's). Nothing else.
+- **Checked**: the crate's 186 tests, among them `kh2_hair_sits_on_the_face` and `kh2_hair_does_not_cross_the_skin`. **Not checked**: in game: the forehead and the fringe (the hair is 36 mm back of where KH2's alignment puts it), the nape and the neck, the ear gap (about 36 mm behind Re:CoM's ear: Stage 381's `KH2_EAR` / `EAR_SHIFT` were measured at the old shift).
+- The user must press Build.
+
+## Stage 382 (fork branch Re-Re-Reverse/Rebirth): KH2 hair another 6 mm back, version 0.196.8 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.7 in game: "da pra ir mais para trás".
+
+- **Addresses**: none (assets only). **Change** (`kh2_hair::SHIFT`): z 0.006 -> 0.0 (the hair 12 mm further back than 0.196.6's). Nothing else.
+- **Checked**: the crate's tests, among them `kh2_hair_sits_on_the_face` and `kh2_hair_does_not_cross_the_skin`. **Not checked**: in game (does the gap close; the forehead and the nape); the ear gap lands about 12 mm behind Re:CoM's ear now (Stage 381: `KH2_EAR` / `EAR_SHIFT` were measured at the old shift).
+- The user must press Build.
+
+## Stage 381 (fork branch Re-Re-Reverse/Rebirth): KH2 hair 6 mm further back, the ear-apex triangle drop removed, version 0.196.7 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.6 in game: "eu acho que o encaixe do cabelo deveria ser um pouco mais pra trás pq ainda to vendo o gap e nada doq nos fizemos resolveu".
+
+- **Addresses**: none (assets only).
+- **Change** (`kh2_hair::SHIFT`): z 0.012 -> 0.006 (Re:CoM metres, +z is the front): the hair, its fit to the face and the rig's carry (`Carry::shift`) all move 6 mm back together. `drop_ear_apex_fragment` / `EAR_APEX_FRAGMENT` (0.196.4) is gone: it matched the triangle `hair#330` by its position, which this shift changes, and a render without that triangle shows the scenery through its place from low side cameras (a hole of its own); the point stayed in the owner's screenshots with it.
+- **Checked**: the crate's 186 tests, among them `kh2_hair_sits_on_the_face` (at most 5 hair vertices more than 3 mm inside the face) and `kh2_hair_does_not_cross_the_skin` (0 crossing triangles).
+- **Assumption, not shown**: that the gap above the ear closes or moves with the hair further back. The constants that put KH2's ear gap on Re:CoM's ear (`KH2_EAR`, `EAR_SHIFT`, Stage 375) were measured at z shift 0.012 and are unchanged: with the hair 6 mm back the gap lands about 6 mm behind Re:CoM's ear (they would be KH2_EAR z 0.009, EAR_SHIFT z -0.010 to keep it on the ear). The 0.196.4 plain-copy and proxy drops, the lift out of the skin and the 25 hair bones stay.
+- **Not checked**: in game. The user must press Build.
+
+## Stage 380 (fork branch Re-Re-Reverse/Rebirth): KH2 hair: no clip holds the hair still, version 0.196.6 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.5 in game (the game took the 109-bone Riku, nothing odd seen): "aparentemente aceitou nn achei nada estranho mas a animação DESSE CABELO precisa ser a MESMA do KH2"; before: "é só a do cabelo!" (only the hair's animation has to be KH2's, not the head's or the body's).
+
+- **Addresses**: none (assets only).
+- **Found** (Checked (files: `kh2_hair_moves_as_kh2`, a probe of every mapped clip)): 37 of Re:CoM's clips of 8 frames or more (attacks, guard, magic, cards, ...: slots 4-8, 11, 14-17, 22, 27, 34-41, 43-54, 56-58, 78, 81) had the hair held still at KH2's first idle frame (`CLIP_MAP` maps 14 slots). The mapped looped clips play KH2's loop stretched to close on Re:CoM's clip length, so the hair's speed against KH2's is: idle 1 x1.20, 31 x1.50, 79 x3.00; walk 2 / 28 x1.19, 32 x1.27, 80 x1.90; run 3 x0.82, 21 / 33 x0.90; fall 12 / 13 x1.25 (jump 10 / 26 one-shots: x1.00).
+- **Change** (`kh2_hair_rig::bake`): a clip with no KH2 counterpart plays KH2's idle sway (stretched to the clip's length when it loops, at KH2's own speed when it is a one-shot) instead of the first frame.
+- **Checked**: `kh2_hair_moves_as_kh2` asserts that no clip of 8 frames or more holds the hair still (37 without the change, 0 with it), and the 0.196.5 checks (the baked clips within 2 cm of KH2's motion for all 25 bones, every part and clip at the model's bone count); the crate's 187 tests.
+- **Not done, the speed**: the hair repeats with its clip, so its speed follows the clip's length. Exact speed would need either clips unrolled to a common multiple of Re:CoM's length and KH2's loop (idle 100 vs 120 frames: 600; footstep and effect timing keyed to the clip is not shown to survive: Assumption) or the DLL driving the hair bones from KH2's motion at KH2's time, outside the clips. Not started: the owner's choice.
+- **Not checked**: in game. The user must press Build.
+
+## Stage 379 (fork branch Re-Re-Reverse/Rebirth): KH2 hair: all 25 KH2 hair bones move their own vertices, KH2's walk and run as KH2 has them, version 0.196.5 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim (words left out are marked [..]), after a day of single spots (the ear-top point, the lock through the ear, the lock below it "por conta da animação está errada"): "mudança de plano cansei de andar em círculos usa a mesma animação do cabelo do KH2 e [..]"; "e encaixa certo na cabeça do riku do kh recom"; to the plan (7 bones appended, every clip 109 channels): "pode fazer aí".
+
+- **Addresses**: none (assets only). Read first: `knowledge/ReCoM/recom-skeleton-limits.md` (Checked (decomp): a model may take more bones when every clip played on it has exactly the model's count; per-bone buffers are allocated at the skeleton's count; the DLL already clears and re-allocates the transform node on a model with another count: `win::riku_skin::clear_node`, Dark Riku's 128 vs Riku's 102).
+- **Found** (Checked (files: `kh2_hair_moves_as_kh2`)): KH2's hair hangs on 25 bones, Re:CoM Riku has 18 hair bones; 0.195.0-0.196.4 handed the vertices of the 7 others to the nearest kept bone, so the worst hair vertex was 3.8 cm off KH2's exact motion in idle, 3.5 walk, 4.3 run, 7.9 jump (that number compared the model with itself: the baked clip's own error was not measured). Triangles with corners on a merged bone and a kept bone stretched with the sway (the lock under the ear, the fringe roots).
+- **Change** (`kh2_hair_rig::{EXTRA [118, 121, 122, 124, 133, 144, 148], extra_name, extend_skeleton, append_bones, extend_ann}`, `Rig::new` (25 pairs), `Kh2HairSource::{rig, prepare_mdl, bake_ann}`): the 7 KH2 hair bones that [`SELECTED`] leaves out become Re:CoM bones 102..108 (`k2_hair_<kh2 bone>`, parent `head`, rest = KH2's bind pose carried, bounds as a bone without vertices) in all 4 parts of the group's `.MDL`; every clip of its `.ANN` has 109 bones; `hosts` keeps every KH2 bone on itself, so every vertex follows its own KH2 bone's motion. `EXTRA_TILT` (the extra turn of the back hair in walk and run, 0.195.3-0.195.4: "traseira do cabelo ainda ta levantando muito quando anda") is now 0: KH2's walk and run as KH2 has them (the old value is in the git history; the constant still takes a list).
+- **Checked**: `kh2_hair_moves_as_kh2` now measures the BAKED clip posed on the model against KH2's exact motion for all 25 bones and asserts under 2 cm: idle 8 mm, walk 8, run 10, jump 12, clip 12 10, clip 33 9 (with the old tilt the walk and run were 9 cm off, by design); every part of the model and every clip have the same bone count (109); `RecomSkeleton`, `Ann` round trips, `selection_is_the_greedy_one`, the hair-group build test (`the_kh2_hair_groups_are_built_from_rikus_101`: groups 182 and 192) pass; all 187 tests of the crate.
+- **Not checked**: in game: that the game takes a Riku with 109 bones (the node is allocated at the skeleton's count: Checked (decomp) in the note, not run), the walk / run / jump look, effects and the weapon on the extra-bone model (their bone indices are unchanged: bones are appended). The fit on Re:CoM's head is the same as 0.196.4 (face fit, lift out of the skin, the ear-top triangle and plain copies dropped); the ear-top point and the lock below the ear are to be looked at again with the exact motion.
+- `tools/test-affected.sh`, the game-data hair tests, the Windows build. The user must press Build.
+
+## Stage 378 (fork branch Re-Re-Reverse/Rebirth): KH2 hair hung out of the ear and the cheek; two tries at the point reverted, version 0.196.4 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim (words left out are marked [..]), on 0.196.3 in game, with screenshots: "talvez estejamos com esses problemas pq a cabeça base do Riku de KH2 seja muito diferente da cabeça do KH1"; "uma mecha ta passando por dentro da orelha"; "e tem essa [..] aqui entrando na bochecha dele como eu já te mostrei"; "essa [..] mecha da franja que no meio da animação parece que torce, ela normal está assim"; then on 0.196.4's first build: "o ponto vazio ainda está lá! e vc tirou da pele do rosto base, não precisava tirar, só precisa cobrir o ponto que aparece o fundo!".
+
+- **Addresses**: none (assets only).
+- **Found** (Checked (files: 0.196.3's triangles against the kept face, rest and idle frames 0, 25, 50, 75; renders under `local/work/holefind/out/`, `local/assets/recom/riku-hair/out/ear_pen/`)): `FaceFit` moves a vertex along its direction from the head centre and never asks whether it lies behind a local flap; `b_hair2` (2649 / 2650) is rooted 15-17 mm inside the head under the +x ear with its tip 55-78 mm out, so it cuts the ear; `l_hair4` runs 1-3 mm into the cheek; `kh2_hair_sits_on_the_face` skips directions with `d[2] < -0.2`, where the ear is.
+- **Change** (`kh2_hair::{SKIN_REACH 30 mm, SKIN_MARGIN 3 mm, SKIN_INSIDE 2 mm, SKIN_TIP 5 mm, SKIN_PASSES 4, skin_depth, lift_out_of_skin}`, called at the end of `Kh2HairSource::hair`): a hair triangle with a corner more than 5 mm outside (or no skin under it) and a corner more than 2 mm behind a kept face triangle has its inside corners lifted along that triangle's outward normal to 3 mm in front of it; decided per vertex position (shared vertices stay shared); repeats up to 4 times. Triangles wholly inside the head stay. DDD and BBS hair unchanged.
+- **Checked**: new `kh2_hair_does_not_cross_the_skin` (all directions, no `d[2]` skip): 0 crossing triangles and the deepest vertex 2.3 mm behind skin; with the lift off it is 16 and 17.5 mm (the test fails without the change). Renders (`rig_before_0196_4` / `rig`, idle 0 and 50, +x side): no new patch, the lock lies over the ear.
+- **Tried and reverted, in this stage, with the owner's words**: (1) recolouring the hair-coloured texels of the head skin's hair-line strip (atlas x 440-495, y 95-250) to skin: the owner did not want Re:CoM's base skin texture touched ("não precisava tirar"), the strip is Re:CoM's disguise under its hair; (2) keeping 8 of Re:CoM's removed scalp triangles above the +x ear (head-relative x > 0.04, y 0.08-0.15, z -0.06..0.06) with their corners on a flat hair-coloured texel: the render shows them as flat grey polygons standing out over the KH2 hair, so they are not the cover. The point above the ear was then found with a diagnostic build (the owner's screenshot from the game's diagonal camera, the triangles around the ear painted in 16 colours, `local/work/diag_map.txt`): an unpainted flat grey-lilac polygon at the ear top, bounded by the painted temple triangle 1412, the ear triangle 1928 and the hair triangle 2708, none of which it is. No part-3 triangle is there (no render of part 3 showed a hole, with the game's cull rule applied: a one-sided triangle with flag 0 is drawn iff clockwise on the monitor, flag 0x20 iff counter-clockwise, a doubled one always: `knowledge/ReCoM/recom-model-culling.md`). Part 2, the plain low-poly proxy that is drawn without a facing cull, keeps 211 head-bone triangles after the swap and 9 of them lie within 25 mm of that corner, on or outside the ear's skin. **Change** (`HairSource::drop_proxy_triangle`, `kh2_hair::{PROXY_DROP_X 0.06, PROXY_DROP_Y [0.03, 0.17], PROXY_DROP_Z [-0.10, 0.10], in_proxy_drop_window}`, `HairReport::proxy_dropped`): the proxy's head-bone triangles whose centroid is more than 6 cm to the side, 3-17 cm up and within 10 cm of the head's middle in depth are dropped, both sides (10 at the 0.196.3 swap); the proxy hid under Re:CoM's bulky hair and shows through gaps under KH2's. Test: `kh2_hair::tests::proxy_drop_window_is_the_ears`, and `kh2_hair_sits_on_the_face` asserts 4..120 dropped. That alone did not remove the point (the owner's next screenshot, marked in red). A second diagnostic build (every part-3 triangle painted in 16 colours, part 2 emptied: `local/work/diag_map2.txt`) showed no flat polygon any more and, at the ear top, a 23-pixel fragment of the hair triangle `hair#330` (dump 2711: head-bound, 481 mm2, one corner 1.2 mm from the ear skin, the others 8 and 16 mm out), textured in ordinary hair colour. So the flat polygon was the PLAIN copy of that triangle: the swap writes one flat copy of every KH2 hair triangle into part 2 as well (`plain_segs.extend(ddd_segs..)`), drawn without a facing cull. **Change 2** (`HairSource::drop_plain_hair_copy`, `kh2_hair::in_proxy_drop_window`, `HairReport::plain_hair_dropped`): the plain copies of head-bound KH2 hair triangles whose centroid is in the ear windows are not written to part 2 (76 at the 0.196.3 swap); the textured triangles in part 3 stay. `kh2_hair_sits_on_the_face` asserts 1..120 left out. The owner's next screenshot (ringed in red, "ainda está ali, praticamente contornei com o circulo") still showed it, so the textured `hair#330` itself is the light polygon (lighter than the dark locks around it). **Change 3** (`kh2_hair::{EAR_APEX_FRAGMENT [0.1110, 0.0713, -0.0236], EAR_APEX_RADIUS 3 mm, drop_ear_apex_fragment}`, at the end of `Kh2HairSource::hair`): the one head-bound hair triangle with its centroid there is not written (part 3 and the plain copy both); the ear skin lies behind it. `kh2_hair_does_not_cross_the_skin` asserts 0 hair triangles at that apex (1 with the step off). Assumption, not shown in game: the skin shows there and nothing odd opens. The 0.196.3 two-sided copy of the +x temple's head triangles (Stage 377) stays, unproven.
+- **Not checked**: in game; the lift on idle frames other than 0 and 50 (a rest-pose change, the bones sway); whether the lifted `b_hair2` lock looks right on top of the ear. **Not done**: the fringe lock that twists (analysis: it is `l_hair2`, its baked rotation steps up to 22 deg per frame in the run, not an Euler error; see the owner's choice on a limit).
+- `tools/test-affected.sh`, the game-data hair tests, the Windows build. The user must press Build.
+
+## Stage 377 (fork branch Re-Re-Reverse/Rebirth): KH2 hair: the +x temple's head triangles written twice, version 0.196.3 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.2 in game (screenshot, then a second one with the spot ringed): "tirei um print bem perto para vc ver que o gap ainda está presente no cabelo do riku KH2"; "o gap que eu estou falando é um pequeno ponto que fica transparente mostrando o fundo do cenário, o lance da pele com  a base aparecendo é outra parte do problema"; "é do lado esquerdo da cabeça"; "e ele está parado"; after the investigation: "pode aplicar a correção".
+
+- **Addresses**: none (assets only).
+- **The report** (Checked (files: the two screenshots; renders `local/work/holefind/out/`)): Riku's left side (+x in the model), idle: a small flat lilac polygon (pixel (113,104,128), no hair streaks) at the top edge of the ear's gap, between two locks. The orange area around it is Re:CoM's ear / temple / neck, a separate matter the owner did not ask to change.
+- **Found** (Checked (files: a z-buffered render of the swapped MDL's triangles, idle frames 0, 25, 50, 75, magenta background)): no enclosed background pixel at the ear with both faces drawn. With one facing sign kept, a 19x38 px sliver opens at the point's place; behind it is exactly one triangle, a single-copy head-bone triangle of Re:CoM's kept face (`head,head,head`, facing flag 0, centroid x +0.09 from the head bone), while every KH2 hair triangle is written twice (both flags). The atlas has alpha 255 everywhere (no cut texel).
+- **Change** (`HairSource::two_sided_face` (default false), `kh2_hair::{EAR_TWO_SIDED_X, in_ear_two_sided_window}`, `ddd_hair::with_hair`, `HairReport::face_two_sided`): the kept head-bone-only triangles whose centroid is in the +x ear window (head-relative x > 0.06, y and z the ear's `EAR_FLAT_Y` / `EAR_FLAT_Z`) are written a second time, same vertices, other facing flag (as the hair's `back` copies). 19 triangles at rest. DDD and BBS hair are not touched (the default is false).
+- **Checked**: `kh2_hair::tests::ear_two_sided_window_is_the_plus_x_ear`; `kh2_hair_sits_on_the_face` now also asserts the copies equal the face's triangles in the window (19) and 1..60; the hair-inside-the-face count stays 0. The dump of the new MDL has the 19 added triangles with the opposite flag (`local/work/holefind/out_fix/`).
+- **Not shown** (Assumption): a render that simulates the game's facing cull by flag gives 0 enclosed pixels at the ear both before and after (`scripts/run_fix.py`), so the renders do not show this change fixing the point; the hole only appears when the cull follows the screen winding, which also drops the hair's back faces and is not how the game culls (`ddd_hair.rs` docs: Checked (game, 0.186.0)). Two readings stay open: the point is this triangle culled in the game (the change should remove it), or it is the triangle drawn as it is (Re:CoM's old hair covered it and KH2's open locks expose it; the change does nothing). Not checked in game.
+- **Seen in game** (fork owner, 2026-11-24, verbatim, on 0.196.3, a screenshot with the spot ringed): "ainda está perceptível mas faça o commit e solta uma release do mod". So the point is still visible after the second copy: the cull reading (H2) did not remove it; the open reading is that it is the head triangle drawn as it is (H1: Re:CoM's old hair covered it, KH2's open locks expose it). Next, not done: cover or recolour that triangle's texels, or a systematic fit of KH2's head to Re:CoM's (the owner's remark: KH2 Riku's base head is very different from Re:CoM's).
+- **To see in game** (idle, Riku's left side, close): did the small lilac point change? If it is unchanged, it is the visible triangle's own colour and a different fix is needed (cover it with a lock, or recolour its texels).
+- `tools/test-affected.sh`, the game-data hair tests, the Windows build. The user must press Build.
+
+## Stage 376 (fork branch Re-Re-Reverse/Rebirth): workflow tools; the hair's checks as tests, version 0.196.2 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim: "tem alguma forma de otimizarmos o nosso workflow nessa workspace? ainda mais que estamos no fedora 45 até como oportunidade de reduzir consumo de tokens"; to the first three proposals: "sim"; then: "quando falei sobre otimizar nosso workflow na workspace quis dizer geral não esse específico do cabelo mas se as otmizações servirem para tudo pode prosseguir, se não pense melhor".
+
+- **Addresses**: none (tools and tests only; the DLL's behaviour is 0.196.1's).
+- **Tools** (`tools/dev-install.sh`: affected tests, Windows DLL, copy to `$KH1_RECOM_INSTALL`, version check against `VERSION`, three summary lines, logs in `target/dev-install/`; `tools/status.sh`: repo / installed / last-run versions and the asset build time). Machine paths from the owner's `~/.bashrc.d/kh.sh` (`KH_WORKSPACE`, `RECOM_GAME`, `KH1_RECOM_INSTALL`, the mingw linker); the assets crate's local tests read `KH_WORKSPACE` (`kh2_motion::tests::{workspace, raw, emu, emu_full}`) instead of fixed paths.
+- **Hair checks as tests**: `kh2_loops_close` asserts a looped KH2 motion's seam under 0.05 KH2 units (0.00 now); `baked_euler_is_continuous` asserts clips' first frames within 180 deg (135.9 now); new `kh2_hair_sits_on_the_face` asserts at most 5 hair vertices more than 3 mm inside the face (0 now) and the -x ear flattened. Seen, not asserted: in the run (clips 3, 21) `l_hair1` / `l_hair2` step up to 45 deg in one frame (KH2's run at full speed or an Euler near its gimbal: not settled).
+- Workspace: `scripts/compare-sheet.py` (a before / after sheet from two render folders); `CLAUDE.md`, the `release-kh1-recom` and `visual-verify` skills point to the tools.
+- **Checked**: `tools/dev-install.sh` itself (tests, build, install, version). **Not checked**: in game (nothing to see).
+
+## Stage 375 (fork branch Re-Re-Reverse/Rebirth): KH2 hair: the ears as KH2's model has them, version 0.196.1 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.196.0 in game (log `kh1-recom 0.196.0`): "não resolveu o problemna da foto que te mandei da orelha e da mexa...................... e te mandei a img de referencia ainda!" (the picture of 0.195.3: a lock into the cheek, the ear showing oddly behind a lock; the reference: KH2 Riku's PS2 model from the side, the ear in the gap between the front lock and the long hair).
+
+- **Addresses**: none (assets only).
+- **Found** (Checked (files + render `out/kh2/sbs/head_rest.png`: KH2's whole head carried by the hair's fit next to ours, both sides)): KH2's model has an ear on the +x side only (26 head-bone skin vertices past |x| 0.085, centre head-relative y 0.074 z 0.015); on -x its hair covers the side and its skin has no ear. Re:CoM has both ears (centre y 0.063 z -0.001): on +x KH2's ear gap sat 1.1 cm higher and 1.6 cm further forward than Re:CoM's ear, so a lock crossed the ear; on -x Re:CoM's ear came out where KH2 has none.
+- **Change** (`kh2_hair::{ear_shift, EAR_*, KH2_EAR}`, `HairSource::adjust_face`, `ddd_hair::with_hair` applies it to the kept head-bone vertices and to the face the fit reads): +x: the hair around KH2's ear moves by (y -0.011, z -0.016) with a Gaussian of 3.5 cm, so the gap lands on Re:CoM's ear; -x: Re:CoM's ear vertices (|x| past 0.085 m, y 0..0.125, z -0.09..0.04 head-relative) are flattened to |x| 0.085, under the hair. The face fit (0.195.4) stays. Walk's extra turn back to -25 deg (0.195.4's -40 showed no difference at the ridge, which is KH2's walk itself: seen in 0.195.3's renders too).
+- **Seen** (renders `rig/ear_v2.png`: the +x side rest / idle 0 / idle 50 / walk; `rig/walk_side2_0195_3_vs_now.png`): on +x the ear shows in the gap, the front lock before it, short locks below, as the reference.
+- **Not checked**: in game; the -x side flattened ear's look (hidden in the renders); the cheek lock of the owner's picture (not reproduced in the renders).
+- `tools/test-affected.sh`, the game-data hair tests, the Windows build. The user must press Build.
+
+## Stage 374 (fork branch Re-Re-Reverse/Rebirth): Riku's Ansem tutorial done for him at Combat = KH1, version 0.196.0 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, relaying a tester: "someone reported Seems the Ansem fight doesn't work properly that stupid tutorial pops up and you can't complete it unless you switch to recom combat again. I'll let you know of any further bugs."; to how Sora's are handled: "a princípio lide da mesma forma então co o Riku"; to the plan (the battle room loads, its lesson is done for it): "de início sim".
+
+- **Research** (searcher; the workspace's `knowledge/ReCoM/recom-riku-ansem-tutorial.md`, Checked (files + decomp)): Riku's first Ansem fight is `WORLD00` battle room 1100, asked by event room 2102 (`0xEE(1100)`), a Rapid Break and Duel lesson. Its script ends only through its own exit (session bit (1, 2), then syscall 0xF8 → Re:CoM's battle exit `0x140237160`, back to 2102 with `save + 0x187E` = 1100, which 2102 needs to go on); a KO does not end it (room 1100 is in the 1050..1198 event battle range). At Combat = KH1 with Riku's KH1 combat there are no cards, so the Rapid Break bit (1, 0x29) is never set and the lesson waits forever. No native call reloads 2102 from 2102 with the previous room 1100, so Sora's way (never loading the battle) does not fit.
+- **Addresses** (callees, first bytes checked at start, `sites::STORY_SKIP_CALLEES`, Checked (exe)): system byte set `0x1401B15D0` (`83 F9 02 73 2A`); card give `0x14023AA60` (`40 53 48 83 EC 20 0F B7 D9 E8 92 00 F7 FF`, what syscall 0xAD sub 7 calls). Existing: battle-entry wrapper `0x140236690`, flag set `0x1401B1650`, variable get / set `0x1401B08C0` / `0x1401B16C0`.
+- **Change** (`story_skip::riku_tutorial`, `RIKU_TUTORIAL_*`; `win::story_skip::{battle_entry, riku_frame}`; `win::attack::riku_request_bits` calls `riku_frame`): at Combat = KH1, Riku's story, `riku_kh1_movement` on, world 0, 2102 asking for 1100, the request is armed and passes to Re:CoM (the battle room loads). On Riku's frames in room 1100: once, the lesson's saved writes (0, 0x24) |= 0x10, |= 0x20 (read later by Re:CoM for the Rapid Break's bonus and to arm duels), session byte (1, 4) = 1, and the 9 world cards its ending gives (95, 96, 97, 102..107, through `0x14023AA60`); every frame (up to 900), the ending's clears (1, 0xA) / (1, 7) / (1, 0x28) = 0, the duel block (1, 0x2A) = 0 and the script's "done" bit (1, 2) = 1, so its main loop runs its own exit. Back in 2102, (1, 0x2A) = 0 once more and the skip disarms; 2102 then plays its own scene, card 109, Dark Mode bit and floor change. Each step is logged ("story skip: Riku's Ansem tutorial ...").
+- **Assumptions**: `save + 0x187A` reads 1100 while in the battle room (the commit writes the room before loading; not traced for the current-room field); the script's start code runs before or within the first frames (the session writes repeat each frame); nothing pending refuses the exit's room change at its first pass; the card give's guards (set-1 bit 0x33, set-0 byte 0x61) are clear here.
+- **Seen by the player** (expected, not seen): the arena for under a second, no HUD, then 2102's Ansem scene. Combat = Re:CoM or Riku's KH1 combat off: unchanged (Re:CoM's lesson).
+- **Checked**: tests (`story_skip::tests::rikus_tutorial_only_at_kh1_with_his_kh1_combat`), `tools/test-affected.sh`, the Windows build, the callees' bytes in the exe. **Not checked**: in game.
+- `docs/recom-story-skips.md` § Riku updated.
+
+## Stage 373 (fork branch Re-Re-Reverse/Rebirth): KH2 hair fitted to Re:CoM's face; the walk's back hair lower, version 0.195.4 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.195.3 in game: "deu uma melhorada mas umas das mechas que marquei estão entrando na bochecha, e ainda aparece ta estranho a marcação que fiz a direita na img", "achei na internet um modelo 3d do riku de ps2 pra vc ter a referencia" (KH2 Riku's PS2 model, side: the ear shows, the front locks before it, the long hair behind); "essa mecha ficou meio esquitia numa parte da animação em idle" (a fringe lock by the eye); "traseira do cabelo ainda ta levantando muito quando anda".
+
+- **Addresses**: none (assets only).
+- **Face fit** (`kh2_hair::FaceFit`, `HairSource::set_face`, `ddd_hair::with_hair` passes the face that stays; replaces 0.195.3's `ear_push`): for directions every 3 deg from the head's centre (`ddd_hair::HEAD_CENTRE`), the outermost surface of Re:CoM's kept face and of KH2's head skin (its non-hair groups' head-bone triangles, carried by the hair's fit) by ray; a hair vertex moves along its direction by the difference, Gaussian-averaged over 10 deg, faded where only one face exists, held within -4..+25 mm. Checked (files, rest and idle frames 0 / 25 / 50 / 75 in the rest head's frame): hair vertices inside the face's front half 1-3, all within 2.6 mm (0.195.3: the same); Re:CoM's ear now shows where KH2's would (5 ear vertices up to 9 mm out of the hair at rest, as the PS2 reference shows its ear). Not reproduced in the renders: the strand into the cheek of the owner's picture.
+- **Walk** (`EXTRA_TILT`: walk -40 deg, run -25 deg; `TILT_BEHIND`): only hair bones rooted 2 cm or more behind the head bone turn (a first try turned the front locks into the face). Renders `rig/walk_check.png` (top 0.195.3, bottom now: walk 0 / 16, run 6 / 17).
+- **Not done**: the fringe lock by the eye in the idle (not found in the renders; likely one of the 7 KH2 bones riding another: 118 on 119, 122 / 124 on 125, 121 / 133 on the head).
+- **Not checked**: in game. `tools/test-affected.sh`, the game-data hair tests, the Windows build. The user must press Build.
+
+## Stage 372 (fork branch Re-Re-Reverse/Rebirth): KH2 hair: the side strands opened over Re:CoM's ear; a KH2 / Re:CoM side-by-side simulation, version 0.195.3 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim: "não consegue rodar uma simulaçãod e um do lado do outro ver as diferenças e ir arrumando no recom? simulando igual tu faz com o neoshadow, mas andando e correndo e pulando?"; to the ear options ((a) shrink Re:CoM's ear into the hair, (b) open the side strands outwards over it, (c) leave the ear out and only move the strand off it): "b".
+
+- **Addresses**: none (assets only).
+- **Simulation** (debug test `kh2_and_recom_side_by_side`): KH2 Riku posed by OpenKH's emulator (the workspace's `local/tools/kh2anim` CLI now samples the whole motion in 60 Hz time; dumps in `local/assets/kh2/riku/emu_full`) next to Re:CoM Riku with the baked hair, the same KH2 time per frame, head-centred camera turned to the face's heading, same scale; side and back; idle, walk, run, jump, fall. Frames and GIFs in the workspace's `local/assets/recom/riku-hair/out/kh2/sbs/`. Seen: the hair relative to the head is KH2's; what differs is the posture (KH2 Riku walks and runs bent far forward, the head facing down; Re:CoM's stays upright), so KH2's hair falls along his back and ours streams backwards. Matching KH2's world look would lift the hair further (Stage 370).
+- **Ear** (`kh2_hair::ear_push`, `EAR_CENTRE` (0.045, -0.025) from `head` at rest, `EAR_PUSH` 0.016 m, `EAR_REACH` 0.04 m, only hair 0.03 m or more to the side): hair rest positions pushed outwards around the ear by a Gaussian of the distance in y, z. Checked (files: at rest Re:CoM's ear skin came out of the hair's surface by up to 7.3 mm (22 of 33 ear vertices) on one side and 6.6 mm (9 of 33) on the other; now none, the nearest skin 4.2 / 2.8 mm under the hair; renders `rig/ear_before_after.png` (top 0.195.2, bottom now: rest, idle 0, idle 50, the side that shows the ear) and `rig/front_after.png`). Assumption: enough in motion (the strands move about their bones).
+- **Not checked**: in game. `tools/test-affected.sh`, the game-data hair tests, the Windows build. The user must press Build.
+
+## Stage 371 (fork branch Re-Re-Reverse/Rebirth): KH2 hair: KH2's motions played whole and at their speed (the loop jump gone), version 0.195.2 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.195.1 in game (log `kh1-recom 0.195.1`; idle screenshot, the ear marked): "resultado ainda ficou muito parecido com o mesmo problema"; "a animação mesmo e o gap + orelha sendo coberta pela mecha".
+
+- **Addresses**: none (assets only).
+- **Cause** (Checked (files): test `kh2_loops_close`): KH2's key times are in 60 Hz units while the motion's frame start / end / return are in its own frames (30 fps): the idle ends at frame 120, its hair keys run 0..240 (walk 38 / 76, run 18 / 36, fall 20-40 / 40-80). 0.195.0 / 0.195.1 sampled the keys in motion frames: the first half of every motion at half speed, then a jump back at each loop (the hair's seam 6.4 KH2 units in the idle against 0.58 per frame; walk 5.8 / 0.9, run 7.4 / 4.4). The emulator check had passed because the CLI samples the same 0..frame_end range of 60 Hz time. Now `Kh2Motion::world` / `locals` take motion frames and multiply by `keys_per_frame` (60 / fps); `world_key` keeps the 60 Hz time (the emulator test). Seams now 0.00 on idle, walk, run, fall; worst vertex off KH2's exact motion (25 bones) 3.8 cm idle, 4.3 cm run, 7.9 cm jump. The selection (`SELECTED`) is unchanged; the dropped 124 now follows 125, 148 follows 146.
+- **The ear** (Checked (render: `local/assets/recom/riku-hair/out/kh2/rig/ear_rest_vs_idle.png`, the head's other side, rest / idle)): Re:CoM's ear shows between KH2's strands already at rest, so it is the fit (Re:CoM's ear out of KH2's hair, which covers it in KH2), not the motion. Not changed here.
+- **Run**: `EXTRA_TILT` -25 deg kept (renders `run_0195_1_vs_2.png`: the run looks as in 0.195.1, now the whole motion).
+- Debug: `render_body` view 3 (the other side); the test writes a rest render.
+- **Not checked**: in game. `tools/test-affected.sh`, the game-data hair tests, the Windows build. The user must press Build.
+
+## Stage 370 (fork branch Re-Re-Reverse/Rebirth): KH2 hair: no spin on clip blends, the ear strand on its own bone, the run lower, version 0.195.1 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.195.0 in game (screenshots: idle side, run, walk): "resultado muito interessante mas ficou esse gap ai e uma mecha ficou cobrindo a orelha", "a animação quando corre ficou quase perfeito da parte de trás do cabelo mas ele sobe Muito, e uma parte da animação essa mecha desloque de um jeito não natural"; then: "na verdade esse lance de uma mexida brusca é na parte de trás do cabelo inteiro, reparei agora".
+
+- **Addresses**: none (assets only).
+- **1. Spin on blends** (Checked (files): test `baked_euler_is_continuous`): 0.195.0 wrote the same hair-bone rotation with Euler angles up to 359 deg apart between clips (each clip's branch followed its own first frame); a blend between two clips crossed a whole turn. Now every clip starts on the branch of the bone's rest angles: the largest difference between clips' first frames is 101 deg (real pose differences), the largest step inside a clip 13.6 deg per frame.
+- **2. The ear strand** (Checked (files): test `bone_amplitudes`): KH2 bone 142 (9 corners, by the ear) moves 9-13 KH2 units off the head where 139, which carried it, moves 3-5. `FORCED` keeps 142; the greedy choice then drops 133 (11 corners, 3-9 units, now on the head). `SELECTED`: 101, 104, 106, 108, 110, 112, 114, 116, 119, 125, 127, 129, 131, 135, 137, 139, 142, 146. Worst vertex off KH2's exact motion: 2.7 cm idle, 3.2 cm run, 6.8 cm jump.
+- **3. The run lower** (`EXTRA_TILT`, `tilt_hair`): in clips mapped to KH2's run every hair bone but the skull cap (101, 104) turns 25 deg down about its own origin (Assumption: the amount, from the renders). Not KH2's: a posture correction toward KH2's world look was tried and dropped, KH2's head is bent 28-46 deg forward of its rest (emulator) against Re:CoM's 1-31 (clips; test `head_tilts`), so in KH2's own poses the back of the hair sits higher still.
+- **Seen** (renders, the workspace's `local/assets/recom/riku-hair/out/kh2/rig/cmp_0195_0_vs_1.png`, top 0.195.0, bottom now: idle, walk, run x2 side, run back): idle and walk unchanged, the run's back hair lower and less spiky upward, less bunched on the back. Not seen: the ear gap (the renders do not show it at their size).
+- **Not checked**: in game (the ear, the blend spin gone). `tools/test-affected.sh`, the game-data hair tests, the Windows build. The user must press Build.
+
+## Stage 369 (fork branch Re-Re-Reverse/Rebirth): the KH2 hair moves with KH2's own motion on Re:CoM's 18 hair bones, version 0.195.0 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim: "de que forma as animações do KH2 foram implementadas porque o resoltado ficou MUITO diferente até do KH2"; "investiga então"; "não gostei muito da ideia de gravar as animações inteiras SÓ para o cabelo tem outra alternativa melhor?"; to the options (A: re-pose Re:CoM's 18 hair bones on KH2's and write KH2's motion into them; B: a DLL hook; C: keep): "A"; to the plan: "ss".
+
+- **Addresses**: none (assets only). Re:CoM's rule that a clip plays only when its bone count equals the skeleton's (the workspace's `knowledge/ReCoM/recom-skeleton-limits.md`, reverse-engineer) is why the skeleton keeps its 102 bones.
+- **KH2 motion reader** (new `kh2_motion.rs`; OpenKH `docs/kh2/file/anb/motion.md`, `OpenKh.Kh2/Motion.cs`): `.mset` BAR → ANB BAR → motion entry (type 9), interpolated header at `0x90 + 0x10`, initial pose, forward F-curves (channel 4 bits, pre / post cycle 2 + 2 bits), keys (interpolation 2 bits, time index 14 bits), constant / linear / Hermite (tangents times the segment length), the model's bind pose composition. Checked (test `matches_openkh_emulator_on_the_hair`): the 25 hair bones relative to the head (98) against OpenKH's emulator (`OpenKh.Kh2AnimEmu`, the workspace's `local/tools/kh2anim`) on idle, walk, run, jump, fall, land: worst rotation element 0.0006, translation 0.002 KH2 units. Not read: IK helpers, constraints, expressions: the body's world pose differs from the emulator's (the head's world rotation by up to 30 deg in run), the hair relative to the head does not.
+- **Rig** (new `kh2_hair_rig.rs`): 18 of KH2's 25 hair bones kept (`SELECTED`: 101, 104, 106, 108, 110, 112, 114, 116, 119, 125, 127, 129, 131, 133, 135, 137, 139, 146), chosen greedily by the distance their vertices move off KH2's motion when they follow another kept bone or the head instead (idle, walk, run, jump; test `selection_is_the_greedy_one`); the dropped 118 / 122 / 142 / 144 / 148 follow 119 / 125 / 139 / 139 / 127, 121 and 124 the head; 95 follows `neck3`. Each kept bone pairs with the nearest free Re:CoM hair bone at rest. The Re:CoM hair bones' rest locals are their KH2 bones' at KH2's bind pose, carried into Re:CoM's head frame (rotations conjugated by the two heads' rest rotations, origins through 0.188.0's fit: `SCALE` 0.0092, `WIDTH` 1.1, `SHIFT`), written into all 4 parts of the group's MDL (`HairSource::prepare_mdl`); the vertices keep 0.188.0's rest positions. Worst vertex off KH2's exact motion (all 25 bones): 3.6 cm idle, 6.4 cm run.
+- **Clips** (`HairSource::bake_ann`, `kh2_hair_rig::bake`; the KH2-hair groups' own `PL0182.ANN` / `PL0192.ANN`): only the 18 hair bones' channels change (test `kh2_hair_moves_as_kh2`: every other channel byte-equal, frames / loop / flags equal). `CLIP_MAP` (Assumption, Re:CoM's clips have numbers only; picked by the feet): idle 1, 31, 79 → KH2 slot 0 (A000); walk 2, 28, 32, 80 → 4 (A001); run 3, 21, 33 → 8 (A002); jump 10, 26 → 14 (A003); fall 12, 13 → 18 (A004) (KH2 slots by OpenKH `MotionSet.GetMotionSetIndex`, battle with weapon). A looped clip runs a whole number of KH2 loops stretched to its own length; other clips take KH2's time held at its end; every unmapped clip holds KH2's idle at its first frame. No gain, no mean removal, no counter-rotation, no tilt (none of 0.191.0's).
+- **Seen** (renders, the workspace's `local/assets/recom/riku-hair/out/kh2/rig/`: `rig_sheet.png`; `kh2_vs_ours.png`: top KH2's own model posed by the emulator, bottom ours, idle / walk / run, side): KH2's hair sticks out backwards in KH2 too (Riku's KH2 stance bends the head forward); on Re:CoM's straighter Riku the same head-relative hair streams back more visibly, in idle as well. In the run back view a few strand tips bunch over the upper back.
+- **Not checked**: in game; the clip map (jump / fall slots); the blend into an unmapped clip (the hair jumps to the still pose over the clip blend).
+- `tools/test-affected.sh`, the game-data hair tests, the Windows build. The user must press Build (the KH2-hair groups' MDL and ANN changed).
+
+## Stage 368 (fork branch Re-Re-Reverse/Rebirth): the BBS hair one-sided, its atlas's black fill filled, version 0.194.3 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.194.2 in game (back screenshots, arrows and boxes): "sumiu o gap mas as pontas de algumas mechas ainda estão escuras"; "de outro angulo"; to the proposal (fill the atlas's black, draw the BBS hair one-sided): "sim".
+
+- **Addresses**: none (assets only).
+- **Causes** (Checked (files, renders)): (1) the kid's atlas has a black fill between the shards (value 0, with an anti-aliased rim of 16..80; the hair's texels are 80 and up), copied with the islands and scaled 0.92 into Re:CoM's atlas, so strand tips at an island's edge took in black; (2) the original `n02di00.pmo` drawn two-sided shows flat dark triangles at the back (the shell's inner layer, painted dark and facing in), drawn one-sided it is clean (the workspace's `local/assets/bbs/renders/kid_n02di_back_two_vs_one_sided.png`, top two-sided, bottom one-sided); `with_hair` wrote every triangle with both facing flags (0.186.1, for DDD).
+- **Change**: `bbs_hair::bleed` grows the shards' colour into the fill (`BLEED` 8 passes over texels under `BLEED_BELOW` 72 in every channel, the mean of the non-fill 8 neighbours) before the atlas is packed; `ddd_hair::SrcHair::one_sided` (BBS on; KH2 off): each triangle is written once in the source's winding, all with the facing flag `facing` gives the majority of them (the source's outside). The lining of 0.194.2 stays (one-sided too), so the hollow back of Re:CoM's head stays covered. Packets `[124, 49]`.
+- **Checked**: the rest renders with the facing cull (back, side, from below, front: no hole, no flat dark triangles at the back), the packed atlas (no black around the shards; a grey rim a little darker than the hair remains), `tools/test-affected.sh`, the Windows build.
+- **Not checked**: in game (that the game's cull keeps the side the renders keep: the wrong side would show the hair hollow).
+- The user must press Build.
+
+## Stage 367 (fork branch Re-Re-Reverse/Rebirth): a lining under the back of the BBS hair, version 0.194.2 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.194.1 in game (log `kh1-recom 0.194.1`; back screenshots, the nape and the sides marked): "notei um micro gap aqui [...]"; then: "o micro gap que mostrei não mostra a face interna, mostra vazio msm/ branco.. o cabelo do DDD não teve esses problemas"; to the proposal (the kid's skull under the hair): "o gap é quase imperceptível, pode fazer".
+
+- **Addresses**: none (assets only).
+- **Cause** (Checked (files, renders)): with Re:CoM's hair removed, what is left of his head is a one-sided face mask (its back and top were hair): drawn from behind with the back faces culled, nothing is under the kid's thin shards, so a crack between them showed the background. BBS has the kid's skull there. The kid's own non-hair skull triangles were tried first: 12 triangles, a thin band at the ears, no cover (dropped).
+- **Change** (`bbs_hair`): the hair triangles whose centroid is behind `atama` (240) are written a second time, every vertex pulled `LINING` 0.08 of the way toward the head's centre (`atama` + `LINING_CENTRE` (0, 0.08, -0.03), model units), same UVs and island (no new atlas space), rigid on `head`. 632 triangles in all (KH2's hair: 613), packets `[170, 49]`. A debug dump `tris.txt` (hair, lining, Re:CoM's head) in the test's output folder.
+- **Checked** (renders, the workspace's `local/assets/recom/riku-hair/out/bbs/`: `lining_pose.png`, top 0.194.0, bottom now, idle and run, back and side; depth-buffered flat renders of the head and the lining from behind and above, in the session scratchpad): the lining covers the back and top behind the shards, nothing of it shows outside the hair; the look from outside is 0.194.1's. `tools/test-affected.sh`, the Windows build.
+- **Not checked**: in game. Assumption: the lining hides the cracks in the engine (the faces' cull, the camera's angles).
+- The user must press Build.
+
+## Stage 366 (fork branch Re-Re-Reverse/Rebirth): the BBS hair sits on the head (rigid, lower, wider), version 0.194.1 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.194.0 in game (screenshots, front and back): "o cabelo do BBS no riku ficou muito pra cima e com um gap perceptível [...] e com algumas pontas esquisítas na parte de trás"; to the proposal (all on `head`, height 1.0, a small shift fitted on renders): "sim".
+
+- **Addresses**: none (assets only).
+- **Cause** (Checked (files), test `hair_bones_in_riku_clips`): 0.194.0 put each kid bone's corners on the nearest Re:CoM hair bone; those bones are keyed for Re:CoM's long hair (idle clip 1: `l_hair4` 18 deg, `r_hair4` 19 deg off rest against `head`; run clip 3: `b_hair2` 69 deg, `b_hair3` 79 deg), so on the kid's short closed shell the side tufts left the face (the gap at the temples) and the nape's under-layer spread sideways (the spikes at the back). The x1.1 scale about `head` put the crown 0.024 m over Re:CoM's own hair top (1.640 against 1.616).
+- **Change** (`bbs_hair`): every hair corner follows `head` rigidly (no sway); `SCALE` per axis (1.15, 1.0, 1.1) (height 1.0; at 1.0 wide Re:CoM's temples showed beside the hair in the renders), `SHIFT` (0, -0.008, 0). Bounds x +-0.149, y 1.334..1.609, z -0.241..0.104; corner bones `head` 1176. Debug: `kh2_hair::tests::render_body` has a front view (2).
+- **Checked** (renders, the workspace's `local/assets/recom/riku-hair/out/bbs/`: `cmp_0194_0_vs_now.png` rest front / side / back, top 0.194.0, bottom now; `pose_cmp.png` idle and run, rows 0.194.0 idle, 0.194.0 run, now idle, now run; 0.194.0's renders kept in `out/bbs_0194_0/`): the fringe reaches the brows, the temples are covered, the crown is lower; in idle and run the back stays one compact shell (0.194.0's run streamed the back strands out). `tools/test-affected.sh`, the Windows build.
+- **Not checked**: in game. Assumption: the shift and widths read right in the engine's camera and lighting. The hair no longer moves on its own (BBS's own sway on `B_kami` etc. is not studied).
+- The user must press Build (the asset output changed).
+
+## Stage 365 (fork branch Re-Re-Reverse/Rebirth): BBS kid Riku's hair (`riku_hair = bbs`), version 0.194.0 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim: "agora quero implementar o cabelo do kid Riku do BBS".
+
+- **Addresses**: none (assets and settings only).
+- **Source** (Checked (files), the workspace's `knowledge/BBS/bbs-kid-riku-hair-models.md`): `chara/npc/n02di/00/n02di00.pmo` in `bbs_fourth` (PMO v1, 35 bones, 1392 triangles), atlas = its texture 0 `n02di00_00`, the entry's HD asset `-0.dds` (1024 x 1024).
+- **Change** (new `bbs_hair.rs`; `ddd_hair::RIKU_0101_BBS`; `riku_skin::BBS_HAIR_GROUPS`; `step`; `keyblade::new_resource_names`; `kh1-recom` `settings`, `menu`, `win::riku_skin`): a Rust PMO v1 mesh reader (the skeleton is [`pam::parse_skeleton`], as the Terra work reads it); the hair triangles are the note's colour rule on the head region (corners at or above `atama` minus 0.03) and then every UV island that is mostly hair taken whole; bind positions go to `head + 1.1 * (P - atama)`; each corner follows its dominant-weight kid bone, which maps to the nearest `head` / hair bone of Re:CoM by rest position (`atama` to `head`, `kubi` to `neck3`), as in the KH2 build; the swap is `ddd_hair::with_hair` (two-sided triangles, rebuilt atlas, new texture name `rk_hair_bbs`). Groups 183 (Soul Eater) and 193 (Keyblade of Heart), manifest `hair` 2. `riku_hair = recom | kh2 | bbs` (stored 0 / 1 / 2; the default stays `recom`; `ddd` still a warning); the camp menu's Hair row cycles Re:CoM / KH2 / BBS. Dark Mode and Halloween Town have no hair group: Re:CoM's hair shows, as for KH2. Missing BBS: the step logs a note and skips.
+- **Checked**: 392 hair triangles (colour rule and island rule agree: the note's 392, no hole at the crown), 18 islands, 14 atlas rectangles at scale 0.92, 366 Re:CoM hair triangles removed, packets within the cap (`[135, 38]`), bounds x +-0.143, y 1.338..1.640, z -0.241..0.104 (the note's x1.1 numbers); corner bones `head` 894, `b_hair2` 96, `l_hair2` 71, `r_hair2` 46, `l_hair4` 35, `r_hair4` 28, `neck3` 6. Renders in the workspace's `local/assets/recom/riku-hair/out/bbs/` (`sheet.png`: front / side / back / top, unculled and culled; `source_sheet.png`: the triangles straight from the source atlas; `pose_sheet.png`: depth-buffered with the torso, idle, run, jump, attack, cast): the shape matches the note's x1.1 preview (fringe above the brows with spikes toward the eyes, side tufts over the ears, short back with spikes at the nape); no clipping into the back in any pose (the hair is short). `tools/test-affected.sh`, the Windows build.
+- **Seen and accepted**: in the painter's renders a few dark grey triangles show on the back and top (the inside faces of the closed shell, whose texture is grey; with the depth buffer they are hidden); in the run the head's back shows the shell's inside a little when the head tilts (the hair triangles of Re:CoM's scalp are removed, as for KH2). The hair follows Re:CoM's own hair-bone clips as the KH2 0.188.0 hair does (it flutters in the run).
+- **Not checked**: in game (the draw path, the fit on Re:CoM's face in the engine's lighting, the camp menu row, Halloween Town / Dark Mode fallbacks), `PL0111` (not previewed).
+- The user must press Build.
+
+## Stage 364 (fork branch Re-Re-Reverse/Rebirth): Riku's casts move his legs again (tamed), the DDD motion source removed, Riku's KH1 combat on by default, version 0.193.0 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.190.0 in game (screenshots of a cast, the legs rigid in his battle stance): "as animações da cintura para baixo o riku ficou travadasso, ficou bem estranho"; "pode remover o do DDD"; "as releases precisam sempre ir prontas para o pessoal usar com as restrições e com o combate do Riku já ativo por padrão um usuário me deu feedback que ele teve que mexer no INI". Earlier, on 0.189.0: "a de block está perfeita mas todas as de magia estão estranhas, o jeito que ele se move está esquisito".
+
+- **Addresses**: none new, no new hook (assets and settings only). Terra's cast and Guard slots as in Stage 360.
+- **1. Casts** (`riku_skin::tame_cast`, `TAME_LEGS`): the ground casts (`315`, `317`) are a middle between 0.189.0 (the body slid 0.8 m and hopped 0.25 m in a frame) and 0.190.0 (legs frozen). Terra's whole body is retargeted; the pelvis and legs (`hip`, `*_femur`, `*_tibia`) turn only 0.7 of the way from Riku's stance to Terra's (eased in and out over 4 source frames), the feet keep the stance's world rotation (flat on the floor; the ankle takes up the change) and the toes the stance's local, `waist` keeps its world rotation (torso, arms and blade are Terra's untouched), the body stays over its stance position (no x / z travel, so no hop) and its height follows the lower foot (lowered up to 0.15 m, raised up to 0.05 m, smoothed over three frames). The air casts (`316`, `318`) and the Guard (`354`) are unchanged from 0.190.0 / 0.189.0. Checked (files, renders of the real PL0101 model posed by the built clips, flat shaded and depth buffered: the workspace's `local/assets/recom/riku-terra/mesh/`, 0 / 0.7 / 1.0 compared side and front): 0 is the rigid stance, 1.0 crouches deep with a foot coming off the floor, 0.7 flexes the knees and shifts the weight with the arms with the feet flat; numbers on the built clips: body height 0.74..0.88 (Fire) and 0.82..0.93 (Thunder) m with at most 0.015 m a frame, no travel, lower foot 0.19..0.21 m (the stance's floor). Test `terra_motions_on_riku` asserts no travel, height limits, at most 0.03 m a frame, the lower foot within 0.04 m of the floor. Assumption: that it reads as natural in game; the leg share 0.7 and the ease are chosen from renders, not timing.
+- **2. DDD removed** (`pam.rs` was `ddd.rs`; `step`, `riku_skin`): the DDD archive reader, its constants, the DDD guard and the DDD Block path, the DDD tests and the 2.8 look-up are gone; the cast and Block source is BBS FM's Terra only, then Re:CoM's / KH1's own motions (KH1 Riku's Guard, the 0.184.x spell clips). `pam.rs` keeps the PAM (v1, v2) and PMO skeleton readers the Terra path uses, `Src::Ddd` / `Skel::Ddd` are `Src::Terra` / `Skel::Terra`, `GROUND_CLIPS` = 315, 317, 354. `ddd_hair.rs` keeps its name (the hair code the KH2 hair uses); nothing reads the 2.8 collection. The workspace's DDD notes stay.
+- **3. Release defaults** (`settings`): `riku_kh1_movement` defaults to `on` (code, the template and its comment); `ini_version` 3: a file older than 3 whose `riku_kh1_movement` is off gets it switched on once (`migrate`, the same mechanism as 0.143.1's `hud`), a later `off` stays; the camp menu's rewrite does not write that key, so it keeps the user's choice. Other defaults checked for a ready-to-play Riku: `combat = kh1`, `riku_free_magic = off` (spells cost MP), `riku_hair = recom`, `riku_costume = default`, `riku_keyblade = soul_eater`, `all_unlock = off`, the KH1 HUD: unchanged. README row `riku_kh1_movement` now `on`, a line on which games are used (Re:CoM and KH1 FM required; KH2 FM and BBS FM optional parts; no other collection); the release notes' requirements line says the same and that no ini edit is needed. Fresh install checked: no ini writes `DEFAULT_FILE` (`win::init`); a game folder with no `kh2_*` / `bbs_*` archives and no 2.8 folder (symlinked copy): the asset step completes (544 MB written), with only "note:" lines for KH2 (Riku's KH2 hair and the KH2 Keyblades) and BBS (Terra's motions: the old motions stay).
+- **Checked**: `tools/test-affected.sh`, the Windows build. **Not checked**: in game; the casts' timing against the spell effect with the new leg motion; the guard (untouched).
+- The user must press Build (the asset output changed).
+
+## Stage 363 (fork branch Re-Re-Reverse/Rebirth): back to 0.188.0's KH2 hair, the DDD hair removed, version 0.192.0 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.191.0 in game (screenshots of the hair streaming behind his head): "ficou estranho pra cacete, a primeira versão é a melhor até agora do cabelo do KH2 kkkk ... ficou bizarronte o cabelo ai ó e pode remover o do DDD". Of 0.188.0 he had said: "ficou MUITO bom o cabelo do KH2, mas ainda precisa de alguns ajustes para ficar perfeito".
+
+- **Addresses**: none (assets and settings only).
+- **Reverted** (`kh2_hair`, `riku_skin::build_hair`; the hair stages 358, 359, 361b and 362 are marked, not deleted): the KH2 hair is 0.188.0's again: every KH2 bone takes the nearest Re:CoM `head` / hair bone by rest position, the cap bones (98, 101, 104) `head`; `SCALE` 0.0092, `WIDTH` 1.1, `SHIFT` (0, 0, 0.012). Gone: the rigid head binding, `b_hair1` / `b_hair2`, the band cuts, the 0.12 m back shift, the counter-rotation and tilt, `kh2_motion.rs` (KH2's motion reader) and the baking of KH2's clips into the KH2-hair groups' `PL0182.ANN` / `PL0192.ANN` (those groups use Re:CoM's `PL0101.ANN` as in 0.188.0). Kept: the debug tests of the renders (`posed_hair_renders`, with a depth-buffered torso render, `hair_bones_in_riku_clips`).
+- **Removed, the DDD hair** (`ddd_hair`, `riku_skin`, `step`, `kh1-recom` settings and menu): `DddHairSource`, its classifier and bone map, `with_ddd_hair`, the groups 181 / 191 (`HAIR_GROUPS`) and the step's block, the tests that needed the 2.8 collection. `HairSource`, `with_hair` and the atlas code stay (KH2 uses them); `ddd::parse_pam`, `PamClip`, `parse_skeleton` and the rest of DDD's animation code stay (the Terra / cast work uses them). `riku_hair` is now `recom | kh2`: stored 0 / 1 (0.186.0 stored DDD as 1 and 0.188.0 KH2 as 2; the manifest's `hair` is 1 for the KH2 groups, so the user must press Build); an ini value `ddd` is a warning and keeps the default; the camp menu's Hair row cycles Re:CoM / KH2. The default stays `riku_hair = recom` (not changed, the owner will decide it separately).
+- **Checked**: the restored KH2 hair renders (head and hair front / side / back / top) against the 0.188.0 renders of the workspace's `local/assets/recom/riku-hair/out/kh2/`: identical but for the painter's sort rounding of a few pixels (`restored_vs_0188_0.png`; top row 0.188.0, bottom now); the swap test (613 triangles, 23 islands, 366 Re:CoM hair triangles removed); `tools/test-affected.sh`; the Windows build.
+- **Not checked**: in game. Old generated files of the DDD groups (`PL0181`, `PL0191`) may stay in the player's generated folder; nothing refers to them.
+- The user must press Build (the manifest numbering changed).
+
+## Stage 362 (fork branch Re-Re-Reverse/Rebirth): the KH2 hair moves like KH2's (its idle, run and jump baked into Re:CoM's hair bones), out of the back, version 0.191.0 (2026-11-24); reverted by Stage 363
+
+Fork owner, 2026-11-24, verbatim: "precisa de mais movimento e a parte que está movimento atrás está entrando nas costas do Riku talvez se fosse um pouco mais suave ficaria melhor"; and: "só no geral o cabelo em si carece de movimentação, tem como usar uma movimentação parecida com a do KH2?" (his "Terra" mention in that message was a slip, it is about Riku's hair); then, to the question "Você quer que eu faça a proposta A?" (bake KH2's motion into Re:CoM's hair bones): "A".
+
+Version note: `VERSION` was already 0.190.0 (Stage 361, Terra, same working tree), so this is the next minor.
+
+- **Addresses**: none (assets only).
+- **How KH2 moves this hair** (Checked (files)): the 27 hair bones of `P_EH000.mdlx` are keyed in the clips of `P_EH000.mset` (idle `A000` up to 51 deg in 120 frames at 30 fps, run `A002` 22 frames, jump `A003` 16 frames; the hair needs only the initial pose and the forward F-curves, no constraint or IK). New `kh2_motion` reads them in Rust (OpenKH's `motion.md` and `Motion.cs`); its test compares the hair chain's rotation against `OpenKh.Kh2AnimEmu`'s output on 5 clips: worst element difference 0.0005 (the emulator is the reference, run once from the workspace's `local/tools/kh2anim`; the test needs its output and is skipped without it).
+- **Change** (`kh2_hair`, `ddd_hair::HairSource::bake_motion`, `riku_skin::build_hair`, `riku_skin::encode_clip`): (1) each KH2 hair bone is bound to the nearest Re:CoM `head` / hair bone by rest position (the cap bones and the whole vertex set above the jaw to `head`; the long back strands of the cap bone, more than 0.10 m under `head`'s origin, to the nearest hair bone); (2) `bake_motion` writes into the hair bones of the KH2-hair groups' own `PL0101.ANN` (`PL0182`, `PL0192`; the other looks keep Re:CoM's pack) the rotation that the KH2 bone nearest each Re:CoM bone has in KH2's idle (clips that loop from frame 1 with a leg swing under 10 deg and a root bob under 6 cm; `IDLE_GAIN` 1.5, the clip's mean taken out and its ends joined so it loops), run (loops, leg swing 50 deg or more: slot 3; `RUN_GAIN` 0.6) and jump (slots 14, 16, 17, 26: Assumption, no table names them; `JUMP_GAIN` 0.6); the angle is scaled by the gain; (3) in those clips the head's bend off rest against `chest1` is counter-rotated (`COUNTER_BEND` 1.0; not in the idle) and the lowest strands are tilted `TILT_DEG` 10 back, a tip may not swing more than `FORWARD_LIMIT` 0.03 m toward the front, and the lowest hair is moved `BACK` 0.12 m back in the bind pose; (4) every other clip keeps `OTHER_GAIN` 0.2 of Re:CoM's own hair-bone turn (Checked (files): Re:CoM turns them 40 to 120 deg in attacks and casts). The clips are re-encoded; no other bone changes (test `bakes_kh2s_hair_motion_into_the_clips`: only hair bones change in any clip, frames / loop / fps / bone count equal, the idle moves and loops).
+- **Cause of the hair going into the back** (Checked (renders: depth-buffered, the torso posed by the same clips, in the workspace's `local/assets/recom/riku-hair/out/kh2/`): the strands bound to `head` (KH2's skull bone also carries the long back strands) turn with the head, which Re:CoM's run and attack clips pitch forward 50 to 70 deg against the chest, so a row of strand tips came out of the back with the layers behind them inside it. A row of strand tips on the back, in the run and in the attack, is gone with the nearest-hair-bone binding below the jaw and the counter-rotation (`cap_cmp.png`: `t10` before, `cap1` after). Neck-bone bands (`neck1`..`chest1`) were tried in 0.188.3 and dropped (the lower hair vanished into the torso).
+- **Numbers** (tips = the lowest fifth of the strand vertices, largest distance from their rest position in the head's frame over the clip): idle 2 cm (0.188.3) to 6 cm, run 46 to 32 cm, jump 24 to 23 cm, attack 8 cm, cast 14 cm. A torso-penetration count from rays along the chest's forward axis (inside = odd crossings) was tried and dropped: it rose when the hair was moved away from the back (the torso mesh is open at the neck and shoulders), so the renders are the evidence.
+- **Checked**: renders posed by clips 1 (idle, 4 frames), 3 (run, 4 frames), 4, 14, 17, 26, 37, 41, side and back, 0.188.3 against this (`before_after_idle_run_0190.png`, `before_after_other_0190.png`); `tools/test-affected.sh`; the Windows build.
+- **Not checked**: in game (that the engine plays the group's own `PL0182.ANN` for the hair look, and how the baked rotations read; the jump slots are an Assumption; walking and guard are not mapped, they keep 0.2 of Re:CoM's turn; a few tips still pass through the back or the arm in the run and attacks by a few centimetres in the renders; the strands' tips are a little spiky from the side in the run).
+- The user must press Build (the asset output changed).
+
+## Stage 361 (fork branch Re-Re-Reverse/Rebirth): Riku's casts keep his legs and body, only Terra's upper body moves, version 0.190.0 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim, on 0.189.0 in game: "a de block está perfeita mas todas as de magia estão estranhas, o jeito que ele se move está esquisito".
+
+- **Addresses**: none (assets only).
+- **Cause** (Checked (files), numbers from the built clips on Riku's skeleton, `local/assets/recom/riku-terra/`): the whole-body retarget moved the body. 315 (Fire, Blizzard): the body swung from 0.43 m back to 0.40 m forward in z with one 0.25 m step in a single frame (Terra's hop at his frames 13 to 14, which `plant_feet` turns into a body jump to keep the feet still), and its height changed 0.58..0.85 m (DDD's 315 on Riku: z -0.15..0.21, biggest step 0.095). 318: body 0.66..1.29 m, a foot at 0.03 m, a 0.13 m step in a frame. Terra's crouch and hop were made for his 18 % longer legs.
+- **Change** (`riku_skin::CastCtx::clip_on`): the ground casts (`315`, `317`) map Terra's waist, chest, neck, head, arms and hands; `ex_1010_sk`, `hip`, the legs, belts, pants and cuffs are Riku's battle stance (as every unmapped bone already was), so no body travel, no crouch, feet where his stance has them. The air casts (`316`, `318`) keep Terra's leg tuck but the body stays at its stance position (`hold_body`). The Guard (accepted: "a de block está perfeita") is untouched: whole body, `plant_feet`, `put_on_floor`. `TERRA_KEYS` unchanged.
+- **Checked**: stats and stick sheets of the variants (A = 0.189.0, B = A without the sideways travel, C = upper body only, F = C on the ground and the tuck in the air) next to DDD's built clips: B left the feet sliding on the floor with the same leans; C and F read as the cast with the arms and blade, the legs still. Test `terra_motions_on_riku` now also asserts the body never leaves its stance position in the four casts and the ground casts' lower foot is on the stance's floor. `tools/test-affected.sh`, the Windows build.
+- **Assumption / not checked**: that this reads as natural in game (the legs are still during the ground casts, there is no crouch for 317); mesh renders (stick figures only); the air casts' legs; spell effect timing against the arm.
+- The user must press Build (the asset output changed).
+
+## Stage 360 (fork branch Re-Re-Reverse/Rebirth): Riku's casts and Block from BBS FM's Terra (no 2.8 collection needed), version 0.189.0 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim: "o block do Riku poderia usar a animação do block do Terra.. sobre a magia poderia usar as animações do Terra também"; on identifying the clip first: "era bom vc identificar mesmo qual é antes de implementar... o block do BBS funciona igual o do kh1, vc aperta X ou quadrado e ela executa..., sobre as magias, mesma coisa as animações estão vinculadas as mesmas magias que tem no KH1 mas no BBS"; asked about implementing: "certo e as animações de magia e block do terra pro riku?". Ruling the same day (relayed): only the 1.5+2.5 collection may be required; DDD (2.8) is optional.
+
+- **Addresses**: none new (assets only, no new hook). Terra's Guard start `FUN_14025e8f0` (BBS exe, Ghidra address) plays PAT_TERR slot 63 = clip `354`; casts: PAT_TERR slots 68 / 69 / 70 / 71 = `315` / `317` / `316` / `318`. Checked (decomp + files; `knowledge/BBS/bbs-terra-casts-guard-for-riku.md` sections 7 and 8).
+- **Change** (`kh1-recom-assets`): new `terra` (BBS archives `bbs_first..fourth` read with the keys the step has; ARC reader; `read_terra` = `p03ex00.pmo` skeleton + `p03ex_151.arc` (315, 316), `p03ex_152.arc` (317, 318), `p03base.arc` > `p03ex_001.pam` (354)). `ddd::parse_pam` reads PAM version 1 (inline names) as well as 2. `riku_skin`: `CastCtx` / `GuardSource` carry the motion source (`terra` flag); Terra's clips use the existing DDD path (`Src::Ddd(name)` = a clip of whichever source is loaded): bones by name (`RIKU_FROM_DDD`; Terra's names match), the world-rotation delta retarget (Terra's collars are 90 deg off at rest, his `R_buki` 120), blade on Riku's stance grip, `carry_translation` of `center` / `koshi` scaled by `terra::TRAVEL_SCALE` 0.844 (hip height Riku / Terra), `plant_feet` on the ground clips (315, 317, the Guard) then `put_on_floor` (Terra's longer legs sank the lower foot 4 cm under the stance's floor), `from_start` on the air clips. Key moments for Terra's casts (`TERRA_KEYS`, read from the retargeted hands): 315 thrust 9..13, 316 8..13, 317 / 318 raise 10..14. Guard: `terra_guard`, `TERRA_GUARD_KEYS` (4, 24, 35): up over `RIKU_GUARD_UP`, pose through KH1's live window, lowering after (the clip itself lowers its arm from frame 24). The spell to clip mapping is the DDD rows' (Fire / Blizzard on the thrust, the rest on the raise).
+- **Priority** (`step`): Terra's files (default, the 1.5+2.5 collection) > DDD Riku's (only when Terra's cannot be read and the 2.8 collection is next to the game) > Re:CoM / KH1 motions (the 0.158 KH1 Riku guard, the 0.184.x spell clips). No setting (the asset cache is stamped by the game's files, a setting would not invalidate it). Dark Riku gets the same through Riku (his clips are retargeted from Riku's, as before).
+- **Checked** (files, owner's install): Terra's clips read (51 bones, 36 / 36 / 37 / 37 / 36 frames, 30 fps); built clips: `hip` at rest, the blade in the stance's grip on every frame, the ground clips' lower foot within 0.04 m of the stance's floor (0.000 after `put_on_floor`), air clips start at the body's rest height (`riku_skin::tests::terra_motions_on_riku`); synthetic PAM v1 / ARC tests. Stick renders of the built clips (Riku's skeleton, side and front) in the workspace's `local/assets/recom/riku-terra/`: guard (the weapon arm raised across the front, blade up and a little forward, held to about frame 24), Fire (both hands thrust forward at the start, then the blade raised), air Thunder. The blade is in the right hand in every clip (Riku's `wep0` hangs under `r_hand`; the stance grip is kept).
+- **Assumption**: air casts use `316` / `318` (the slot order and the shape match; the game's code that picks them was not found). The guard pose after Terra's frame 35 (the game's motion-end rule; the clip lowers its arm). The spell effect timing against the thrust / raise (the key frames above; not seen in game). Travel scale 0.844 and the floor fix: measured on the skeleton only.
+- **Not checked**: in game; the mesh (stick figures only); Terra's keyblade (not used, Riku's Soul Eater stays in his hand).
+- Tests: `tools/test-affected.sh` (the only failure is the hair work's `kh2_hair::tests::swaps_rikus_hair_for_kh2s`, 1055 vs 613 triangles, not touched here), the Windows build. The user must press Build (the asset output changed).
+
+## Stage 361b (fork branch Re-Re-Reverse/Rebirth): KH2 hair moves more and stays out of the back, shipped in 0.189.0 (hair change prepared as 0.188.3; superseded by Stage 362) (2026-11-24); reverted by Stage 363
+
+Version note: another session had already bumped `VERSION` to 0.189.0 (Stage 360, Terra) in the same working tree, so this change adds no bump of its own; the DLL built from the tree carries both.
+
+Fork owner, 2026-11-24, verbatim (on 0.188.2): "precisa de mais movimento e a parte que está movimento atrás está entrando nas costas do Riku talvez se fosse um pouco mais suave ficaria melhor"; and: "só no geral o cabelo em si carece de movimentação, tem como usar uma movimentação parecida com a do KH2?" (his "Terra" mention in that message was a slip, it is about Riku's hair).
+
+- **Addresses**: none (assets only).
+- **KH2's own movement** (Checked (files), OpenKH's `Kh2AnimEmu` run on `P_EH000.mset` + `.mdlx`, the workspace's `local/tools/kh2anim`): KH2 moves Riku's hair with clip-keyed hair bones (27 bones; angle of the hair bones against the head over a clip: idle `A000` up to 51 deg in 120 frames, walk `A002` 21..39 deg, run `A003` 38..55 deg). That the exe adds no runtime physics on top is not checked (the OpenKH docs list none for hair; the only "PHYSICS" triggers are movement ones).
+- **Change** (`kh2_hair`): strands below the jaw line (`SWAY_BELOW` 0.08 m under `head`) follow `b_hair2` (was `b_hair1`) and are moved `BACK` = 0.10 m back (ramping in over 0.2 m); the rest follows `head`. Measured over all `PL0101.ANN` clips (tips = the lowest fifth of the strands, against `head`): tip travel in the run (slot 3) 15 cm with `b_hair1` and 43 cm with `b_hair2`, idle 0 and 1.5 cm; the other hair bones tear (median 23..54 deg, p90 53..96, max 70..127 against `b_hair2`'s median 34, p90 53).
+- **Tried and dropped** (renders, z-buffered with the torso, `local/assets/recom/riku-hair/out/kh2/`): the strands cut at 4 cm bands on a neck-bone chain (`neck1`..`chest1`): the neck bones turn 26 deg together in the run, so the lower hair went into the torso and the cut edge was ragged (`body_before_v1.png`, `body_before_after.png`); `chest1` for the lower hair: no motion; `b_hair3`: ragged flare. A numeric torso-penetration metric from the bone clouds disagreed with the renders (it counted 0 cm where the render shows the hair swallowed), so the renders are the evidence.
+- **Checked**: renders posed by the clips 1, 3, 4, 17, 37, 41 (side and back, with the torso and a depth buffer), before 0.188.2 / after: `b_cmp.png` (0.188.2, `b_hair1` + 10 cm, `b_hair2` + 10 cm, `b_hair3` + 10 cm) and `before_after_0188_3.png`: in the attack clip 37 the strand tips that poked through the back are gone; in the run the hair streams back. `tools/test-affected.sh`, the Windows build. The user must press Build.
+- **Not checked**: in game; the seam at the jaw line (two bones, no slicing) when the head turns hard; the run flare looks spiky at the shoulders in the back view; the amount of motion is the clips', no more can come from them.
+- **Proposal, not implemented (rule 9, needs the owner's approval)**: see the report of this stage: (A) bake KH2's keyed hair motion into Re:CoM's hair bone channels in `PL0101.ANN` at build time (asset-only); (B) a spring layer in the DLL (needs a hook in the pose path, none is known).
+
+## Stage 359 (fork branch Re-Re-Reverse/Rebirth): KH2 hair sways again (lower strands on `b_hair1`), version 0.188.2 (2026-11-24); reverted by Stage 363
+
+Fork owner, 2026-11-24, verbatim: "certo ficou melhor mas está sem movimento nenhum no cabelo ficou esquisito" (on 0.188.1, hair rigid on `head`).
+
+- **Addresses**: none (assets only).
+- **Change** (`kh2_hair`): vertices above the jaw line (more than `SWAY_BELOW` = 0.08 m below `head`'s origin is the cut) follow `head`; the strands below follow `b_hair1` (`SWAY_BONE`). Checked (files, all 80 `PL0101.ANN` clips, angle vs `head`): `b_hair1` is the mildest of the 18 hair bones (idle 0 deg, slot 3 18 deg, median 7, p90 18, max 36; the others median 23..54, p90 53..96, max 70..127), so the lower hair streams back in the run as one piece without tearing, and the bangs and crown stay on the head.
+- **Checked**: posed renders (slots 1, 3, 4) head-only vs this, `local/assets/recom/riku-hair/out/kh2/sway_cmp.png`: strands keep their length and shape, no tearing, the lower hair lifts back in slot 3; `tools/test-affected.sh`, the Windows build. User must press Build.
+- **Not checked**: in game. Assumption: the idle has no sway (`b_hair1` does not move in idle; the other bones that do tear apart); a faint seam at the jaw line where two bones meet; clipping into the back in attacks.
+
+## Stage 358 (fork branch Re-Re-Reverse/Rebirth): KH2 hair stays at full length in motion, bangs keep their shape, temple covered, version 0.188.1 (2026-11-24); reverted by Stage 363
+
+Fork owner, 2026-11-24, verbatim: "ficou MUITO bom o cabelo do KH2, mas ainda precisa de alguns ajustes para ficar perfeito"; on whether the hair keeps KH2's length in motion: "o comprimento é oq tu assumiu mesmo" (KH2's full length, also in motion); "mais um angulo para vc verificar" (running seen from behind: the hair looked short and compact); "a franja do cabelo ao correr tbm ficou meio esquisita" (running, side view: the hair streams back as a thin wedge, the bangs look thin and detached).
+
+- **Addresses**: none (assets only).
+- **Cause** (Checked (files), posed renders of `PL0101.ANN` on the swapped model, the workspace's `local/assets/recom/riku-hair/out/kh2/before_after_idle_run.png`): 0.188.0 bound every non-cap KH2 vertex to the nearest of Re:CoM's 18 hair bones, and the clips turn those bones far off the head (max angle vs rest relative to `head`: slot 3 up to 79 deg, slot 41 110, slot 47 118, slot 56 108; idle slot 1 up to 19). In slot 3 (Assumption: the run, it matches the screenshots) the groups sweep apart: the back strands flare into a wedge or fold, and the bangs (bound to `f_hair` / `l_hair*` / `r_hair*`, 36..42 deg) tear off the forehead.
+- **Change** (`kh2_hair`): every strand follows `head` rigidly (no sway; the clips' sway cannot be kept without tearing, since one bone per vertex gives no blending); `WIDTH` 1.1 to 1.3 so the hair covers the temple and the ear skin. `ddd_hair::{classify_riku, RTri.tex}` are `pub(crate)` for the debug tests only. New debug tests `hair_bones_in_riku_clips`, `posed_hair_renders`, `kept_skin_triangles` (they run only with `RECOM_GAME`).
+- **Checked**: posed renders (slots 1, 2, 3, 4, 17, 34, 41) before / after: the strands keep one shape in every frame, the bangs stay on the forehead; idle front / side: the right temple and ear skin gone; `tools/test-affected.sh`, the Windows build.
+- **Not checked**: in game (the rigid hair clipping into the shoulders and back when the head tilts, no sway at all). Assumption: the stair-step flat tops on the back in the debug render are the painter's sort, not geometry (not verified with a depth buffer); the top is as round as KH2's sheet in the side view. The neck block under the chin in the head-only render is covered by the collar in game (screenshots 1, 2).
+- The user must press Build (the asset output changed).
+
+## Stage 357 (fork branch Re-Re-Reverse/Rebirth): Riku's hair from KH2 FM (`riku_hair = kh2`), the DDD hair optional, version 0.188.0 (2026-11-24); the DDD half removed by Stage 363
+
+Fork owner, 2026-11-24, verbatim: "o cabelo começa sim pelo do Riku do KH2". Ruling the same day (relayed): only the 1.5+2.5 collection (Re:CoM, KH1 FM, KH2 FM, BBS FM) may be required; the DDD (2.8) hair stays but is optional.
+
+- **Addresses**: none (assets and settings only).
+- **Change** (`kh1-recom-assets`): `ddd_hair` is generalised with a hair source: `HairSource` (its `hair(names, world)` gives a `SrcHair`: triangles with position in Re:CoM's frame, UV in the source atlas, the Re:CoM bone name, UV island, strip continuation) and `with_hair` (the old `with_ddd_hair` is a wrapper; DDD's reading moved into `impl HairSource for DddHairSource`, same triangles, bones and atlas as 0.186.1). The atlas packer tries scales down to 0.3 (it stopped at 0.7) and averages a k x k grid per pixel when the scale is below 0.5 (k = 1 above, so DDD's atlas is built as before). New `kh2_hair::Kh2HairSource` reads KH2's `obj/P_EH000.mdlx` (kh2_sixth) with the existing `kh2-formats-lite` reader (`mdlx::parse`, `skeleton::bind_pose`) and its hair atlas, the asset `-5.dds` (DXT5, 1024 x 1024; the workspace note said BGRA, it is DXT5, `decode_dds` reads it). Group 3 = the 613 hair triangles. New groups 182 (Soul Eater) and 192 (Keyblade of Heart) in `riku_skin::KH2_HAIR_GROUPS`, built from group 101 by `build_hair` (now takes the source and the atlas target; the KH2 atlas is named `rk_hair_kh2`, so both hairs can be in the game); `keyblade::new_resource_names` lists them; `step` builds them after the DDD ones (KH2 missing: a note and skip, like the other steps; the DDD block already skips without the 2.8 collection) and writes `hair: 2` in `kh1-riku-skin.json`.
+- **Fit** (Assumption, chosen from the renders): a KH2 vertex's bind world position `W` becomes `H + (1.1 x, 1 y, 1 z) * 0.0092 * (W - K) + (0, 0, 0.012)` m, `K` = KH2's head bone 98, `H` = Re:CoM's `head` (the note's 0.0086 left the fringe 1.3 cm inside Re:CoM's face; 0.0092 and +1.2 cm forward put it over the brow, the x factor covers the temples and ears). Bones: KH2's cap bones 98 / 101 / 104 (1153 of 1839 corners) follow `head`, rigid with the skull; every other KH2 bone takes the Re:CoM `head` / `*hair*` bone nearest to the KH2 bone's own rest position (b_hair3, l_hair1/2/4/7, r_hair1/2/3/4/7), so a chain keeps one bone. KH2's hair is shoulder length; the long strands end on the last hair bones, not cut. Atlas: the KH2 hair texture is one 867 x 917 island plus 22 smaller ones, so it is placed at scale 0.4 (about 410 px; the PS2 original is 256 x 256).
+- **Change** (`kh1-recom`): `riku_hair = recom | kh2 | ddd` (stored 0 / 2 / 1, so 0.186.x inis keep their meaning); the camp menu's Hair row cycles Re:CoM / KH2 / DDD (`HAIR_SWAP` maps the menu order to the stored value); `win::riku_skin::chosen` and the manifest parser take hair 0..=2; a look whose hair has no group still shows Re:CoM's (so DDD without the 2.8 collection shows Re:CoM's). The ini template documents the key. The owner's ini is not touched.
+- **Checked** (files, owner's install, `RECOM_GAME`): the swap on PL0101 with KH2's hair (613 triangles, 23 islands, scale 0.4, 366 Re:CoM hair triangles removed, packets within the cap); the head-and-hair renders front / side / back / top, culled and unculled, in the workspace's `local/assets/recom/riku-hair/out/kh2/` look like `local/assets/kh2/renders/P_EH000_sheet.png` (fringe over the brow, long back, lavender colour); the hair is 10 cm or more behind the body's back at every height, so it does not clip the torso at rest. Tests: `tools/test-affected.sh`, the Windows build.
+- **Known imperfect** (render): a few skin chips of Re:CoM's face show at the viewer's right temple and ear through gaps of the fringe; the painter's render is not the game's depth buffer.
+- **Not checked**: in game (the draw path for a 613-triangle two-sided hair at 0.4 atlas scale, how the hair moves with the head and the hair bones, clipping into the shoulders and the Keyblade pose in motion, the camp menu row). Assumption: the cap on `head` and the strands on hair bones do not tear apart under Re:CoM's hair-bone clips.
+
+## Stage 356 (fork branch Re-Re-Reverse/Rebirth): Riku's spells cost MP again (`riku_free_magic` defaults to off), version 0.187.1 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim: "pode colocar de volta tbm o custo de mana pra executar as magias, precisa comitar e dar push com as regras para td mundo poder jogar".
+
+- **Change** (`settings`): `riku_free_magic` defaults to off (was on for the 0.184.0 test); the template line reads `off`. Riku's and Dark Riku's spells pay Sora's KH1 MP costs and the menu greys them for MP, as for Sora. The key stays as a test switch.
+- The fork owner's own `kh1-recom.ini`: `riku_free_magic = off` (backup `kh1-recom.ini.bak-0.187.1`).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+## Stage 355 (fork branch Re-Re-Reverse/Rebirth): Riku's unlocked spells in his Customize picker, version 0.187.0 (2026-11-24)
+
+Fork owner, 2026-11-24, verbatim: "ficou perfeito! o cabelo, precisa poder em customize também adicionar o comando das mangias quando ela são desbloqueadas". Answers to two questions: the seven of Sora's ("As 7 do Sora"); unlocked "Pela história do Riku" (see Assumption).
+
+- **Change** (`win::command_menu::riku_spell_levels`, `win::keyblades::Page::open`): Riku's Customize page no longer passes `levels = [0; 7]` to `customize::picks`; it reads `riku_spell_levels()`, the same answer his command menu uses (Sora's seven at level 3 while the magic is in). The picker lists his unlocked spells in KH1's order, then his sleights, then None; a slot holds a spell as for Sora (`sc::Slot::Spell`).
+- **Assumption**: no story rule for Riku's spells exists in the mod yet (0.184.0 unlocked all seven on the owner's ask), so every spell is unlocked. When a rule is written, only `riku_spell_levels` changes and both the menu and the picker follow.
+- **Checked**: build, tests. **Not checked**: in game (the picker's rows, an L1 slot casting the spell).
+
+## Stage 354 (fork branch Re-Re-Reverse/Rebirth): DDD hair drawn from both sides (no see-through bands from behind and above), version 0.186.1 (2026-11-24); removed by Stage 363
+
+Coordinator's report of the 0.186.0 test in game, verbatim in meaning (relayed, not the owner's words): the hair "loads and draws in game", looks almost right from the front, but from behind and above there are "empty bands, like missing strips, across the back and top of the head", the scalp and nape skin shows through and "some zig-zag bands look see-through"; gaps at other angles too.
+
+- **Measured** (Checked (files), a debug render in `ddd_hair`'s test, out in the workspace's `local/assets/recom/riku-hair/out/hair_{front,side,back,top,bottom_back}[_cull].png`): drawn two-sided (every triangle, no culling) the output hair is closed from behind and above (one small hole over the left side, see below). Drawn with culling by the facing flag (a triangle passes when its strip-order cross points to the viewer for flag 0x20, away for flag 0) it shows dark bands down both sides of the back and the crown, i.e. the reported symptom. DDD's hair is layered shells and thin shards: of its 343 triangles about a third have their winding front pointing into the head (corrected-order cross vs the outward direction: 59 + 51 of 343 inward), and the flag rule used in 0.186.0 (0x20 when the strip-order cross points away from the head centre; 96.6 % on Re:CoM's own face triangles) cannot give both sides of a shard.
+- **Cause** (Checked (files) for the geometry, Assumption that the game culls by the flag): the one-sided copy of every DDD triangle. Not the 164 DDD skin triangles (all lie within 3.4 cm of a kept Re:CoM face triangle; the Re:CoM face island still covers the whole skull), not the 306 degenerate joins (strip joins, no area), not `segments` / `pack` (the output holds exactly the kept and the DDD triangles; the test counts them), not the UV islands (all 22 unanimous), not part 2 (the proxy).
+- **Change** (`ddd_hair::with_ddd_hair`): each DDD hair triangle is written twice in part 3, the second copy with the other facing flag (`^ 0x20` on its drawing vertices, same vertices), so exactly one copy passes a facing cull from any side; with no cull the two copies are identical and draw the same pixels. Part 2 keeps one copy. 686 DDD triangles in part 3 instead of 343 (packets grow by about 8; the cap is unchanged). The test renders now also give back, top and bottom views, with and without the culling simulation.
+- **Checked**: `cargo test -p kh1-recom-assets` (the swap's test now expects 2 x 343 DDD triangles, 366 removed, the kept ones byte for byte), the culled back and top renders close the bands. **Not checked**: in game (that the engine culls by this flag, and that the second copy shows the other side: both are the Stage 353 Assumption on the flag). Known left: a small hole seen only from straight above over the left side of the head (x about -0.13 m, z -0.14 .. -0.07 m): there Re:CoM's long `r_hair6` strand covered it and DDD's hair has nothing; not changed.
+
+---
+
+## Stage 353 (fork branch Re-Re-Reverse/Rebirth): Riku's hair from DDD, a Hair row on the Costumes page, version 0.186.0 (2026-11-24); the DDD hair removed by Stage 363
+
+Fork owner, 2026-11-23 / 24, verbatim: "é possível implementar uma customização de personagem onde trocaria só o cabelo? e teria uma variação para o cabelo do DDD?"; "sobre o cabelo tente implementar e use um agente para escolher o melhor lugar para implementar no menu"; on the plan (scope: his default attire first): "sim".
+
+- **Research** (the workspace's `knowledge/DDD/ddd-riku-hair.md`, Checked (files) unless marked): Re:CoM Riku's hair is not on its own packets (part 3: 99 greedy strip packets, hair and head triangles share them), so it is removed per triangle; `PL0101`'s atlas `n_zz110_01` (1024²) holds face, hair, skin and trousers. DDD's `p_ex020.pmo` (PMO v4; OpenKH's vertex code is wrong, the layout is in the note) has 343 hair triangles on its atlas `p_ex020_00`; its `atama` / `L_kamiB` sit where Re:CoM's `head` / `l_hair4` do.
+- **Change** (asset step: `ddd::{parse_pmo, read_full}`, new `ddd_hair::{with_ddd_hair, DddHairSource, RIKU_0101}`, `riku_skin::{HAIR_GROUPS, build_hair, Made.hair}`, `step.rs`, `keyblade::new_resource_names`): groups 181 (Soul Eater) and 191 (Keyblade of Heart) are group 101's files with Re:CoM's hair triangles (366 of part 3; the island-based classifier) replaced by DDD's 343, each corner on its dominant DDD bone mapped to a Re:CoM hair bone (one bone per vertex: DDD's two-bone blends round to the heavier), on a rebuilt atlas `rk_hair_0101` (Re:CoM's hair islands cleared, DDD's packed in). Part 2 (the untextured twin: a low-poly proxy, 1074 triangles) gets the same swap. Manifest rows carry `"hair": 1`.
+- **DLL** (`riku_skin::{Skin.hair, Look.hair (bits 4..5), group_for}`, `win::riku_skin::chosen`, settings `riku_hair = recom | ddd`, `menu::Item::Hair`): the Costumes page's second row "Hair" (Re:CoM / DDD), applied at the next room or battle like the costume (and live from the camp as the Keyblade change is, no transformation). A look with no hair group (Dark Mode, Halloween Town) shows Re:CoM's hair. The ui-ux agent's placement (menu.rs, 5-row limit not reached).
+- **Checked**: tests (`the_hair_groups_are_built_from_rikus_101`, the swap's own six in `ddd_hair`, the DLL's manifest / group tests), the agent's renders (front and side: hair on the head, no gap at the scalp, hairline or ears; two or three small notches in the bangs), `tools/test-affected.sh`, the Windows build. **Not checked**: in game; whether Re:CoM's loader and draw path accept the rebuilt packets, how the hair moves with Re:CoM's hair bones (rigid), the 256-colour TIM2's quality (the PC shows the HD DDS), Halloween Town (`PL0111`) and Dark Riku's hair (not built). The asset step's code changed: the first start builds again (needs the 2.8 collection next to the game, else logged and skipped).
+
+---
+
+## Stage 352 (fork branch Re-Re-Reverse/Rebirth): Riku's own effect per spell (Blizzard, Thunder, Aero, Gravity, Stop), version 0.185.8 (2026-11-24)
+
+Fork owner, 2026-11-23, verbatim: asked "os efeitos das magias teria variações melhores?"; offered (a) Riku's own effects that fit each spell or (b) KH1's cast effects: "o audio que toca sobre os efeitos é A" (reads as: the effects, option A).
+
+- **Source** (the searcher's note, the workspace's `knowledge/ReCoM/recom-m13-recom-fx.md` § 8.4, Checked (files + exe): ids, bones, sounds, loops, what is loaded with Riku (`EF1500`, `EF1600`; not the sleight packs); how each program looks and the fit to the spell: Assumption, not seen in game).
+- **Change** (asset step, `riku_skin::{spell_events, Fx, FxBones, cast_events}`; DLL `win::movement` request): Fire keeps Dark Firaga's effects and Cure the heal sparkle (the owner liked it). Blizzard: `ex_1580` 38 on Root (+ 39 on the chest, + 10 on the hand at level 3, 38 at 1.5). Thunder: 19 on the chest 10 frames before the release (+ 11 on the hand, + 42 on the chest as a loop). Aero: `speed_break` 0 (+ 5, + the blade's 8 as a loop and 11). Gravity: 36 on Root 30 frames before, 7 on Root (0.5 / 0.7 / 0.9) (+ 3 at level 3). Stop: 39 (+ 18 at 0.6, + 38 at 1.5). The darkness cloak and the blade's aura are gone from these spells. Thunder / Aero and Gravity / Stop share a clip: Aero and Stop play EET variants 4..6 (the DLL passes `level + 3` for requests `0x3C` / `0x89` / `0x3B` / `0x88`), Thunder and Gravity 1..3. Effect sounds come with each program's ESE row.
+- **Checked**: tests (`rikus_cast_clips_carry_dark_firagas_events` now checks Thunder's `ex_1580` 19 at its frame 20, more events per level on variants 1..3 and 4..6, no Dark Firaga flash), `tools/test-affected.sh`, the Windows build. **Not checked**: in game. Assumption: 4..7 programs on one cast do not cost frames (Barrage already puts about 17 on one clip). The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 351 (fork branch Re-Re-Reverse/Rebirth): the blade's roll in DDD's clips, one fixed voice per spell, version 0.185.7 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim (on the DLL after 0.185.4): "nessas animações a lamina ainda está sendo segurada do lado errado!, e os audios ficaram muito aleatórios precisa fazer mais sentido com a magia"; on the effects: "o audio que toca sobre os efeitos é A" (effects: Riku's own, one per spell); also asked for a hair-only customisation (see the next stages).
+
+- **Measured** (Checked (files): a probe on the owner's install, removed after): Riku's Soul Eater mesh (part 1, 508 vertices, all on `wep0`) points along `wep0`'s −x (far 5 % of vertices at (−0.74, −0.05, 0.0) m). In DDD's clips (`315` / `317` / `220`, built on Riku) that tip stays within 20..30° of DDD's blade tip (`R_buki` +x) and within 7..70° of the forearm, the range Re:CoM's own sleights have (Impulse 21..77°, Maelstrom 11..67°, Barrage 14..78°). So the tip's direction is not what is wrong; the side that faces out is (Assumption: the roll about the blade's axis; 0.185.3 and 0.185.4 both read "do lado errado").
+- **Change** (asset step, `riku_skin::flip_blade_roll`, `CastCtx::clip_on`): in every DDD clip `wep0` (and the chain under it) is turned half a turn about its own x ([`BLADE_FLIP`]) on top of the stance's grip. If it is still wrong in game, the roll was not it: say which way the tip points.
+- **Voices** (`riku_skin::CAST_VOICES`, `cast_events`): 0.185.5's random pick from four lines is replaced by one fixed line per spell, from the sleight that casts the same kind of thing: Fire 3035 (Dark Firaga's own), Blizzard 3036, Thunder / Aero 3033, Cure 3021 (Holy Burst's), Gravity / Stop 3034 (Checked (files) which sleight plays which number, § 8.3 of the workspace's `recom-m13-recom-fx.md`; what each line says: Assumption, not listened to). `ses::randomize` removed.
+- **Checked**: tests (grip = the stance's turned by `BLADE_FLIP` on `315` / `317` / `220` / `316` / `318`; the voices fixed per spell in Riku's, Dark Riku's and the skin's SES), the Windows build. **Not checked**: in game. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 350 (fork branch Re-Re-Reverse/Rebirth): DDD's air casts back on the air rows, version 0.185.6 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: asked "da para implementar as animação de quando ele está no ar castando magia e defendendo ou se implementar vai substituir as animações de quando está no chão?"; told the air rows have their own clips (0.185.2 put the ground ones on them) and that KH1's Guard is ground-only: "1 sobre a guarda no ar não precisa implementar", "implementa os pontos anteriores pra eu testar".
+
+- **Measured** (Checked (files): DDD's `center` + `koshi` off rest): `316` / `318` start with the body 0.18 m above DDD's rest and move −0.32..+0.20 m from there (`316` also 0.54 m forward and 0.35 m back, which `retime` drops: no travel on unplanted clips).
+- **Change** (asset step, `kh1_recom_assets::riku_skin::{DDD_THRUST_A, DDD_RAISE_A, from_start, CastCtx::clip_on}`): the six air cast clips (`p002_233..238`, Dark Riku's `p003_`) play DDD's air thrust `316` (key 8..12) and raise `318` (as `317`'s keys) again, with Riku's grip (0.185.4) and the body's move from its rest height (`from_start`: frame 0's offset taken off `ex_1010_sk`). The ground clips are unchanged. No air Guard (KH1's Guard needs the ground: the workspace's `kh1-sora.md` § Guard).
+- **Checked**: tests (`ddd_ground_motions_keep_rikus_feet_down`: `316` / `318` start at the rest height 0.974, the grip the stance's every frame, the five air sources on `316` / `318`; the ground checks as before), `tools/test-affected.sh`, the Windows build. **Not checked**: in game; Assumption: Re:CoM's air rows keep the body at its rest height. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 349 (fork branch Re-Re-Reverse/Rebirth): a sound on Riku's Guard, his cast shouts varied, version 0.185.5 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim (on 0.185.3 in game): "falta audio quando o riku defende"; "os sons na magia ele está usando o mesmo grito, tem como dar uma variada".
+
+- **Cause (Guard)** (Checked (files): the built `PL0101.SES` / `PL0201.SES`): Riku's and Dark Riku's Guard clips (`p002_225`, `p003_225`) had no SES entry, so they played no sound; Sora's (`p001_225`) has a whoosh and a grunt at frame 0 (`ses::add_kh1`).
+- **Cause (casts)** (Checked (files)): every cast clip copies Dark Firaga's single voice 3035 (`cast_events`).
+- **Change** (asset step, `kh1_recom_assets::ses::{guard_entry, randomize}`, `riku_skin::{CAST_VOICES, cast_events, build_with}`): the Guard gets a whoosh and a random grunt at frame 0 from each one's own swing sounds (Riku: `p002_044`'s 1333 and its grunts 3011 / 3014 / 3013; Dark Riku and the skin: `p003_056`'s 1332, `p003_053`'s 3005 / 3006). The cast voice is random (SES flag 4, Re:CoM's picker never plays the same line twice in a row) from 3035, 3036, 3021, 3027 at 25 % each: the shouts of Riku's and Dark Riku's own attack sleights (the workspace's `recom-m13-recom-fx.md` § 8.3). Which lines suit a cast: Assumption (not listened to). The guard recoil `p002_226` still has none.
+- **Checked**: tests (`dark_rikus_own_pack_gets_the_guard` on the owner's install now checks the Guard's whoosh and grunt in Riku's, Dark Riku's and the skin's SES and the cast voices' table), `tools/test-affected.sh`, the Windows build. **Not checked**: in game. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 348 (fork branch Re-Re-Reverse/Rebirth): Riku's own grip on the Soul Eater in DDD's clips, version 0.185.4 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim (on 0.185.3 in game, two screenshots: the battle stance, the blade down behind the hand; a DDD clip, the blade up in front of it): "ficou quase perfeita as animações do Riku guarda e magias, só que ele está invertendo a lamina", "posição correta, invertida".
+
+- **Cause**: both 0.185.2 (`wep0` on `R_buki`'s world axes) and 0.185.3 (the rest-relative map from `R_buki`) took the blade's turn from DDD's weapon bone, and DDD holds its blade the other way round in the hand from Riku's battle stance (Stage 346: in the hand's frame (0.37, −0.93, 0.05) against Re:CoM's (−0.35, 0.93, −0.05)), so the blade turned over in his hand when a DDD clip began. Checked (in game, the owner, on 0.185.3).
+- **Change** (asset step, `kh1_recom_assets::riku_skin::CastCtx::clip_on`): in DDD's clips `wep0` is no longer mapped to `R_buki`; it (and `k10`, `k11` and the blade bones, as before) takes the battle stance's local pose under its parent, so the grip is the stance's on every frame and the blade follows DDD's hand. Dark Riku's from Riku's, as before. `crate::ddd::RIKU_FROM_DDD` keeps the pair (the bone map's record).
+- **Checked**: tests (on the owner's install: `ddd_ground_motions_keep_rikus_feet_down` now checks `wep0`'s rotation relative to `r_hand` is the stance's on every frame of `315` / `317` / `220`, off by 0.0000, the feet checks as before), the Windows build. **Not checked**: in game; whether the Guard `220` reads well with the blade held Riku's way (DDD's own pose holds it across the chest). The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 347 (fork branch Re-Re-Reverse/Rebirth): the Soul Eater back on the rest-relative map, version 0.185.3 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim (on 0.185.2 in game): "ficou perfeita a animação mas a espada está invertida e chega a atravessar o Riku".
+
+- **Cause**: 0.185.2's `ddd::weapon_aligned` gave `wep0` `R_buki`'s world axes, turning the blade 180° from the rest-relative map of 0.185.0 / 0.185.1. Its reasoning (Riku's blade bones `k9..k1` along `wep0`'s +X against DDD's tip `Z_00` along `R_buki`'s +X) does not hold for the meshes: Checked (in game, the owner). Which of the two bone readings is wrong: Assumption (not checked). The Guard's outward blade in the earlier screenshot was 0.185.0's air clip `221`, not an axis error.
+- **Change** (asset step, `kh1_recom_assets::riku_skin::CastCtx::clip_on`; `ddd::weapon_aligned` removed): the blade by the rest-relative map again. The animations (0.185.2's body on `ex_1010_sk`, planted feet, ground clips only, Guard `220`) are unchanged.
+- **Checked**: tests (on the owner's install: `ddd_ground_motions_keep_rikus_feet_down` now checks the blade bones stay opposite to DDD's `R_buki` +X, cosine 1.000, with the feet and `hip` checks as before), the Windows build. **Not checked**: in game. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 346 (fork branch Re-Re-Reverse/Rebirth): DDD's body height where Re:CoM moves it, the Soul Eater along DDD's blade, ground clips only, version 0.185.2 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim (in game, three screenshots; the DLL installed in OpenKH was still 0.185.0, as 0.185.1 had not been copied there: the Guard with the blade held out to Riku's right and a foot up; Fire and a raise cast crouched above his shadow): "ficou horrível, é para ser a animação de defesa!", "as anims de magia ainda muito desalinhadas"; "acho que na ultima sessão a ia entendeu de usar as animações do RIku do DDD que são executadas no ar, mas não deu muito certo, tem que usar as animações executadas no chão mesmo"; "para a defesa e as magias".
+
+- **Cause (floating)** (Checked (files)): DDD moves the whole body by translating `koshi` and `hara` together (both under `center`); 0.185.0 left the body at its rest height (rotations only) and 0.185.1 carried the move onto Riku's `hip`, but no Re:CoM clip moves `hip` (in all of `PL0101.ANN` only bones 0 / 1 and the blade's `k11` move their translation; the body's height is on `ex_1010_sk`, the parent of `hip` and `waist`). 0.185.1's tests posed every bone and passed (Assumption: the game ignores `hip`'s translation; not seen in game, the screenshots are 0.185.0's).
+- **Cause (Guard's blade)** (Checked (files)): DDD's blade runs along `R_buki`'s +X (`w_ri010.pmo`: the tip `Z_00` at x +0.78, the keychain at −X), Riku's along `wep0`'s +X (`k9..k1`); at rest they point opposite ways (`wep0` = diag(−1, 1, −1) · `R_buki`) and the rest-relative retarget kept that turn on every frame: the converted blade was DDD's negated in the hand's frame (Guard frame 18: (−0.04, 1.0) for DDD's (0.04, −1.0)), so the Guard's blade, which DDD holds across the chest, stuck out to Riku's right. The body and arms matched DDD to the millimetre.
+- **Change** (asset step, `kh1_recom_assets::riku_skin::{carry_translation, plant_feet, retime, DDD_THRUST_A, DDD_RAISE_A}`, `ddd::{CARRIED_TRANSLATION, weapon_aligned}`): the body's translation (DDD's `center` + `koshi` off rest) goes on `ex_1010_sk`, and the feet planting moves `ex_1010_sk`; the planted clips keep its x / z sway when retimed (`retime(.., keep_sway)`; Root stays put); `wep0` takes `R_buki`'s world axes as they are (DDD's skeleton for the retarget with `R_buki`'s rest turned to `wep0`'s; wrong in game, reverted in 0.185.3); the air casts play the ground clips `315` / `317` too (no more `316` / `318`). The Guard stays `220` (on the ground; its blade now across the chest in front, as DDD's).
+- **Checked**: tests (on the owner's install: `ddd_ground_motions_keep_rikus_feet_down`: the lower foot at most 0.21 m on `315` / `317` / `220` and 0.22 m on the cast clips, `hip`'s translation at rest on every built clip and the Guard, Riku's blade within cosine 0.99 of DDD's on every frame (1.000)), the Windows build. **Not checked**: in game. Assumption: the blade turns over in the hand during the blend into and out of a DDD clip (Re:CoM's stance holds it the other way round: in the hand's frame (−0.35, 0.93, −0.05) against DDD's (0.37, −0.93, 0.05)). The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 345 (fork branch Re-Re-Reverse/Rebirth): Riku's feet on the floor in DDD's casts, his Guard on DDD's ground block, version 0.185.1 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim (on 0.185.0 in game, with two screenshots): "a animação de defesa nada a ver, e precisa ajustar as animações de magia, pq os pé do riku ficam suspensos usando as animações e precisa ajustar".
+
+- **Cause (feet)** (Checked (files): the clips posed on DDD's skeleton and on Riku's, frame by frame): DDD crouches by moving its hip bone `koshi` (0.88 → 0.65 m in `315` / `317`), and the rotation-only retarget kept Riku's `hip` at its rest height, so his feet rose up to 0.5 m whenever DDD crouched. And DDD's ground thrust `315` hops: both feet leave the floor on frames 1..7 (up to 0.45 m) as the hips go 0.6 m forward, then the hips drop the distance back in one frame at 14 (the forward travel is DDD's code's, not the clip's: Assumption). The workspace's DDD note § 6 ("ankles at 0.21 all clip long") measured without `koshi`'s translation; corrected there.
+- **Cause (guard)** (Checked (files)): 0.185.0's Guard `221` is in the air the whole clip (hips 1.0..1.19 m, feet 0.4..0.8 m up; its last frame is the air thrust `316`'s first), and its rebound `224` is a back flip (feet up to 2 m), as is `223`; `222` is a 2.4 m dash. `220` (36 frames, no effect) is the only ground one: the hips still, the feet planted, the weapon hand up in front from frame 3 to about 24, the free hand back. Assumption: `220` is DDD's ground Block (its pose; `221`'s guard effect `P_AC_GUD_GUR1` reads as the air block).
+- **Change** (asset step, `kh1_recom_assets::riku_skin::{carry_translation, plant_feet, ddd_guard, DDD_GUARD}`, `ddd::{CARRIED_TRANSLATION, GROUND_CLIPS}`): Riku's `hip` takes `koshi`'s translation off rest (the two rests coincide there); on DDD's ground clips (`315`, `317`, `220`) the hip is lowered as much as the lower foot rises above the first frame's floor, a foot standing on the floor does not slide (the hip takes its move), and the slide left at the end is spread back so the clip ends where it began: `315`'s hop becomes a step in and back. The air casts (`316`, `318`) are unchanged. The Guard is `220` on KH1's Guard timing (as 0.185.0 did with `221`); the recoil is KH1 Riku's again (0.158.0's), DDD having no ground one. Dark Riku's from them, as before.
+- **Checked**: tests (on the owner's install: `ddd_ground_motions_keep_rikus_feet_down`: on `315` / `317` / `220` the lower foot never above 0.21 m (DDD's own reach 0.38 / 0.26 / 0.21), each foot ends as far from its start as DDD's; the six ground cast clips at most 0.22 m; `ddd_guard_on_riku`), the Windows build. **Not checked**: in game; whether a step in the thrust reads well. The asset step's code changed: the first start builds again. Never installed: 0.185.2 (Stage 346) replaces it.
+
+---
+
+## Stage 344 (fork branch Re-Re-Reverse/Rebirth): Riku's cast motions and Guard from KH Dream Drop Distance, version 0.185.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "tive uma ideia... as animações faltante do RIku vc vai pegar do KH DDD"; "a pega todas as magias b pode"; on the choice (DDD has two cast gestures): "a" (faithful to DDD, ground and air apart); "melhor ainda, a animação de guarda do Riku também está presente no DDD, implementa ela!".
+
+- **DDD** (the workspace's `knowledge/DDD/ddd-riku-animations.md`, Checked (files) on the owner's 2.8 install by the asset-analyst and the main session): `Image/dt/kh3d_*.hed / .pkg` are the 1.5+2.5 archive format and cipher with the same key table; DDD Riku's main pack `chara/pc/p_ex02/anm/rt/bin/p_ex02_000.pam` (PAM v2: 178 clips at 30 fps, names in a string table) and his skeleton in `p_ex020.pmo` (PMO v4, 44 bones); a bone's local S · Rx · Ry · Rz + T, row vectors, radians (Re:CoM's clips' own convention); his rest skeleton is Re:CoM Riku's for the legs, hips, arms and head (same positions and frames). His casts by their effect lists: `315` / `316` (ground / air) the forward thrust (Fire, Blizzard), `317` / `318` the weapon hand raised overhead (Cure, Stop, Zero Gravity, the thunder codes); `221` his Block (`P_AC_GUD_GUR1`), `224` its rebound (`P_AC_COM_REB0`; Assumption: from the effect names).
+- **Asset step** (`kh1_recom_assets::ddd`: the reader of the PAM / PMO formats and the bone map `RIKU_FROM_DDD`; `riku_skin::{Src::Ddd, Skel::Ddd, CastCtx::ddd, ddd_guard, CAST_SOURCES 9..18, CAST_CLIPS (12), CURE_CLIPS}`; `step.rs` reads DDD next to the game): twelve cast clips: Fire's wind-up and release, Blizzard (thrust), Thunder / Aero, Cure, Gravity / Stop (raise), on the ground (315 / 317) and in the air (316 / 318), on Riku by the bone map (his fingers, belts, the Soul Eater chain and the bones DDD lacks from his stance; the weapon by DDD's `R_buki`), on Dark Riku through Riku; KH1's timing as before (each key moment on KH1's release frame, its own speed, no travel); Riku's Guard (`p002_225`) is DDD's 221 on KH1's Guard length (up by 10, held to 37, lowered), its recoil (`p002_226`) DDD's 224 at its own speed; Dark Riku's from them. Without the 2.8 collection next to the game: the 0.184.x motions and KH1 Riku's guard, as before (logged).
+- **DLL** (`crate::riku::{CAST_ROWS, CAST_CLIPS, DARK_CAST_CLIPS, cast_row}`): rows 0x3B..0x46 (both tables `p002_000` / `p003_000` up to 0x46, Checked (exe)); the air requests play the air rows.
+- **Checked**: tests (on the owner's install: `ddd::tests::reads_ddd_rikus_pack_and_skeleton`: 178 clips, 44 bones, clip 000 rebuilds the PMO rest; `ddd_guard_on_riku`: 12° a frame at most; the turn and key-moment tests on the twelve; `riku_every_spell_level_and_air_casts_fully`), the Windows build. **Not checked**: in game. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 343 (fork branch Re-Re-Reverse/Rebirth): Riku's Cure on his own heal motion, Aero on KH1 Riku-Ansem's sweep, Blizzard after Impulse's leap, version 0.184.9 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "blizzaga ainda ficou estranho mas stopga ficou perfeito, engraçado pq em teoria o blizzaga ta usando a mesma anim de firaga"; "a animação do Sora de Curaga pro RIku ficou muito estranho tenta pensar fora da caixa"; "Aeroga tbm ta flicando um pouco"; "quando disse que a anim do sora pro riku ficou estranho quis dizer que não combinou mesmo".
+
+- **Blizzard** (Checked (files)): its motion is Riku's Impulse (`p002_061`), not Dark Firaga; Impulse's Soul Eater bones are still under the hand the whole clip; its first 8 frames are a leap back (the travel is out, the legs' jump and landing were not). Now from frame 9, after the landing (`CastSource::start`).
+- **Cure** (Checked (files)): Riku's own heal motion in Re:CoM, his item use `p002_034` (56 f at 30, on the ground: a crouch 8..16, the left hand raised over his head 18..22, held to 32), whose heal sparkle 0.184.8 already plays; it hides and turns the Soul Eater (scale 0): the blade is kept in his hand as at its first frame (`freeze_blade`, now Riku's `wep0` / `k10` / `k11` too; the worst turn a frame fell from 161° to 27°). Dark Riku: the same motion retargeted. Sora's Re:CoM Cure is out ("não combinou").
+- **Aero** (Checked (files)): Maelstrom's spin rose into the air; now KH1 Riku-Ansem's request 223 (`xa_ex_1580.mset`, 73 frames at 60, on the ground: both hands sweep, the left from behind to the front 40..48), its blade held; Maelstrom without KH1's files. Its worst turn: 6° a frame.
+- **Asset step**: `kh1_recom_assets::riku_skin::{CAST_SOURCES (9), CastSource::start, ITEM_USE, freeze_blade}`.
+- **Checked**: tests (the turn test on the owner's install: every clip within its source's speed), the Windows build. **Not checked**: in game. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 342 (fork branch Re-Re-Reverse/Rebirth): no shaking blade on level 3; Riku's Cure with his own heal sparkle, version 0.184.8 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "stopga a espada do RIku ta vibrando toda, e o  efeito de curaga ficou muito estranho e o efeito de cura com aqueles sininhos ficaram muito comicos era bom achar outro efeito melhor"; "blizzaga tbm ficou um treme treme da espada muito estranho".
+
+- **Cause (blade)**: both are level 3 on different motions (Stop: KH1 Riku-Ansem's, Blizzard: Riku's Impulse): 0.184.5's level-3 blade aura (`weapon_ora` 0 on `wep0`, the darkness Riku's sleights put on the Soul Eater) reads as a shaking blade (Assumption: from the owner's two reports, not seen).
+- **Change** (asset step, `kh1_recom_assets::riku_skin::{cast_events, freeze_blade, CURE_CLIP}`): level 3 keeps the cloak and the 1.5 × flash, without the blade's aura. A KH1 motion converted onto Dark Riku's skeleton keeps its blade bones (`wep0`, `wep1`, `wep2` and under `wep0`) at their first frame under the hand (the conversion's weapon curves are not trusted). Cure's clip keeps only the voice (no dark glow, flash, cloak or aura on a heal).
+- **Change** (`win::magic::{release_cure, start_cast}`): Riku's Cure plays his own heal sparkle, `always` 1 (the one his item use `p002_034` plays at frame 37; Checked (files)), on his bone 0 at Re:CoM's Cure offset, once per level (Cura twice, Curaga three times), instead of Re:CoM's `cure_all` (its bells) and its charge on the blade. Sora's Cure is unchanged.
+- **Checked**: tests, the Windows build. **Not checked**: in game. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 341 (fork branch Re-Re-Reverse/Rebirth): Cure and Stop on new motions (Sora's Re:CoM Cure, KH1 Riku-Ansem's outstretched hand), version 0.184.7 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "curaga e stopga ainda ficaram muito estranhos" (earlier: "se precisar pode usar animações do KH1").
+
+- **Cause** (Checked (files): the clips' hips and hands): Cure's Holy Burst start (`p002_075`) and Stop's Barrage crossing (`p002_070`) are sleight phases in the air: the hips rise from 0.7 to 1.4 m, so Riku floated and kicked while casting.
+- **Search** (Checked (files), the owner's install): KH1 Riku-Ansem's `xa_ex_1580.mset` (on Dark Riku's skeleton, `ex_1580_sk`) and KH1 Riku's `xa_ex_1010`, every request converted and measured; Sora's Re:CoM cast clips `p001_061..067`. Ground motions with a cast's hand: Riku-Ansem's request 225 (49 frames at 60 fps: the hips still, the left hand reaching out at the shoulder 8..12 and held); Sora's Cure `p001_064` (34 f at 30: a crouch, both hands raised over the head 12..15, held to 24, lowered).
+- **Change** (asset step, `kh1_recom_assets::riku_skin::{Src, Skel, CastSource { fps, fallback, .. }, CastCtx, CastClip::times_for}`): sources are a Re:CoM pack's clip on Riku's, Dark Riku's or Sora's skeleton, or a KH1 Riku-Ansem request converted onto Dark Riku's (the 0.158.0 converter); each is brought onto Riku's / Dark Riku's skeleton (Dark ↔ Riku as before; Sora's by bone name, the roots as each other, Riku's own bones from his stance) and played at its own rate (KH1's 60 fps). Cure: Sora's Re:CoM Cure for both; Stop: Riku-Ansem's request 225 for both, Barrage's crossing when KH1's `xa_ex_1580` can't be read. `GuardSource::ansem` carries the KH1 files (`step.rs` reads them).
+- **Checked**: tests (on the owner's install: the turn test, Stop's at most 5° a frame; the key moments; Stop's fallback), the Windows build. **Not checked**: in game. Assumption: Sora's raise reads well on Riku (his Soul Eater by bone name). The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 340 (fork branch Re-Re-Reverse/Rebirth): Riku's cast motions at their own speed (no flicker); his KH1 rows blend in and out (the Guard's end too), version 0.184.6 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "as animação ficaram estranhas meio que flicando , lembrando que se precisar pode usar animações do KH1 como disse"; "ajusta tbm a animação de guard pra ficar mais suave quando terminar essas".
+
+- **Cause** (Checked (files): the clips' local rotations per frame on the owner's install): 0.184.4 squeezed each key moment into 4 frames and stretched the charge to fill KH1's release frame: the key moments ran up to 3 × their own speed (Maelstrom's spin, Impulse's thrust), the short Barrage charges at a ninth, then sped up. And every cast clip started and ended in a sleight's pose, entered and left with no blend (KH1's casts ask none): a jump from the stance.
+- **Change 1** (asset step, `CastClip::times`, `SRC_STEP`, `out_frame`): the source clips (30 fps) play at their own speed (half a source frame a KH1 frame) through the charge and the key moment, the key moment still starting on KH1's release frame (a longer charge starts later in it, a shorter one holds its first pose); the recovery spreads to KH1's free frame but never faster than the clip (one that doesn't fit stops where KH1's motion ends). The Dark Firaga events follow (a charge event before the clip's start goes on its first frame).
+- **Change 2** (`crate::riku::{blend_for, kh1_only_row, CAST_IN, OUT}`, `win::movement::RecomHost::play`): a cast's first motion blends in over 6 frames; leaving any of Riku's KH1-only rows (the cast clips, the Guard, its recoil) for another row blends out over 10 (the Guard's end into the stance included); the Guard into its recoil stays at once (KH1). Visual blends only: KH1's frame keeps its timing. Assumption: the numbers.
+- **KH1's motions**: not needed yet (every clip now plays at its own speed); kept as the fallback the owner offered.
+- **Checked**: tests (`cast_clips_turn_no_faster_than_their_sources` on the owner's install: no bone turns faster a frame than in its source; `cast_clips_put_the_key_moment_on_kh1s_release`; `rikus_kh1_rows_blend_in_and_out`), the Windows build. **Not checked**: in game. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 339 (fork branch Re-Re-Reverse/Rebirth): Riku's spell effects grow with the level, version 0.184.5 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "os spells precisam ter diferença dependendo do level dele e os efeitos também"; on the plan (level 1 the hand's glow and the flash, 2 also the darkness cloak, 3 also the blade's aura and a bigger flash): "aprovo, implemente".
+
+- **Re:CoM** (Checked (decomp `0x14017A240`)): a motion's start keeps the EET events whose `+0x5C` is the variant its request passes.
+- **Asset step** (`kh1_recom_assets::riku_skin::{cast_events, cloak_of}`): each cast clip's list A holds three variants: 1 the Dark Firaga glow and flash; 2 also the darkness cloak (the `ex_1580` 20, 21, 23..34 programs on the body, from Riku's own Impulse `PL1301` `p002_062` / Dark Riku's Dark Impulse `PL1311` `p003_072`, their own bones; Checked (files)); 3 also `weapon_ora` 0 on the blade and the flash at 1.5 × (its scale fields). All in Riku's `EF1500.EFF`, loaded with him (Checked (files)). Sounds unchanged (variant 0).
+- **DLL** (`win::magic::{CAST_LEVEL, cast_level}`, `win::movement::RecomHost::play`): a cast row's request passes the cast's level as its EET variant.
+- **Checked**: tests (`rikus_cast_clips_carry_dark_firagas_events`: more effects each level, the blade's aura on 3), the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 338 (fork branch Re-Re-Reverse/Rebirth): one cast motion per spell for Riku and Dark Riku, version 0.184.4 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "além disso as animações precisam variar..."; on the table (Fire Dark Firaga, Blizzard Impulse, Thunder Dark Aura, Cure Holy Burst / Inverse Burst, Gravity / Stop Barrage, Aero Maelstrom): "aprovo, implemente"; "lembrando que vc pode usar alguma animação disponível no KH1 também... caso nenhuma der Match" (every spell found a Re:CoM match).
+
+- **The motions** (Checked (files): frames, hands and hips of each clip; `kh1_recom_assets::riku_skin::CAST_SOURCES`): Dark Firaga `PL1088 p003_043` (thrust 32..36); Impulse `PL1301 p002_061` / Dark Impulse `PL1311 p003_071` (thrust 21..24); Dark Aura's start `PL1089 p003_044` (he rises, arms spread, 24..32); Holy Burst `PL1092 p002_075` / Inverse Burst `PL1093 p003_085` (the blade raised, 18..24); Barrage `PL1303 p002_072` / `PL1313 p003_082` (the hand up and down, 3..7) and `p002_070` / `p003_080` (the arms cross, 3..6); Maelstrom `PL1302 p002_065` / `PL1312 p003_075` (the spin, 10..16). Riku's own clips play on his skeleton as they are; Dark Riku's Dark Firaga and Dark Aura are retargeted onto him (0.184.1's retarget); Dark Riku plays his own.
+- **Asset step** (`CastClip { src, .. }`, `CastClip::times`, `riku_cast_clips`, `dark_cast_clips`, `retime_in_place`): eight clips (`p002_227..234`, `p003_227..234`): Fire's wind-up and release (Dark Firaga), Blizzard (Impulse), Thunder (Dark Aura), Cure (Holy / Inverse Burst), Gravity (Barrage's strike), Stop (Barrage's crossing), Aero (Maelstrom); each with its key moment on the four frames after KH1's release frame and KH1's length (0.184.1's numbers); no travel. The Dark Firaga events go on each by their phase (`out_frame`).
+- **DLL** (`crate::riku::{CAST_ROWS, CAST_CLIPS, DARK_CAST_CLIPS, cast_row}`): rows 0x3B..0x42 of both tables (`p002_000` / `p003_000` up to 0x46, Checked (exe)), one per clip; each spell's requests (ground and air) its own row.
+- **Assumption**: each key moment reads as the cast in game (chosen from the clips' numbers, not seen).
+- **Checked**: tests (`cast_clips_put_the_key_moment_on_kh1s_release`: six motions for the six spells; `rikus_cast_clips_follow_dark_firaga` with Dark Riku's eight; `every_kh1_cast_request_has_a_cast_row`: seven rows), the Windows build. **Not checked**: in game. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 337 (fork branch Re-Re-Reverse/Rebirth): Riku's spells show their effects in the field; every spell and level checked on KH1's Neoshadow, version 0.184.3 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "as magias funcionaram! mas fora do combate só a firaga solta projetil, mas agoras você precisa fazer o fine tuning, teste cada uma com o Neo shadow em cada nível e implemente o que faltar".
+
+- **Cause (field)**: in Riku's story nothing loads the spell effects in the field (Sora's story gets Sora's battle set there since castfix, `win::magic_fx::field_load`); Dark Firaga's `dark_faiga` is Riku's own `EF1500.EFF`, so only Fire showed.
+- **Change** (`win::magic_fx::{riku_wanted, riku_sora_set, battle_load, field_load, setting_changed}`): Sora's battle set 1001 is queued for Riku's KH1 spells also at each field room load (the field state's tail call) and when Combat is switched to KH1 in the camp, as in his battles; once loaded it stays (0.184.2).
+- **Simulation** (`magic::tests::every_spell_and_level_on_kh1s_neoshadow`): each spell at each level on KH1's Neoshadow (the owner's `kh1-stats.json`, Checked (files): 150 HP, Defence 30, floor 10 / cap 40, level 55, resist % fire 49, blizzard / thunder 50, gravity 0, stop 20) with Riku's max MP 3 (the owner's log), KH1's formulas: Fire 4, Blizzard 5, Thunder 5 a hit at every level (the floor 10 times the resistance: KH1's Defence 30 against power + 3), Gravity 10 (the floor; its % times 0), Aero's wind 5 every 30 frames, Stop 60 frames (1 s), Cure 50 / 150 / 300 HP (Re:CoM's heal). At Damage = Re:CoM (the default) the owner's log shows Re:CoM's sleight AP: Firaga 150, Blizzaga 110, Thundaga 90, Graviga 70, Aeroga 90.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 336 (fork branch Re-Re-Reverse/Rebirth): Riku's spells show their effects and sounds; Fire is Dark Firaga; his cast motions at KH1's length, version 0.184.2 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim (on 0.184.1): "pois é mas não tem efeito, som projetil cadê o resto?". The plan's item 0.184.2 (Riku's looks: Fire → Dark Firaga, the dark charge on the hand, his voice; the owner: "gostei das sugestões").
+
+- **Cause** (Checked (decomp + exe), `docs/recom-m7-magic.md` § Spell effects in the field): Re:CoM's spell effects (`fire_all` … `airo_all`) and the sounds riding them load with Sora's battle set, PLAYER 1001, whose LINK rows alone load EFFECT 2000..2063. `0x140211960` picks the set by the world's character (`0x1407C7AE4`: 1001 Sora, 1101 Riku, 1201; Checked (decomp)); Riku's 1101 doesn't link them, so his KH1 spells (shots, shards, charges) drew nothing and made no sound.
+- **Change 1** (`win::magic_fx::{battle_load, install_riku}`, `sites::RIKU_FX_BRANCH`): `CGameSubBattle` state 1's tail `jmp 0x140211960` (`0x1401AEA33`, `E9 28 2F 06 00`, Checked (exe)) goes to `battle_load`: Re:CoM's load, then, when it chose Riku's set and his KH1 spells are on, Sora's 1001 too (`0x14023CCE0(1001)` unless `0x1402A53E0(1, 1001)`; Re:CoM's loader's own pair, Checked (decomp)). Not unloaded: Re:CoM's unloader `0x140211560` (key `10000 + group`, `0x1402A5B00`) takes the world's set; 1001 stays resident, as Re:CoM keeps it under its system byte 0x60 (Assumption: no memory trouble). Field casts in Riku's story: not covered yet.
+- **Change 2** (`crate::magic::{riku_look, DARK_FIRAGA_SET}`, `win::magic::{RIKU_TABLE, row, kh1_cast}`): Riku's spells read a copy of the KH1 rows, every number Sora's, Fire's effect set (`+2`) Dark Firaga's 48 (`dark_faiga`, Riku's own `EF1500.EFF`). Assumption: Re:CoM's Fire ball reads set 48's slots as it reads `fire_all`'s.
+- **Change 3** (asset step, `kh1_recom_assets::riku_skin::{cast_events, event_time, out_frame}`): the Dark Firaga clip's events (`PL1088.EET` / `.SES`, `p003_043`; Checked (files)) on the six cast clips at their retimed frames: `dark_faiga` 0 on the left hand from 20 (the charge's dark glow: every spell), `dark_faiga` 1 on Root at 72 (the thrust's flash), the voice 3035 at 11, the thrust's sound 605/2 at 72; 605/1 at 16 (the leap's landing) dropped. In Riku's `PL0101` / `PL0111` and Dark Riku's `PL0201` / `PL0211.EET` / `.SES` (Re:CoM's own events kept), the skin's packs too.
+- **Fixed** (0.184.1): the Dark Firaga clip is 30 fps (`flags` bits 2..4; Checked (files)) and the cast clips kept that rate, so each played twice KH1's length; they are 60 fps now (one frame per KH1 frame). Event frames (60 Hz) are taken to the source clip's frames before retiming.
+- **Checked**: tests (`rikus_rows_change_only_fires_effect_set`; on the owner's install `rikus_cast_clips_carry_dark_firagas_events`, `rikus_cast_clips_follow_dark_firaga` with 60 fps), the Windows build. **Not checked**: in game. The asset step's code changed: the first start builds again.
+
+---
+
+## Stage 335 (fork branch Re-Re-Reverse/Rebirth): Riku casts with Dark Riku's Dark Firaga motion, on KH1's cast timing, version 0.184.1 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim (on 0.184.0): "a animação do firaga está completamente errada... as iutras magias  simlesmente sem animação, nice". The plan's item 0.184.1 (the cast motion: Dark Riku's Dark Firaga, the owner's "pode ser").
+
+- **Cause** (Checked (the owner's 0.184.0 log + exe)): every spell cast and released (Fire, Blizzard, Thunder, Cure, Gravity, Aero; free). KH1's cast requests asked Sora's rows: on Riku's table 0x36 / 0x37 / 0x38 are `p002_050` / `p002_057` / `p002_058` (other moves: Fire's "wrong" motion), and 0x39.. `p002_000` (no clip: the current motion kept).
+- **The clip** (Checked (files)): Dark Riku's Dark Firaga `p003_043` (`PLAYER/1088/PL1088.ANN`, 52 frames): 0..8 a 2.4 m leap back, 8..31 a crouched charge (left hand drawn back), 32..36 the left hand's thrust, 36..51 the recovery.
+- **Asset step** (`kh1_recom_assets::riku_skin::{CAST_CLIPS, CastClip::times, retime_in_place, dark_to_riku_map, riku_cast_clips, dark_cast_clips}`): six clips with KH1's lengths and the thrust on KH1's release frame (Sora's `xa_ex_0010.mset`, Checked (files)): Fire's wind-up (28, the charge), Fire's release (60, free 46, the thrust at 0), Blizzard / Gravity (86, free 68, release 28), Thunder / Aero (68, release 30), Cure (68, release 36), Stop (68, release 28). The leap is taken out (Root and the hips keep their rest x / z; the crouch stays). Riku's (`p002_227..232`): the clip retargeted Dark → Riku (bones by name; his `k10` / `k11` and his own bones from his battle stance; `wep0` by its world rotation), in `PL0101` / `PL0111.ANN`; Dark Riku's (`p003_227..232`) the clip itself, in `PL0201` / `PL0211.ANN`; the Dark Form skin's packs get Dark's under Riku's names. Manifest `"riku_cast": true`.
+- **DLL** (`win::riku_skin::{guard_rows, cast_row}`, `crate::riku::{CAST_ROWS, cast_row}`, `win::movement::RecomHost::play`): rows 0x3B..0x40 of both tables (`p002_000` / `p003_000`, Checked (exe)) named after the clips (checked first); every KH1 cast request (ground and air) plays its row.
+- **Checked**: tests (`cast_clips_put_the_thrust_on_kh1s_release`; `rikus_cast_clips_follow_dark_firaga` on the owner's install: Riku's blade turns as Dark Riku's, cos 1.000, no travel; `every_kh1_cast_request_has_a_cast_row`), the Windows build. **Not checked**: in game. **Assumption**: Re:CoM's rebind by name binds the new rows for both (as the guard rows). The asset step's code changed: the first start builds again.
+- **Left for 0.184.2**: the spells' look (Riku's effects and voice).
+
+---
+
+## Stage 334 (fork branch Re-Re-Reverse/Rebirth): Riku casts Sora's KH1 spells (MP free for the test), version 0.184.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "implementar as mesmas magias que o Sora Usa, só que uma verão que seja mais coerente com o Riku e os efeitos que o personagem dele usa nas iterações do Kingdom Hearts"; "por enquanto só a aparência mas guarde como oportunidade futura esses achados"; "gostei das sugestões implemente inicialmente com custo zero de mana só para testar e depois volta o custo de MP e deixa desbloqueado no menu tbm"; "pode ser" (the plan: 0.184.0 the cast, 0.184.1 a cast motion, 0.184.2 Riku's looks), "SIM e continue!".
+
+- **Re:CoM** (Checked (exe)): Re:CoM's Battle exe runs action 0x13 through vtable `+0x150` (`0x1401F9B4D`). Sora's `initMagic` / `exeMagic` are `0x1402203D0` / `0x140217EE0`; Riku's and Dark Riku's slots `+0x148` / `+0x150` hold the base class's empty `ret`s `0x1401F2F20` / `0x1401EEAA0`: Re:CoM's Riku has no magic action. The Field exe's case 0x13 (our stub, shared with Riku: his Field exe is Sora's `0x1401FA0F0`) calls Sora's exeMagic directly.
+- **Change**:
+  - `win::magic::riku_slots`: Riku's and Dark Riku's `+0x150` point at `win::magic::exe_magic` (checked old value, not fatal). `exe_magic` runs Sora's own exe only on Sora's object; on anyone else it runs the KH1 frame of a KH1 cast, or nothing (the stub's behaviour), so the Field case no longer reaches Sora's exe with Riku.
+  - `win::movement::run_frame`: Riku's KH1 frame takes the Magic command and its target as Sora's, and reports the cast events.
+  - `win::command_menu::riku_world`: his Magic list holds Sora's seven spells at level 3 (unlocked), with the target distance for the ranged ones.
+  - `riku_free_magic = on` (new ini key, a test setting, on by default for now): `World::free_spells` (the menu never greys a spell for MP), `win::magic::{can_cast, pay_spell}` (no MP test, nothing paid at the release). Off: Sora's KH1 costs.
+- **Left for 0.184.1 / 0.184.2**: Riku has no cast clip (his rows 0x37..0x3C are `p002_057` / `p002_058` / `p002_000`): the cast plays on KH1's frame with his current motion kept (logged per row). The spells' look is Re:CoM's Sora effects; their packs come with Sora's battle set (PLAYER 1001, `crate::magic::field_case`), so in Riku's battles they may not be loaded (no effect drawn: Re:CoM's lookup finds no group). Not checked.
+- **Checked**: tests (new `free_spells_never_grey_for_mp`; the ini round trip), the Windows build. **Not checked**: in game (the first Re:CoM magic action on Riku's object).
+
+---
+
+## Stage 333 (fork branch Re-Re-Reverse/Rebirth): the Guard's start measured (simulation against the Neoshadow) and every Square press logged, version 0.183.4 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "o timing da defesa segue horrível preciso de uma correção se possível faça o teste do neoshadow com o RIku tbm"; asked what feels wrong they chose "Demora para começar", and for the Neoshadow test "Simulação nos testes".
+
+- **The owner's 0.183.3 log** (Checked (trace)): every guard window lasted 433 ms (26 frames, KH1's); no melee hit was blocked by the blade (the Wyvern's bite, priority 100 in every row, got through "not on the blade" twice and once "on the blade" by its priority); two Wizard shots were blocked. The press itself was not logged, so the delay from the button could not be read.
+- **Simulation** (`movement::tests::rikus_guard_against_the_neoshadows_windows`, Riku's abilities on the shared port): the guard object is live on frames 11..=36 after the press. KH1's motion 212 has it on frames 10..36 (Checked (files)): the port is one frame (16 ms) later, because a frame's motion update runs at the next handler call (the oracle's order), the same 26 frames. Against the Neoshadow's windows (Checked (files), the asset step's test): its claw (202, hits 40..=67, priority 40) is blocked when Square is pressed on its frames 4..=29; its rising slash (207) and dive (205) have priority 100, which KH1's Guard never stops (`kh1_core::enemy::guard::meeting`: the attack is not marked).
+- **Log** (`win::movement::square_log`, `win::attack::guard_line`): each Square press a KH1 frame sees, in Sora's / Riku's guard timeline: "Guard started", "a roll", or "dropped" with KH1's state, action lock and request (KH1 drops a Square while the lock holds or off the ground: `0x140297870`, `0x1402A7B30`, Checked (decomp)).
+- **Not changed**: KH1's start (10 frames) and window. Seen, not changed: after a hit gets through, the guard object stays live while Re:CoM's damage reaction plays (the KH1 frame doesn't run in it): about 680 ms in the log.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 332 (fork branch Re-Re-Reverse/Rebirth): Sora's Guard by the blade too: one KH1 Guard for Sora and Riku, version 0.183.3 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "a mecânica do RIKU precisa ficar igual a do Sora...,  isso é para agora!"; asked which of the two becomes the rule they first chose "Os dois pelo corpo", then: "n~ao mas o do Sora no KH 1 também é pelo corpo não?"; told KH1's guard is the Keyblade's volume (the workspace's `knowledge/KH1/kh1-sora.md` § Guard in detail, Checked (decomp + files)): "então mudança de rota, alternativa a" (both by the blade, as KH1).
+
+- **Before**: Sora's Guard was Re:CoM's body guard (any hit from within ±100°, `set_guard`; the 2026-11-03 Assumption of `docs/recom-m11-enemies.md`), Riku's the blade test (0.182.0 / 0.182.1). KH1 blocks only what touches the Keyblade.
+- **Change** (`win::attack::{blade_guard_pair, guard_blade_of, guard_faces_of}`, was `riku_guard_pair` / `riku_blade` / `riku_faces`; `crate::riku::{guard_faces, guard_blade, BLADE_END}` shared): Sora's Guard runs the same path as Riku's: his blade (Re:CoM's weapon line on his weapon bone, the Guard record's radius on the equipped weapon), the facing ±100°, then KH1's types and priorities (0.183.1). A hit off the blade, or from outside the front, gets through (his body guard off for the test). `sora_guard_pair` (0.183.1's body-guard version for Sora) is gone.
+- **Kept**: the Yellow Opera's Thunder is never blocked by Sora (KH1: no clash pass), still blocked by Riku (the owner's 0.153.0 rule).
+- **Log**: Sora's lines are `sora guard: <ms> ms: …` (300 lines) with the same timeline as Riku's (guard object on / off, blocked by the blade, hit got through, guard success, post-block protection).
+- **Assumption**: Re:CoM's weapon line (−0.8 m on the weapon bone) stands for the Keyblade's length, as for his Re:CoM swing volume, whatever KH1 Keyblade model is shown.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 331 (fork branch Re-Re-Reverse/Rebirth): Dark Riku guards in KH1 Riku's guard pose, version 0.183.2 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "certo novamente quero que revalide a mecanica de guard do Riku explorando se ficou alguma coisa fora"; on the findings and the plan (0.183.0 / 0.183.1 / 0.183.2), "vou pela tua recomendação mas quero testar todos de uma vez", then "sim". Item (c) of the plan: Dark Riku's pose.
+
+- **Cause**: the real Dark Mode's Dark Riku guarded with his clash recoil (row 0x24, `p003_033`). Since 0.182.0 the block is decided by where the blade is, so his Guard was judged on a pose that is not KH1's.
+- **Asset step** (`kh1_recom_assets::riku_skin::{dark_guard_pack, DARK_GUARD, DARK_RECOIL}`): with KH1 Riku's guard (`xa_ex_1010`), his own packs `PLAYER/0201/PL0201.ANN` and `PLAYER/0211/PL0211.ANN` get the guard (`p002_225`) and its recoil (`p002_226`) retargeted onto his skeleton (`ex_1580_sk`, the Dark Form skin's retarget), named `p003_225` / `p003_226`. Checked (tests: `dark_rikus_own_pack_gets_the_guard` on the owner's install).
+- **DLL** (`win::riku_skin::{guard_rows, name_rows, guard_row, recoil_row}`): rows 0x39 / 0x3A of his action table (`0x1407C6300[5]` / `[6]` = `0x1407C67F0`, both `"p003_000"`: Checked (exe)) are named after them, checked first; then his Guard and its recoils play them, as Riku's. Assumption: his player build rebinds rows by name as Riku's does (`0x1401F4240`). Without the files (an asset step before 0.183.2): his clash recoil as before, logged once.
+- **Assumption**: Re:CoM's loader takes his pack with two more slots at the end (Sora's `PL0001.ANN` with 161+ slots is the precedent), and nothing but the player loads `PLAYER/0201` / `0211`. Every row is checked before any is renamed (`name_rows`).
+- **On the owner's side**: the step's code changed, so the DLL's first-launch build runs again at the next start (its console window; `docs/openkh-github-install.md`) and writes the two packs.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 330 (fork branch Re-Re-Reverse/Rebirth): the Guard against KH1 enemies by KH1's attack types and priorities (Sora and Riku), version 0.183.1 (2026-11-23)
+
+Fork owner, 2026-11-23: the asks of Stage 331 (item (a) of the plan they approved: block only what KH1 blocks).
+
+- **KH1** (Checked (exe + decomp), the workspace's `knowledge/KH1/kh1-sora.md` § Guard in detail): the guard object (Guard row: clash type 2, priority 0 + the weapon's) is tested against an enemy attack only when the types meet (`0x1402B3BE0`, `0x140528CB8`: type 2 meets types 0 and 3). Then `0x1402B4A20` / `0x1402B4BC0` give each side its outcome by priority (`kh1_core::enemy::guard::meeting`): the guard side's record kind 6, or 7 when more than 40 under (request 0x6F, no Counterattack), nothing against priority 0; kind 6 pushes back by `−diff × 2.5` when `diff` < 0 (`0x14029D720`); the enemy side a clash record, nothing at 98–100, a repel for a stronger type 1 / 3 / 4; an attack meets no body only when it is stopped.
+- **Change** (`win::attack::{kh1_guard, kh1_block, sora_guard_pair, pair_unguarded}`, `win::kh1_enemy::attack_row`, `Host::guard_clash`, `movement::guard_success`): for a KH1 enemy's attack (the asset step's clash records) while the KH1 guard is live:
+  - types that don't meet, or not stopped: the hit gets through (Sora: his body guard off for the test; Riku: also when it is on the blade);
+  - stopped, the guard side with a record: the block, and the guard success takes its kind and push (0x6F for kind 7);
+  - stopped with no record (priority 0): the attack stops, no recoil, the guard goes on (Riku: no test, no hit recorded);
+  - the enemy's reaction (`super::guard::on_result`: its KH1 clash recoil, a shot turned back) only when it gets a clash record.
+  - Re:CoM's own attacks have no KH1 type or priority: as before (kind 6, no push).
+  - a priority-0 attack lying on Riku's blade for several frames is stopped every frame, its reaction and log line once per attack (collision + serial) per guard; a block with no record leaves an earlier block's guarded bit of the same frame in place.
+- **Protection after kind 7**: KH1's flag 0x80 now holds while the strong recoil 0x6F holds the lock, as during 0x6E (`movement::untouchable_step`; it ran out ~8 frames into 0x6F, `swing_clash`'s kind 7 too).
+- **Left** (the mechanic review, 2026-11-23):
+  - a type 0 attack of priority 98, 99 or 100 (the Neoshadow's dive, the Wyvern's bite) gives the guard side kind 7 in KH1 *and* still hits (not stopped); here it only gets through. A KH1 projectile turned to the other side (`+0x30 & 0x400`) is not modelled (`kh1_core`).
+  - KH1 enemies' thrown objects, rings and held attacks that are Re:CoM bullets or records with no clash row (the Bandit's scimitar, priority 0) keep Re:CoM's block: a recoil and the Counterattack, where KH1 gives the guard no record.
+  - KH1 meets a pair once while both live (the `+0x9C` mask); not modelled beyond the once-per-attack memo below.
+  - Riku's kind 7 plays his one KH1 recoil clip (row 0x3A) for 0x6F. (Sora's guard volume: the blade since 0.183.3.)
+  - Riku: when Re:CoM's answer was a hit turned into the block, whether the pending hit still costs HP is not shown; logged (`pending hit … value …`).
+- **Log**: `sora guard: …` (60 lines) and `riku guard: … KH1 clash kind …` / `… stopped … with no recoil …` / `hit got through (on the blade, but KH1's Guard doesn't stop it: its type or priority)`.
+- **Checked**: tests (new `guard_success_takes_kh1s_clash_kind_and_push`), the Windows build. **Not checked**: in game; the enemies' real types and priorities (their manifests weren't on this machine).
+
+---
+
+## Stage 329 (fork branch Re-Re-Reverse/Rebirth): the Guard turns to Auto Lock's target and restarts the combo (Sora and Riku), version 0.183.0 (2026-11-23)
+
+Fork owner, 2026-11-23: the asks of Stage 331 (item (b) of the plan they approved: turn to the right enemy and restart the combo).
+
+- **KH1** (Checked (decomp), the workspace's `knowledge/KH1/kh1-sora.md` § Guard in detail and `kh1-lock-on.md`): `0x1402A3B00` turns the Guard to the lock pair `0x142DB3518`, which holds the soft target in lock states 1–4 (Auto Lock's orange ring, no R1), and sets the combo counter `CB + 0x41` to 1.
+- **Change** (`movement::pad_handler`, `win::movement::read_pad`, `win::attack::soft_target_centre`): on a Square press the frame's `lock_target` is R1's lock, else Auto Lock's soft target (nothing held: the Guard is no command), and the Guard faces it; it sets `combo_counter` to 1. Before, it faced R1's lock only (the soft target was read on Attack presses only) and kept the counter, so a combo went on through a Guard.
+- **Checked**: tests (new `guard_faces_the_soft_target_and_restarts_the_combo`), the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 328 (fork branch Re-Re-Reverse/Rebirth): Riku's guard timeline in the log, version 0.182.2 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "TUDO ela não bloqueou, mas eu acho que está ligado ao tempo da defesa que está zoado ainda, além disso até onde eu sei quando vc da um block com o sora, e vem um logo em seguida o block pega o proximo ataque tbm confere ai no KH1".
+
+- **The owner's log** was still 0.182.0's (the OpenKH build's DLL dated before 0.182.1 was copied), so 0.182.1 is not yet tried.
+- **KH1** (Checked (files + decomp), `kh1-core` data and `crate::movement::guard_success`, the shared port): after a block, the recoil `0x6E` (60 frames) is free from frame 28 (Guard again from there), and flag 0x80 (no damage, no reaction) holds while the recoil holds the lock, then 8 more frames. So a hit that comes right after a block, in about the first 36 frames, does nothing. Riku has the same rule through the port (Re:CoM's `+0x418 & 1`, which his damage check skips too).
+- **Change** (log only, `win::attack::{riku_ms, riku_untouchable_log}`): Riku's lines get a millisecond time, and the guard object on / off, the guard success and the post-block protection on / off are logged (300 lines).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 327 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard: a hit off the blade gets through (Re:CoM's body guard no longer blocks it), version 0.182.1 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "está um pouco melhor mas está longe de perfeito, se a defesa é no CORPO ainda está pegando a espada, como disse precisa estar igual no KH1".
+
+- **Cause** (Checked (the owner's 0.182.0 log)): no `riku guard: blocked by the blade` line; every block was Re:CoM's own result 2 (`guard reactions: block …`, Wizard shots, a Shadow). Re:CoM's body guard, which `set_guard` turns on (±100°) while his KH1 guard is live as for Sora, does block for Riku, against 0.159.0's note. So a hit off the blade was still blocked by his body, and 0.182.0's blade test only decided the hits Re:CoM had not blocked.
+- **Change** (`win::attack::riku_guard_pair`): an attack that doesn't touch his blade, or whose owner is not in front, is tested by Re:CoM with his body's guard bit (`+0x9C & 1`) off for that test, so it hits him, as in KH1. On the blade and in front: Re:CoM's block (2) is kept, a hit (1) becomes the block, as in 0.182.0.
+- **Log**: `riku guard: blocked by the blade` (also "(Re:CoM's block)") and `riku guard: hit got through (not on the blade[, not in front])`, 40 lines.
+- **Left**: an attack shape that is neither a sphere nor a line, or no weapon bone, keeps Re:CoM's body guard (logged once).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 326 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard blocks by KH1's rule: an attack that touches his blade from in front, version 0.182.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "a defesa ainda está meio esquisita, mas é mais o uso geral dela mesmo tem como verificar como ela é implementada tanto no Sora quanto no jogo original e ajustar no Riku?"; on what feels odd they chose all four (when it can be used, what it blocks, direction / target, length / rhythm); then "o ponto é usar o KH1 como referência … a adaptação deve ser precisa se não vai ficar nesse vale da estranhesa"; on the plan (1 the blade, 2 the made-up rules), verbatim: "1 e 2 fica IGUAL KH1".
+
+- **KH1** (Checked (decomp + files); the workspace's `knowledge/KH1/kh1-sora.md` § Guard in detail): the guard object is the Guard record `0x4DA8` on the weapon (`bone 0x30`, the blade line, radius 0 + the weapon's: Kingdom Key 40), live on motion 212's hit frames 10–36. It blocks an enemy attack that touches that blade (`0x1402B4A20`) from an owner within ±100° of the facing (`0x1402B4640`, record `+0x64` = cos 100°). The blocked attack meets no body (`+4 & 0x30`). A hit on the body that misses the blade is not blocked.
+- **Compared**: when the Guard starts, its turn to the target, its length and its recoil / Counterattack are the shared KH1 port (`crate::movement`), as Sora's (checked against `0x1402A7B30`, `0x1402A3B00`, `0x14029D720`, `0x140294220`): no change. What was not KH1: Riku blocked any hit on his body from in front (0.159.0), a shot within 1 m was judged by its caster, and a melee attacker past 4 m was blocked without a reaction (0.158.2).
+- **Change** (`win::attack::{riku_guard_pair, riku_blade, attack_contact}`, `crate::riku::{guard_blade, BLADE_END}`): before Re:CoM's pair test of an enemy attack against the player list, while his KH1 guard is live:
+  - his blade is Re:CoM's own weapon line (`0x140225840`, Checked (decomp)): the owner's bone `weapon + 0x238` (weapon `+0x2CC & 4`) or the weapon's bone 2, from its origin (Assumption: the hilt) to (−0.8, 0, 0) in its frame (`0x1407C7E50`, Checked (exe)), as spheres of the Guard record's radius on the equipped weapon (Assumption, as his swing's clash since 0.169.0);
+  - the attack's shape (sphere or line) against them, by Re:CoM's overlap tests; its owner within ±100° (a shot by its own place, Assumption);
+  - on a block: Re:CoM's test, else its apply on his body with the blade's contact, then the result is Sora's block (2, the guarded bit, the attacker), so the shot turns back, the attacker reacts and the KH1 guard success follows. Not touching the blade: the hit gets through.
+  - `riku_pair_block`, the 1 m caster rule and `RIKU_MELEE_REACH` are gone.
+- **Left as before**: the Yellow Opera's Thunder is still blocked by Riku (0.153.0, the owner's rule; KH1 doesn't).
+- **Not settled**: which enemy attacks KH1 can't guard (priority rule, the knowledge note's open question).
+- **Checked**: tests (new `rikus_guard_blade_is_recoms_weapon_line`), the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 325 (fork branch Re-Re-Reverse/Rebirth): one ring: Re:CoM's target marker hidden while KH1's Auto Lock runs unlocked; the crate's version, version 0.181.1 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "funcionou perfeitamente,mas ficou duplicado o anel". Answering what the two rings look like, they chose "Um laranja e outro diferente".
+
+- **Cause**: the owner's log shows our `lockon_d` made once per appearance. The second ring is Re:CoM's own `CLockonMarker` layer, which it draws on its pick `+0x84C` without a lock too. KH1 shows only the orange ring then, and the lock cursor only with a lock (`0x140274B20`, Checked (decomp)).
+- **Change** (`win::kh1_hud::recom_marker`, called from `auto_ring` in the `0x140209D30` wrapper): at `hud = kh1` with Auto Lock on, Combat = KH1 (Sora or Riku) and no lock, Re:CoM's marker layer is set not drawn (`0x140247E50(ctrl, 0, 0)`, as H7 did). With an R1 lock, `auto_lock = off`, or the HUD off or Re:CoM's, it is shown again (`0x140247E50(ctrl, 0, 1)`; Assumption: 1 shows, as `win::keyblades` uses it).
+- **Version**: `crates/kh1-recom/Cargo.toml` (and `Cargo.lock`) are at 0.181.1. The log's first line and the Combat row's "mod v" read it. Since 0.180.0 only `VERSION` had moved, so the log said 0.179.1.
+- **Checked**: tests, the Windows build. **Checked (in game, fork owner, 2026-11-23)**: "ficou perfeita a implementação do anel amarelo e autolock".
+
+---
+
+## Stage 324 (fork branch Re-Re-Reverse/Rebirth): KH1's Auto Lock: the yellow ring's enemy is the attacks' target, KH1's pick, its hold and its menu rule, version 0.181.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "para ambos o anel amarelo não faz lock no oponente ainda igual faz no KH1". Then "no kh tem o anel amarelo e o azul, o azul é quando tu aperta RB e ele locka no oponente, o amarelo ele aparece no oponente usando a regra do jogo, e se vc tiver com o auto lock ativo, os teus ataques sempre serão na direção daquele oponente independente de onde tu esteja olhando, se o anel amarelo estiver ativo ele se comporta assim". The plan was approved with the menu rule ("Tudo, com o menu").
+
+- **KH1** (Checked (decomp + exe + files); the workspace's `knowledge/KH1/kh1-lock-on.md`, researched with the new `searcher` agent):
+  - **The command target.** The command run `0x140293480` makes the lock pair the command target whenever the lock state is not 0. So the soft target (state 2) aims a swing as a lock does: the ground and air pickers (`0x1402A6EE0` / `0x1402A6C70`) replace the stick with the direction to it, and the lunge rows follow from the gap.
+  - **The pick** `0x1402B0A00`: 3 m flat less the lock radius, ±3.5 m, score `((1 − cos) × 0.25 + 1) × gap + |dy| × 0.2`, plus a line of sight test.
+  - **The auto lock.** A command with flag 4 turns state 2 into the auto lock (state 4, `0x1402B08A0(…, 4)`). Its enemy holds until 90 of frame delta after the last such command, L2 / R2, or 15 m / 10 m (`0x1402B11B0`, `0x1402B13F0`).
+  - **The menu rule.** A soft target is picked only while the highlighted command (`0x1402931B0` → `0x142D539E8`) has flag 4 (`btltbl.bin` `+0xA58`).
+- **Mod before**: `attack::command_attack` aimed only with Re:CoM's lock (`locked`), so with the ring alone Sora swung along the stick. The swing took Re:CoM's pick `+0x84C` while the ring took the soft target, which could be another enemy. The pick was the nearest within 6 m, with no hold and no menu rule.
+- **Change**:
+  - Pure code:
+    - `lock_on::soft::{pick, holds, Held}`: KH1's pick, without the line of sight test (Assumption: no Re:CoM twin), and the hold.
+    - `command_menu::cmd::{TARGETED, targets}`: flag 4 of commands 0..0x7F from the owner's file. The sleights count as having it (Assumption).
+    - `Menu::highlighted_targets`: the Items, Summon and Party lists' rows have no flag.
+    - `trace::PadView::auto_target`: it makes `FrameInput::locked`.
+  - DLL:
+    - `win::attack::{take_target, target_of, part_of}`: Re:CoM's lock, else the soft target, else Re:CoM's pick (the picker's part only).
+    - `win::lock_on::{soft_target, hold, hold_tick, locked, facing}`: the hold, ticked in the lock-on wrapper with `+0x460`. It ends at 90 frames or on an L2 / R2 press (Assumption: a press), and R1's lock replaces it.
+    - `win::command_menu::highlighted_targets`.
+    - `win::movement::read_pad` and the magic / special commands take their target through `take_target`.
+  - The ring uses the same `soft_target`, so the ring and the swing are on one enemy.
+- **Not 1:1**:
+  - No line of sight test.
+  - The facing is the mover's yaw (`+0x54`).
+  - Assumption: KH1's delta is in 60 Hz frames (1.5 s).
+- **Checked**: tests (`kh1_soft_target_pick_and_hold`, `kh1_flag_4_commands`, `auto_target_aims_like_a_lock`), the Windows build. **Checked (in game, fork owner, 2026-11-23)**: "ficou perfeita a implementação do anel amarelo e autolock".
+
+---
+
+## Stage 323 (fork branch Re-Re-Reverse/Rebirth): Riku lowers his guard as the defence ends, version 0.180.1 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "no Riku a janela de defesa não está com a mesma duração da animação"; then "a defesa acaba antes dele baixar a guada". Answering "(a) the animation follows the defence; (b) the defence follows the animation", they chose (a).
+
+- **Measured** (Checked (files), new `riku_guard_motion_profile` on the owner's install): in the built clip (54 frames), the defence is KH1's Guard window 10..36 (as Sora's), and the weapon hand is held forward through frame 38. It started down only at 39–40 and was lowered by 46, because the way out played 240's tail backwards, and 240 (into the guard) has its arm up for its last frames.
+- **Change** (asset step, `riku_skin::riku_kh1_guard`, `settled_from`, `GUARD_ARM`): the way out starts from the 240 frame where the weapon arm (`r_collar`, `r_uparm`, `r_foarm`, `rx_rot`, `r_hand`) reaches the guard (within 5 % of its change). The hand now comes down from frame 37 (0.36 → 0.33 → 0.31 m forward) and is down about 2 frames earlier. The defence window is unchanged.
+- **Asset step**: re-run (automatic; its source changed).
+- **Checked**: tests (the profile test asserts the hand is lower by frame 38 and ends lowered), the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 322 (fork branch Re-Re-Reverse/Rebirth): KH1's orange auto-target ring on the soft target, version 0.180.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "preciso que vc implemente o anel laranja/amarelo igual funciona no KH 1 inclusive já tem nas configs dentro do jogo das ultimas implementações sobre o auto-lock"; answering "(1) HUD: com qualquer HUD ou só com `hud = kh1`? (2) aprova o plano (projeto Ghidra do KH1)?", verbatim: "1 só com o modo do kh1 ligado, 2 sim".
+
+- **KH1** (Checked (decomp, this machine's new `KH1` Ghidra project; files); the KH modding workspace's `knowledge/KH1/kh1-lock-on.md`): the draw `0x140274B20` shows `lock` object 3 (`lockon_d`, `0x14284F9F8`, set by `0x140274290`) for lock states 1, 2 and 4. State 2 is the soft target, picked each frame by `0x1402B11B0` → `0x1402B0A00` only with Auto Lock On (`0x1402FAFB0` ≠ 1). State 4 is an attack's auto lock (`0x140293480` → `0x1402B08A0(…, 4)`). The ring is centred on the target's projected lock point and not scaled with the distance. Its keys restart only when the cursor kind changes, not when the soft target moves to another enemy. The owner's `UK_uibin_lock.bin`: 30 × 30, colour (112, 80, 12), alpha 0 → 250 → 112. Its texels are in `uitex.bin` picture 10, with `lockon_c`'s.
+- **Change**:
+  - Asset step: `kh1_hud::cursor::{RING, build_ring}`, a group after the cursor's (manifest `"auto_ring"`).
+  - DLL: `kh1_hud::Manifest::auto_ring`, `win::lock_on::ring_target`, `win::movement::main_player`. `win::kh1_hud::marker_update` (Re:CoM's `CLockonMarker` update `0x140209D30`, the H7 site, prologue already checked) is now installed for the ring as well and calls `auto_ring` (and H7's `kh1_cursor` only with `LOCKON_KH1`). At `hud = kh1`, with Auto Lock on and Combat = KH1 (Sora or Riku), our projected control draws the ring on `soft_target`'s lock point while Re:CoM's cursor holds no lock. Re:CoM's own cursor still shows a lock.
+  - Off (`auto_lock = off`, `hud = recom`, Combat = Re:CoM): no ring, as Re:CoM.
+- **Asset step**: re-run (a new group). An older `kh1-hud.json` logs "no auto_ring" and draws no ring.
+- **Not 1:1**:
+  - The ring is on our soft target (`SOFT_REACH` 6 m, Assumption since 0.175.0). KH1's pick is 3 m across (less the point's radius) and ±3.5 m up, scored by facing and height, with a line-of-sight test (now Checked, the knowledge note). Not changed here: it is the swing's aim, another system.
+  - The ring is drawn wherever Re:CoM's marker update runs. H7 read that it runs each battle frame; whether it runs locked or not, and in the field, is an Assumption. The ring is deleted with the player's HUD (the gauge's dtor, as H7's cursor).
+  - KH1 hides the ring when the target is off screen. Here Re:CoM's projected control draws it (Assumption: as its own marker).
+- **Checked**: tests (new `auto_ring_from_the_players_file` on the owner's `UK_uibin_lock.bin` and `uitex.bin`; manifest parse), the Windows build. **Checked (in game, fork owner, 2026-11-23)**: "ficou perfeita a implementação do anel amarelo e autolock".
+
+---
+
+## Stage 321 (fork branch Re-Re-Reverse/Rebirth): the DP sleights' mark, Re:CoM's Heartless emblem right of their names, version 0.179.1 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "preciso que no shorcut e no menu de commands tenha algo identificando que consomem DP, pode ser o ícone de um heartless"; on its place: "a direita fica perfeito".
+
+- **Re:CoM** (Checked (files)): the Heartless emblem in `FORM/0104/FO0104.RTM`'s PC asset `UK_levelup.imz` (IMGZ of one 32-bit IMGD, PS2 alpha), about (136, 55)–(215, 172). Assumption: it is Riku's level-up DP icon. KH1's `Icon.tm2` and `uitex.bin` have no such art.
+- **Change**: asset step `kh1_hud::menu::{dp_emblem, DP_EMBLEM_*}` (one group after the Summon list's, manifest `"dp_icon"`; `MenuSources::dp_emblem` read in `step::kh1_hud_build`); DLL `kh1_hud::MenuGroups::dp_icon`, `win::command_menu` (`dp_word`, `Row::icon`, `ShortCtl::icons`): the mark 3 units right of a DP sleight's (squeezed) name in the Sleights list and the shortcut panel, KH1's menu look, at the name's brightness. Re:CoM's menu look: not drawn (its words are `C2DFnt` text).
+- Asset step: re-run (a new group).
+- **Checked**: tests (`dp_emblem_from_the_players_file` on the owner's `FO0104` texture: 36 × 48; manifest parse), the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 320 (fork branch Re-Re-Reverse/Rebirth): Dark Riku's own sleights pay DP (Inverse Burst added); the fork's design intent recorded, version 0.179.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "o MP contina, mas os Sleights que só o Dark Riku Executa, consomem DP"; answers "1 a,2a" (Inverse Burst in his list; Dark Break / Dark Firaga 20 %, Dark Aura / Inverse Burst 30 %); and the intent "não é refazer o KH1 de 1:1 no Recom mas sim reimplementar o Combate, mantendo a originalidade do Kingdom Hearts Recom" (answer 5a: record it).
+
+- **Re:CoM** (Checked (exe + decomp)): Riku's start `0x140216AB0` refuses 0x5F..=0x61 and 0x65; Dark Riku's `0x140206830` (switch on `+0x82C`) takes them, 0x5F..=0x62 / 0x65 through `0x14020E590` then `+0x138`, `+0x838` = 10. Dark Mode's DP: the player's `+0x44C`, max `+0x450` (his DP stat), the gauge setter `0x14020BFA0` (as 0.152.0 / 0.166.0).
+- **Change**: `crate::dark_points::{DP_SLEIGHTS, sleight_cost, can_pay}`, `Dp::{sleight_cost, pay_sleight}`; `crate::sleights::{Cost::Dp, usable_with_dp}`; `command_menu::World::dp`; `win::dark_points::{sleight_view, pay_sleight}`; `win::summons::start_sleight` checks the DP before Re:CoM's start and pays after it (Re:CoM's Dark gauge written at once). Cost = 20 % / 30 % of Dark Mode's max, at least 2, only with 1 DP left after (a sleight never ends Dark Mode). His other sleights keep MP. `riku::DARK_SLEIGHTS` gains Inverse Burst (0x65; the asset step's name word `0x8165`); `riku::list` returns a slice.
+- **Docs**: `docs/design-philosophy-instructions.md` § Fork branch: the fork owner's intent (Re:CoM's originality ahead of KH1 1:1 on this branch); `docs/recom-riku-kh1.md` § 0.179.0.
+- **Assumption**: Inverse Burst's pack loads in his battles as the other three's.
+- Asset step: its sources changed (the name), so the first start builds again.
+- **Checked**: tests (`dark_rikus_own_sleights_pay_a_share_of_dark_modes_dp`, `rikus_sleights`), the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 319 (fork branch Re-Re-Reverse/Rebirth): one debug key, `all_unlock`, for every costume and cosmetic Keyblade, version 0.178.5 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "pode deixar as condições do INI em OFF e unifique elas para all_unlock=off informando que é só para propósitos de debug!".
+
+- **Change** (`settings`, `win::riku_skin`, `win::sora_costume`): `riku_halloween_unlocked`, `riku_dark_skin_unlocked`, `riku_keyblade_unlocked` and `sora_costume_unlocked` (`Settings`' four debug fields) are one `all_unlock` (default off), its ini comment "FOR DEBUG PURPOSES ONLY". The story requirements are unchanged: Riku's Dark Mode costume and Keyblade of Heart at his first Dark Mode, his and Sora's Halloween Town costumes at reaching Halloween Town. An old file's four keys are ignored without a warning (as `kh1_motions`), so an old `on` no longer unlocks anything.
+- The fork owner's own `kh1-recom.ini`: the four keys replaced by `all_unlock = off` (backup `kh1-recom.ini.bak-0.178.4`).
+- **Checked**: tests (new `all_unlock_replaces_the_four_debug_keys`), the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 318 (fork branch Re-Re-Reverse/Rebirth): dead helpers removed, duplicated helpers shared (no behaviour change), version 0.178.4 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "busque outras redundância inúteis no mod para eliminar"; then "remova somente redundâncias que não vão quebrar o mod".
+
+- **Removed** (referenced nowhere in the workspace): `attack::attack_events`, `kh1_core::enemy::script::current_motion`, `kh1_anim` `Mat::to_array`, `kh1_formats::mset` `helper_positions`, `kh1-recom-assets` `ann` `default_blend` and `matching` `body_pos_mm`, `kh2_formats_lite::mdlx` `Model::triangle_count`; the now-unused `FrameOut` import in `attack.rs`.
+- **Shared**: the 20 enemy modules' test helper `inputs()` (and `enemy::clash_tests`'s) now call one `enemy::test_inputs(spec, ses_required)` (tests only, not in the DLL or the step's output); `win::battle` and `win::guard`'s identical `class_name` are one `win::stats::object_class`. `win::stats`'s own `class_name` / `class_label` differ (no null check, empty name without RTTI) and stay.
+- **Kept on purpose**: unused `pub` constants that record Checked addresses or format fields (e.g. `btltbl` `GROUND_2`, `mset` `TYPE2`, `kh2_formats_lite::system` item kinds) and format readers (`objentry::parse_sklt` / `parse_wmst`, `mset` flag getters): documentation of the files, not redundancy. Per-enemy behaviour code that repeats between enemies (`frame`, `new`, `wander` in `kh1-core`): merging it is a refactor of running code, not a cleanup. `patch_container` in `camp_rows` / `shop_tabs`: same text, each on its own module's constants.
+- The asset step's sources changed (test helpers, two dead getters), so its hash changes and the first start builds the files again; the output is the same.
+- **Checked**: tests, the Windows build. **Not checked**: in game (nothing in it should change).
+
+---
+
+## Stage 317 (fork branch Re-Re-Reverse/Rebirth): Talk next to NPCs as KH1 (row 0, a dimmed Attack that buzzes), version 0.178.3 (2026-11-23)
+
+Fork owner, 2026-11-23, answering "Perto de NPCs: (a) Attack continua normal, e o Talk aparece só na aba (como está); (b) 1:1 com o KH1: o Talk vai para a linha 0 e o Attack fica apagado, com o som de erro", verbatim: "8b".
+
+- **KH1** (Checked (decomp), `docs/recom-m7-command-menu.md`): NPCs (kind 1) put Talk in row 0 through `0x140293000(0, Talk)`, which ungreys it; FM draws row 0 as a dimmed "Attack", its confirm gives sound 4, the context tab shows Talk.
+- **Change** (`command_menu::Menu::build`, `Menu::scene`): with Talk as the context command (`recom::field_action` on an `ATEL::CAvatar`, kind 0x4000) and no special follow-up running, Talk takes row 0 (ungreyed, unlocked) instead of entry 3; the scene names row 0 "Attack" at the grey brightness; confirm on it buzzes and sends no Attack (the existing `row0_special` path); Triangle, once the tab is in, sends `Context(Talk)` as before. No new hook.
+- **Assumption**: a running special's follow-up keeps row 0 over Talk (KH1's order between the two not read).
+- **Checked**: tests (new `talk_takes_row_0_as_a_dimmed_attack_that_buzzes`), the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 316 (fork branch Re-Re-Reverse/Rebirth): Donald's and Goofy's KH1 gauges without rings, version 0.178.2 (2026-11-23)
+
+Fork owner, 2026-11-23, answering "Anéis do Donald e do Pateta (os amigos do Re:CoM não têm HP nem MP): (a) ficam sempre cheios; (b) os anéis são escondidos", verbatim: "4b".
+
+- **KH1 / Re:CoM**: unchanged from H6 (`docs/recom-kh1-hud.md` § H6): KH1's party slots draw `g_c` objects; Re:CoM's friends have no HP or MP (Checked (decomp + strings)).
+- **Change** (asset step, `kh1_hud::party::build`): the two party groups hold the face frame (`g_c_fra_a_w`), the disc (`g_c_fra_a_a`) and the face only; the HP / MP ring backs (`g_c_fra_b/c/d_*`) and the full rings (`g_c_bar_*`) are no longer built. The DLL is unchanged (it shows and hides the same two groups). The step's source hash changes, so the first start after the update builds the files again.
+- **Assumption**: "os anéis" means the rings and their dark backs; the frame, disc and face stay. Picture 5 is still added to the atlas (now unused by the party).
+- **Checked**: tests, the Windows build. **Not checked**: in game; the real-file HUD test (`builds_from_a_dump`) was not run (no `hud-h0` dump on this machine).
+
+---
+
+## Stage 315 (fork branch Re-Re-Reverse/Rebirth): the KH1 HUD hides at once when Re:CoM hides its HUD, version 0.178.1 (2026-11-23)
+
+Fork owner, 2026-11-23, answering "Quando um evento esconde o HUD: (a) fade de 10 frames, como no KH1 (é o que está construído); (b) some na hora, como no Re:CoM", verbatim: "3b" (`docs/design-philosophy-instructions.md` § Open questions round).
+
+- **Re:CoM** (Checked (decomp)): the gauge's HUD state setter `0x14020C190` (`40 55 57 48 83 EC 48`) is called by `0x140208360` and `0x14020A0E0` with the request at the gauge's `+0xAA`, by `0x140209440` / `0x14020A0E0` with 2 and by `0x14020BC60` with 8 / 9. Who writes 7 to `+0xAA` (an event or a menu) is not researched, so events and menus are not told apart.
+- **Change** (`win::kh1_hud::Cluster::hide`): state 7 hides the KH1 cluster at once (the units dropped, the held controls hidden), no longer through `fade_out`; state 1 still plays KH1's 10-frame `fade_in`. The command menu already hid at once (`command_menu::Menu::hide`). No new hook, no asset change (`fade_out` stays in the data, unplayed).
+- **Assumption**: the fork owner's "as Re:CoM" also covers menu hides (KH1 fades for its menus). Ask if a menu should still fade.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 314 (fork branch Re-Re-Reverse/Rebirth): Riku's Halloween Town costume in every world, version 0.178.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "certo faz o da Halloween town então".
+
+- **Re:CoM** (Checked (exe + files)): Riku is char 3 (group 101, pack `PL0101`), char 4 in Halloween Town (group 111, `PL0111`); one action table for both (`0x1407C6370`); the camp / level-up menu model bytes `MENU_BYTES` (101 / 111).
+- **Ours** (`riku_skin::{Look::halloween, group_for_char}`, `win::riku_skin::{halloween_unlocked, costume_open, mark_halloween}`): costume Halloween Town puts char 3 on 111 (Re:CoM's own `PL0111` name) or its skins (the Keyblade of Heart: 151; Dark Mode keeps Riku's 131 only in Halloween Town as before). Costumes' Costume row: Default Attire / Dark Mode / Halloween Town, skipping a locked one; ini `riku_costume = default | dark | halloween` (the old `riku_dark_skin = on` reads as Dark Mode). Changed in place with the crouch and the way-back effect.
+- **Unlock**: Riku as char 4 once (Riku's save spare bit 0x20); debug `riku_halloween_unlocked` (on in the owner's ini).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 313 (fork branch Re-Re-Reverse/Rebirth): the Ansem costume removed, version 0.177.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "pode tirar o ANsem das skins ficou ridículo, no recom tem algum outro modelo do Riku?".
+
+- 0.176.0..0.176.2 reverted: Riku's costumes are Default Attire / Dark Mode again (`riku_dark_skin`), the asset step builds no Ansem groups (181 / 191 / 221 / 231), the Keyblade of Heart groups as before. Stages 310..312 stay as history.
+- Re:CoM's other Riku models (Checked (files: every `PLAYER` / `ENEMY` RTM and skeleton)): only Riku (`PL0101`), his Halloween Town look (`PL0111`) and Riku-Ansem (`PL0201` / `PL0211`, `EN0116`: the Dark Mode costume). No other Riku.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 312 (fork branch Re-Re-Reverse/Rebirth): the Ansem costume's limbs posed from Riku's T-pose, version 0.176.2 (2026-11-23)
+
+Fork owner, 2026-11-23 (three screenshots: arms out, hands at the waist, the head bent into the hair), verbatim: "ficou bem bizarro".
+
+- **Cause** (Checked (files)): Riku's rest pose is a T-pose (hands at shoulder height, 0.61 m out); Ansem's an A-pose (hands 1.20 m up, 0.40 m out: arms about 50° down, 70° at worst). The retarget carries each bone's turn from its rest, so every Ansem limb stayed as far off as its rest differs.
+- **Fix** (`riku_skin::{rest_like, align, LIMBS}`): before the retarget, each limb's rest rotation (collar, upper arm, forearm, thigh, shin, foot; the hand takes its forearm's, `wep0` its hand's) is turned by the smallest rotation to Riku's rest direction, only when a limb is 20° or more off (Dark Riku's worst is 9.9°: the Dark Mode groups 121..171 byte for byte as before, Checked (files)). Groups 181 / 191 / 221 / 231 change. **Re-run** (automatic).
+- Test: in Riku's idle, Ansem's upper arm / thigh 0.0° and forearm 3.4° off Riku's directions.
+- Assumptions: the twist about each limb kept as Ansem's rest has it; the head bent in a pose is Riku's own clip (Ansem's taller neck chain: 1 bone against Riku's 3).
+- **Checked**: tests, the asset step, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 311 (fork branch Re-Re-Reverse/Rebirth): the Ansem costume is Ansem's model (0.176.0 took Axel's), version 0.176.1 (2026-11-23)
+
+Fork owner, 2026-11-23 (screenshot: Riku as Axel), verbatim: "você colocou a skin do Axel cara!, é a do Ansem Seeker of Darkness!".
+
+- **Cause**: 0.176.0 picked `ENEMY/0118` (`b_ex110`) by its names, never looking at its textures: it is Axel. Ansem, Seeker of Darkness is `ENEMY/0122` (textures `ex_1630_0x` = KH1's `xa_ex_1630`; silver hair, dark skin, orange eyes in `ex_1630_01`), Checked (files: the texture rendered).
+- **Change** (`riku_skin::{ANSEM_ENEMY, ANSEM_RENAMES, ansem_mdl}`): `EN0122`, skeleton `e122_sk` (157 bones); its bones renamed to Riku's where the role is the same (`e122_sk` → `ex_1010_sk`, `lf_*` / `rf_*` → `l_*` / `r_*` legs, `chest2` → `chest1`, `neck` → `neck1`), so Riku's code finds them and the retarget maps them. Riku's `wep0` and weapon added as in 0.176.0. Groups unchanged (181 / 191 / 221 / 231). **Re-run** (automatic).
+- Test: the idle's feet within 2.4 cm of Riku's (relative to rest), the blade root 11 cm from the hand as Riku's.
+- Assumptions: Ansem's hand rest frame close to Riku's; his coat tails and hair at rest; his `chest2` stands in for Riku's `chest1`.
+- **Checked**: tests, the asset step, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 310 (fork branch Re-Re-Reverse/Rebirth): Riku's Ansem costume (Ansem, Seeker of Darkness's model with Riku's own moves), version 0.176.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "implementa a skin do Ansem para o Riku".
+
+- **Re:CoM** (Checked (files); wrong, see Stage 311: `EN0118` is Axel): Ansem taken as `ENEMY/0118/EN0118` (textures `b_ex110_0x`, skeleton `b_ex110_sk`, 138 bones, 52 named as Riku's), read whole by our MDL reader (2 parts); no `wep0` (his `WeaponR` in the right hand). His card is 0x74.
+- **Asset step** (`riku_skin::{ansem_mdl, build_ansem}`): his model + a `wep0` under his `r_hand` at Riku's rest `wep0` relative to Riku's `r_hand`, Riku's weapon parts (PL0101 / PL0111 parts 0 / 1) moved onto it, parts ordered as Riku's, bone 1 renamed `ex_1010_sk`; Riku's clips (with his KH1 guard clips) retargeted by name, events remapped; Ansem's RTM + Riku's `weapon_0x` texture (or the Keyblade of Heart's), Ansem's TXA. Groups 181 / 191 (Soul Eater), 221 / 231 (Keyblade of Heart). **Re-run** (automatic; new outputs). Test: the idle's feet within 2.2 cm of Riku's (relative to rest), the blade root 11 cm from the hand as Riku's.
+- **Game**: costumes are now 0 Default Attire / 1 Dark Mode / 2 Ansem (`Look::costume`; manifest rows carry `costume`, older rows read `dark`); ini `riku_costume = default | dark | ansem` (the old `riku_dark_skin = on` reads as Dark Mode); Costumes' Costume row cycles the three, skipping a locked one. Ansem unlocked by his card (Re:CoM's obtained-at-least-once, given at his defeat) or `riku_ansem_unlocked` (debug, on in the owner's ini). A change to or from Ansem plays the crouch and the way-back effect (Dark Mode keeps its flip).
+- Assumptions: Ansem's hand rest frame close to Riku's (the blade's angle); his robe / hood / chains / hair held at rest.
+- **Checked**: tests, the asset step, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 309 (fork branch Re-Re-Reverse/Rebirth): KH1's Auto Lock as its soft target; Re:CoM's enemy pace one attacker at a time again, version 0.175.0 (2026-11-23)
+
+Fork owner, 2026-11-23, passing on two testers' reports, verbatim: "Sora doesn't seem to automatically lock on to an enemy when doing a combo, leading to a lot of missed swings…"; "I switched to the kh1 enemy ai where they all attack at once… I moved back to Re:Com's enemy ai but they were still attacking all at once"; and "o teu Auto Lock está diferente da implementação do KH1 lá o auto lock funciona sem lock on ao chegar proximo do oponente os ataques são direcionados a ele".
+
+- **Auto Lock** (`win::lock_on::soft_target`, `win::attack::attack_target`): with no lock, the KH1 swing / spell target is the nearest lockable enemy by KH1's pick (distance less its lock radius) within 6 m (Assumption: KH1's reach not read), when `auto_lock` is on, Sora or Riku. 0.173.0's arming of Re:CoM's lock is removed (KH1's Auto Lock is lock state 2, a soft target; Checked (KH1 exe: `0x14029365F`)).
+- **Enemy pace = Re:CoM** (`battle::wanted`, `battle::one_at_a_time`): Re:CoM's three serialisers (P2 think gate, P3 one grant a frame, P4 crowd pace) stay Re:CoM's, and the cardless play (P1) refuses an ordinary enemy while another is attacking (Re:CoM's CBTL enemy slot's rule without cards). Bosses as before. Enemy pace = KH1: all ours as before. Since M6 (0.12.0) P2 / P3 were ours whatever the pace.
+- Not changed: KH1-AI enemies (their own scripts) attack as KH1's do.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 308 (fork branch Re-Re-Reverse/Rebirth): Riku's Keyblade change shows his weapon's own appear effect, version 0.174.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "no Riku na transição quando troca de keyblade deve ser o mesmo efeito quando ele está sem e vc aperta o botão de ataque e ela aparece na mão".
+
+- **Re:CoM** (Checked (exe: disasm)): Riku's "draw the weapon" is his vtable `+0xF8` = `0x1402160A0(riku, show)`: with `+0x418 & 2` (weapon put away) it clears it and, with `show`, plays the effect `[0x1407C7C98]` on his weapon bone `+0x3A0` (`0x1401A2D50`) and fades the weapon in (`+0x154 | 0x40000000`, `+0x17C` 0, `+0x180` 1.0, `+0x188` / `+0x18C` 2000, `+0x190` 2).
+- **Ours** (`win::riku_skin::weapon_appear`): a Keyblade-only change in place (0.160.0) sets `+0x418 | 2` after the model change and calls that function (was: the transformation's way-back effect).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 307 (fork branch Re-Re-Reverse/Rebirth): KH1 FM's Auto Lock and Target Lock on the Camera page, version 0.173.0 (2026-11-23)
+
+Fork owner, 2026-11-23 (screenshot: KH1 FM's Config, Auto Lock On / Off and Target Lock Auto / Manual framed), verbatim: "precisa implementar essas duas configs e features".
+
+- **KH1** (Checked (KH1 exe: disasm; no decomp here)): the Config block `*(0x142E1F4D8)`: `+0` Auto Lock (getter `0x1402FAFB0`, 0 = On), `+4` Target Lock (`0x1402FAFA0`, 1 = Manual), `+8` the camera (`0x1402FAFD0`). Auto Lock On: an attack command with no lock locks its target (`0x14029365F` → `0x1402B08A0(…, 4)`); a lock whose target is gone picks the next (`0x1402B1348` → `0x1402B0A00`). Target Lock Manual: locked, R1's release unlocks (`0x1402B069C`); Auto: R1's press.
+- **Ours** (`win::lock_on`, Combat = KH1 on a controller, Sora and Riku): Auto Lock (ini `auto_lock`, default on): on a frame with the Attack request and no lock, or after a lock ended without the player's unlock, Re:CoM's lock-on locks its pick (`+0x84C`) as if R1 were pressed; Target Lock (ini `target_lock = auto | manual`, default auto): Manual unlocks on R1's release. Rows on Settings > Camera.
+- Assumption: Re:CoM's pick (its nearest, the cursor's) for KH1's attack target / KH1's pick.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 306 (fork branch Re-Re-Reverse/Rebirth): L2's target step written when Re:CoM's cursor doesn't take it, version 0.172.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "L2/trigger esquerdo não está alternando oponentes no modo Kh1".
+
+- The owner's 0.171.0 log: `lock-on: L2 on 0xa3: next 0xa5` again and again: our step chose the next target, the lock stayed on 0xa3 (the history synced from Re:CoM's cursor never moved).
+- Re:CoM (Checked (disasm)): its switch writes the new handle to `+0x84C`, zeroes the cursor's `+0xD4` and runs the cursor update `0x140208EC0`, whose locked branch (`0x140209038`) takes `+0x84C` only when `+0xD4` ≤ 0. Why it didn't take ours: not known.
+- **Change** (`win::lock_on::stepped`): after Re:CoM's lock-on, a chosen target the cursor (`+0xD4`) or the player's handle (`+0x850`) didn't take is written to both (lock kept); each step logs what Re:CoM left. Assumption: the locked branch follows a written `+0xD4`.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 305 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard blocks only real contacts, as Sora's (0.153.0's fallback removed), version 0.171.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "porra testei denovo a defesa do Riku de longe mirando no inimigo, bizarro precisa corrigir isso definitivamente! veja como está implementada a defesa no Sora como já disse a única diferença é a animação!".
+
+- **Cause** (Checked (the owner's 0.170.0 log)): every far block came from 0.153.0's damage-check fallback (`riku_guard_block`): a hit flagged as arrived (`+0x41C & 0x200`) with value 0, from enemies 4..14 m away, the attacker id the last real hit left on his body; with that attacker in front it blocked and played the guard success each time. None came from the pair test (`riku_pair_block`, 0.159.0). What sets the flag with no hit: not known.
+- **Fix**: the fallback is gone (`riku_guard_block` always false; `guard::riku_block` / `cancel_shot` removed). Riku's Guard is Sora's: Re:CoM's own block or the pair-test block of a real contact from in front; the damage check keeps the guarded hit for his KH1 frame as Sora's.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 304 (fork branch Re-Re-Reverse/Rebirth): Sora's Halloween Town costume in every world (Costumes on his lists, unlocked by reaching Halloween Town), version 0.170.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "para o Sora quero que ele também tenha trajes desbloqueáveis de acordo como a história, então se o sora for para a halloween town por exemplo, o jogador pode livremente alterar para este traje a qualquer momento"; of KH1's world costumes "Só Halloween"; "esqueci completamente que kh1 e rechain of memories o sora só troca de aparencia na halloween town... então pode usar o modelo do próprio jogo".
+
+- **KH1** (Checked (files)): Sora's models are `xa_ex_0010` (/ `0012` / `0019` lower-resolution copies), `xa_nm_0010` (Halloween Town), `xa_lm_0010` (Atlantica, merman; not made: no legs, the owner's choice). `xa_ex_0040` / `0050` are Donald / Goofy.
+- **Re:CoM** (Checked (exe + files)): Sora is char 1 (group 1, `PL0001`), char 2 in Halloween Town (group 11, `PL0011`), one action table (`0x1407C5E80`), the same 69 clip names in both packs.
+- **Ours** (`win::sora_costume`): with `sora_costume = halloween` (ini; Costumes page, "Default Attire / Halloween Town") char 1 → group 11 and pack name `PL0011` (char 2's pointer), the camp's menu-model byte `0x1400E4705` 1 → 11; from the next room or battle (Re:CoM's group queue refresh). Unlocked when Sora is char 2 once (save spare bit 0x10); debug `sora_costume_unlocked`.
+- **Camp**: Costumes before Settings on Sora's KH1 list (10 entries, step 21.3) and on his Combat = Re:CoM list (Re:CoM's seven, Costumes, Settings: 8).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 303 (fork branch Re-Re-Reverse/Rebirth): Sora's combat rules for Riku, part 2: Dark Riku's Guard, KH1's attack-meets-attack, the twins' lock radius / level, the damage cap, version 0.169.0 (2026-11-23)
+
+Fork owner, 2026-11-23: "certo mas esse é só um ponto, tem algo que ficou faltando?"; the plan (4, then 1 + 3, then 2): "sim".
+
+- **Dark Riku's Guard**: the pair-test block (0.159.0) for the real Dark Mode too.
+- **Attack meets attack** (`win::attack::riku_pair`): his swing's Re:CoM weapon volume (sphere: swept centres, radius) against the KH1 enemies' live attack rows, as Sora's blade spheres (M11, 0.82.0): KH1's clash outcome (his KH1 recoil, the enemy's), a marked swing meets no hurt body that frame. Assumption: the KH1 row's clash type / priority with the equipped Keyblade's numbers for the Soul Eater's; a non-sphere volume logs and skips.
+- **Twins** (`stats::twin_any`): in his story, the KH1 twin's lock radius (KH1's lunge distance) and level (his MP charge), as Sora's; his enemies' HP and damage stay Re:CoM's.
+- **Damage cap**: his swings take the enemy's KH1 per-hit cap as the share of Re:CoM's max HP (`damage_cap::Source::Recom`), at both Damage settings (his numbers are Re:CoM's card AP on Re:CoM's HP).
+- Left his own: his damage numbers at Damage = KH1 (Re:CoM's), the Neoshadow's held grab (no clip).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 302 (fork branch Re-Re-Reverse/Rebirth): the Wizard and the Aquatank stay hittable in their dimming moves (only bosses' are untouchable), version 0.168.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "eu acertar uma porrada no wizard enquanto ele casta thunder ainda não interrompe o ataque dele"; "troque essa implementação porque a jogabilidade quando estiver no KH1 deve usar as mesmas regras, com exceção a bosses de fato, um wizard não é um boss...".
+
+- The owner's log: the Thunder was the Wizard's state 4 (the room dims, `_ex_2150` shots for 180 frames), untouchable by 0.100.1's rule ("Same rule" as the bosses), for Sora and Riku. Its other casts (states 2 / 3) were already interrupted.
+- Now `revenge::install` no longer arms the Wizard's / Aquatank's windows (`install_normal` kept, not called): their dimming moves are ordinary attacks at Combat = KH1 (hittable, the card interrupt ends them). The bosses' dimming moves and revenge moves stay untouchable.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 301 (fork branch Re-Re-Reverse/Rebirth): Riku's DP only once the story gives him Dark Mode; the Keyblade of Heart unlocks with the Dark Mode costume, version 0.167.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "o Dark Mode precisa começar de acordo com o jogo normal mesmo liberando a partir da história, me equivoquei falando que o dark mode começava com 30 pq vi que era dentro do combate para ativalo!, a keyblade cosmética dele pode liberar junto com o Dark Mode também".
+
+- **DP** (`win::dark_points::ours`): only with Riku's ability word `+0x41C & 0x4000000` (the story's Dark Mode, the bit Re:CoM's own DP rules and its Dark Riku test read; Checked (disasm `0x1401E7255`, `0x14021223D`)) or as Dark Riku. Before it, no DP and the gauge untouched, as Re:CoM. Kept from 0.166.0: the gauge fills to 30 to start it, Dark Mode starts at his DP stat.
+- **Keyblade of Heart**: unlocked with the Dark Mode costume (Riku's first Dark Mode, `riku_skin::unlocked`), the 15-DP bit dropped.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 300 (fork branch Re-Re-Reverse/Rebirth): Dark Mode starts at Riku's DP stat again; his DP row is "Dark Up" (DP +2 and Ability Points +2), version 0.166.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "mas sumiu o DP"; "certo mas o DP enchendo e esvaziando tbm liga com o DP maximo oq aconteceu com ele"; chose "DP e Ability juntos".
+
+- **Re:CoM** (Checked (disasm)): outside Dark Mode the gauge fills to a fixed 30 (`0x1401F57A4`, `0x1401E7284`); Dark Riku's switch-in sets DP = max = Riku's DP stat (`+0x450` from `stats+0x14`, `0x1401F0C38`, `0x1402048BD..0x1402048CE`): 8 at a new game, +2 a DP pick, at most 99; it drains to 0. 0.151.0's tables had dropped it (30 in Dark Mode too); 0.164.0 then took the pick for the ability points, wrongly calling it unused.
+- **Now**: Dark Mode starts at his DP stat, its gauge's max (`dark_points::Dp::enter_dark`), the owner's tables drain it. His third level-up row is "Dark Up / DP +2, Ability Pts +2" (always offered; Re:CoM's +2 DP kept; the panel shows Re:CoM's DP); the result "DP and Ability Points increased by 2."
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 299 (fork branch Re-Re-Reverse/Rebirth): Riku's level-up names his ability points in full, version 0.165.1 (2026-11-23)
+
+Fork owner, 2026-11-23 (screenshot: Riku's level-up with "AP 10" and "Max AP 3 → 5"), verbatim: "parece que ficou duplicado esse lance de AP". Not a duplicate: "AP" is Re:CoM's attack stat (his Attack Boost row), ours the ability points. On his screen ours now read "Ability Up" / "Ability Points +2", panel "Ability Pts", result "Ability Points increased by 2."; Sora's unchanged. **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 298 (fork branch Re-Re-Reverse/Rebirth): the Enemy Skills act on Riku; his items reach his KH1 frame, version 0.165.0 (2026-11-23)
+
+Fork owner, 2026-11-23: "concordo" (the plan's step 4: the skills' effects on Riku).
+
+- **Fix**: 0.163.0's item use never reached Riku's KH1 frame (his branch of `run_frame` read no item command): now it does, with the item events.
+- **Route 1** (`win::enemy_skills::live` / `refresh`, his frame's `kh1_frame`): Re:CoM's own player writes for his equipped skills; Wight Knight's Float on his gravity; Soldier's Combo Plus and Bandit's Combo Finish in his abilities.
+- **Per hit / swing / frame**: Second Chance, Jafar / Air Pirate's no-flinch (the damage check's `arrived` for `kh1_fighter`); Card Soldier's haste, Saïx's boost, the Berserk test at his swing's start; Air Soldier / Marluxia's frame step; the support rules on `mp::live`.
+- Already his (per battle, his save's skills): the compare stubs (Quick Recovery, Dash, Auto-Life, Invincible, Sleightblind), the deck skills' arming, the route-2 hit rewrite.
+- Not acting for Riku (no part of his): the spell / summon boosts (Red Nocturne, Blue Rhapsody, Yellow Opera, Green Requiem, Wizard, Crescendo), Luxord (Sora's blade clash), Marluxia's replay (Sora's Sleights list), Berserk's bonus on his hits (his hits are Re:CoM's weapon hits).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 297 (fork branch Re-Re-Reverse/Rebirth): Riku's AP Up (his DP row), his Enemy Skills from his own cards, his Abilities page, version 0.164.0 (2026-11-23)
+
+Fork owner, 2026-11-23: Enemy Skills for Riku from "as cartas que o Riku ganha durante a play dele"; the DP row as his AP Up ("concordo").
+
+- **Re:CoM** (Checked (disasm + files)): Riku's level-up rows are HP, AP (`stats+0x10` + 1) and DP (`stats+0x14` + 2, cap 99, `0x14010F70F`), DP offered only once sleight 0x6D is learned and DP < 99 (`0x14010F2D2`). His new game is `CardInit` record 15: level 1, HP 80, DP 8, AP 10. Our DP is the owner's tables (cap 30): Re:CoM's DP stat had no use at KH1.
+- **Level-up**: at Combat = KH1 in his story the DP row is "AP Up / Max AP +2", always offered; Re:CoM's +2 DP kept only where Re:CoM offers its row. Old saves: (DP − 8) ÷ 2 past picks (at most level − 1) count as AP Ups, once.
+- **Abilities**: his state in his story's save (`abilities::sync` on `mp::live`), only the Enemy Skills (card sources; no KH1 level grants, Re:CoM movement or sleight abilities); learned from his cards' first pickup / Re:CoM's discovery state, with the learned notices at his field camp gate.
+- **Camp**: his list is Items, Abilities, Customize, World Map .. D Report, Costumes, Settings (10, step 21.3; Assumption: reads well); the Abilities page is Sora's, owner "Riku".
+- Not yet: the skills' effects on Riku (next).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 296 (fork branch Re-Re-Reverse/Rebirth): KH1's items for Riku (drops, Items list, use, camp Items page with his Keyblade slot, Moogle shop), version 0.163.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "inclusive as features implementadas para o Sora até então, - Fully working MP system, item drops, and moogle shops …"; "vi agora que com o Sora já tem a feature de escolher a keyblade, para não ficar redundante aplique a mesma forma de implementação para o Riku e pode iniciar o fluxo proposto"; item motion: "Uma animação dele".
+
+- **Store**: Sora's item block in Riku's story's save, as his MP (`items::with_inventory` on `mp::live`).
+- **Drops**: KH1's tables in Riku's story too (`stats::drops`; his enemies keep Re:CoM's HP / damage).
+- **Battle**: his command menu's Items row with his slots; a use runs Sora's KH1 path (the use task in `riku_request_bits`, `exe_item` for `kh1_fighter`). KH1's item motion 0x3E plays his row 0x2D (`p002_034`, 56 frames at 30 fps; Re:CoM's Riku never uses it; Assumption: his own "use" motion, the owner's choice). The heal at KH1's frame.
+- **Camp** (Combat = KH1): his list is Items (Review Decks' place), Customize, World Map .. D Report, Costumes, Settings. The Items page is Sora's, owner row "Riku"; his Keyblade slot opens his Keyblade list (Soul Eater / Keyblade of Heart, greyed until 15 DP), as Sora's Keyblade list. The Costumes page's Keyblade row (0.160.0) is gone.
+- **Moogle shop**: Sora's KH1 shop where Riku's story has one, lines naming Riku.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 295 (fork branch Re-Re-Reverse/Rebirth): Sora's combat rules for Riku (post-hit invulnerability, KH1's no-flinch, no card duel, the dimming sleight's shield, gimmick cards, R1 lock-on), version 0.162.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "precisa valer, alias fora as específicidades do Riku todas as regras de combate precisam ser iguais as do Sora, porque na verdade não muda mesmo, são os mesmos inimigos, o criador do mod só quis desabilitar a parte do Riku para implementar depois".
+
+- Audit of every Sora-only gate in the combat code (Checked (code)); `mv::kh1_fighter` (Sora or Riku with KH1 movement) now for:
+  - the damage check: KH1's post-hit invulnerability (30 frames, decision 31), KH1's no-flinch frames, no card duel (decision 33), a dimming sleight's shield;
+  - gimmick cards (drop held, "Stagger" in his context tab, Guard break, finisher break, 50 % HP drop);
+  - KH1's lock-on rules on R1 (controller).
+- Already shared before (Checked (code)): KH1 battles (M6, cardless enemies, pace), KH1 enemy AI, enemies hittable while attacking, the swing's card interrupt, revenge value, the dim rules, Guard reactions, cooldowns.
+- Left Riku's own (his specifics): his damage (Soul Eater's card AP at both Damage settings, Re:CoM HP), Sora's abilities / spells / items / summons / Enemy Skills, the Neoshadow's held grab (no clip of his).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 294 (fork branch Re-Re-Reverse/Rebirth): a shot the Guard turned back interrupts its caster (Sora and Riku), version 0.161.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "preciso de uma revisão e balanceamento do combate com o riku, quando alguns oponentes estão castando magia o ataque não interrompe, verifique se esse tipo de coisa já é tratado na gameplay com o Sora nesse mod".
+
+- **Found** (Checked (the owner's 0.160.0 log + disasm)): every turned-back shot met its Wizard with "damage 0 … card playing". Decision 28's card-interrupt test read the enemy's hit info `+0xF8`, which Re:CoM's gather `0x140154EB0` fills inside the handler (`0x14017F81F`), so before the handler it never named the shot. Since 0.11.2, for Sora too.
+- **Fix**: the attacker is read from the waiting hurt body (`+0x98`), as Riku's swings are.
+- **Review** (Checked (code + log)): Riku's swings get Sora's rules already (enemies stay hittable while attacking, `hurt_off` with `riku_on`; his hits carry the card-interrupt bit, `riku_swing_hit`). The deliberate exceptions stand for both: the Wizard's state 4 / the Aquatank's state 3 (the room dims: untouchable, 0.100.1), the bosses' dimming moves, revenge moves, KH1 enemies' own no-reaction hits.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 293 (fork branch Re-Re-Reverse/Rebirth): Riku's Keyblade on the Costumes page (Soul Eater / Keyblade of Heart, cosmetic), unlocked at 15 DP, version 0.160.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "quero implementar para o Riku a troca de Keyblade, vai ser simplesmente cosmética, quero que inicialmente ele possa trocar entre a Soul Eater e a Keyblade of Heart, vai ser uma nova entrada no menu dentro de Costumes, a Keyblade of Heart você pode pegar no KH1 acho, e ela é liberada com 15 de DP, mas inicialmente deixa ela desbloqueada para eu testar"; "no Kingdom Hearts 1 essa é a única keyblade que ele utiliza, numa bossfight inclusive com o mesmo traje do DarkMode".
+
+- **KH1** (Checked (files)): Riku-Ansem's `xa_ex_1580` (voices `rk04`) holds the Keyblade of People's Hearts as its HD mesh `-c0.cvbl` mesh 0 on joint 211, texture `-1c0.dds`.
+- **Re:CoM** (Checked (files)): Riku's weapon is parts 0 / 1 of his model on `wep0` (77; Dark Riku's 105), in KH1 joint space × 0.01. Joint 211 → 191: (4.54, −0.52, −0.02) cm, from the Soul Eater held by `xa_ex_1160` (same skeleton as 1580) against `xa_ex_1560`'s (Assumption: the same grip).
+- **Asset step** (`riku_skin::{with_blade, build_blade}`, `keyblade::blade_parts`, `mdl::split_parts`): groups 141 / 151 (Default Attire, from 101 / 111) and 161 / 171 (Dark Mode, from 121 / 131, the blade turned over as `BLADE_FLIP`) with the weapon parts replaced (the body kept byte for byte) and the texture added to the RTM. **Re-run** (automatic; new outputs).
+- **Game**: the Costumes page gets a second row, **Keyblade: Soul Eater / Keyblade of Heart** (ini `riku_keyblade = soul_eater | heart`). The group comes from the attire × Keyblade; a Keyblade-only change swaps the model at once with Riku's way-back effect. Unlock: Riku's DP reaching 15 once (save spare bit 8); debug `riku_keyblade_unlocked` (on in the owner's ini for the test).
+- **Checked**: tests (`riku_skin::tests::the_keyblade_replaces_rikus_weapon_parts`, the look selection), the asset step, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 292 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard works as Sora's KH1 Guard (blocks at the pair test, turns shots back, Counterattack, the guard up on the live frames), version 0.159.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "a mecânica de guarda precisa funcionar igual a do Kingdom Hearts 1"; "o mod com a campanha do Sora já deve ter essas implementações não? não da para se basear?" (chose: hits get through, magic should come back, timing odd, no Counterattack).
+
+- **Block** (`win::attack::riku_pair_block`): Re:CoM's body guard never answers 2 for Riku (why: not known; the log showed every hit falling to the damage-check fallback). Now a hit on him at the pair test while his KH1 guard is live, from in front (±100°; a shot within 1 m judged by its caster), becomes Re:CoM's block as Sora gets it: result 2 + the guarded bit. Sora's path does the rest. Not for the real Dark Riku.
+- **Shots**: turned back as Sora's (0.153.0's cancel removed).
+- **Counterattack**: Riku has KH1's Counterattack (Sora's offer and input); it plays his ground finisher's row (`riku::swing_row`, Assumption: it reads as the counter).
+- **Timing**: the guard clip is 240 in 10 frames, 241 held over KH1's live window 10..36, the way out in 17 (54 total). Asset step: **re-run** (automatic).
+- **Checked**: tests, the asset step, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 291 (fork branch Re-Re-Reverse/Rebirth): no melee block reaction on a far attacker; KH1 Riku's own guard recoil, version 0.158.2 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "eu apertei a defesa bem longe desse oponente, e parece que deu block naquela distância … prefiro que use a versão do KH1 da animação de quando toma impacto".
+
+- The owner's log: the far Defender's fireball / flame (Re:CoM bullets naming it) was blocked as "melee", flinching it each time. An attacker that is no shot and is past 4 m is now blocked without a reaction on it.
+- KH1 Riku's request 110 (his guard recoil) is converted as `p002_226` on row 0x3A (renamed like 0x39); KH1's guard recoils 0x6E / 0x6F play it. Asset step: **re-run** (automatic).
+- **Checked**: tests, the asset step, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 290 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard ends by leaving the guard (the way in backwards), version 0.158.1 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "quando passa um tempo e ele desativa a guarda ficou estranha, sera que nn tem como colocar a mesma animação mas ao contrário?". Riku's 54-frame guard clip is now 240 (30 frames), 241 held (7), then 240 backwards in 17 frames, ending on his pre-guard stance. Asset step: **re-run** (automatic). **Checked**: tests, the asset step, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 289 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard is KH1 Riku's own guard (Destiny Islands duel), version 0.158.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "no KH1 tem uma animação do Riku defendendo, ela acontece na Destiny Island … é possível usar essa animação? inclusive tem a variação de quando em defesa ele toma impacto".
+
+- KH1's `xa_ex_1010` script guards with request 240 (into the guard) then 241 (held), with guard row `0x550`. Its recoil, the impact while guarding, is request 110 = Re:CoM's `p002_043`, already his block recoil (Checked (files)).
+- The asset step converts 240 + 241's first 24 frames (54) onto Riku's skeleton (KH1's own) as `p002_225` (replacing 0.157.0's retargeted Sora Guard). **Re-run**, automatic.
+- **Checked**: tests, the asset step, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 288 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard row named once per action table, version 0.157.1 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "não percebi alteração...". Chars 3 and 4 share one action table. 0.157.0 renamed row 0x39 for char 3, then refused for char 4, as the owner's log shows. Now each distinct table is named once. **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 287 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard plays Sora's KH1 Guard retargeted onto his skeleton, version 0.157.0 (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "a animação escolhida de defesa pro Riku ficou estranha, tem alguma melhor?" (chose "Guard do KH1 adaptada").
+
+- Riku has no guard clip in Re:CoM: rows 0x24 / 0x25 are both `p002_043`, the clash recoil (Checked (exe)).
+- **Asset step**: Sora's KH1 Guard clip (`p001_225`) is retargeted onto Riku's skeleton by bone name; his extra bones (blade chain, belts, hair) hold his stance `p002_031`. It is added as `p002_225` to `PL0101.ANN` / `PL0111.ANN` and the skin packs (**re-run**, automatic; 2 new outputs).
+- **Game**: row 0x39 of Riku's action tables (`p002_000`, checked) is renamed `p002_225`; his Guard plays it. The recoil stays 0x24; the real Dark Mode is unchanged.
+- **Checked**: tests, the asset step (the clip in all four packs), the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 286 (fork branch Re-Re-Reverse/Rebirth): Costumes on Riku's list at every Combat setting, version 0.156.2 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "notei que, quando troca o combat de KH1 para Re:CoM a opção de Costume some... essa opção poderia manter no menu sempre".
+
+- Riku's story at Combat = Re:CoM: Re:CoM's seven where they are (Review Decks Re:CoM's own) plus Costumes before Settings. With `riku_kh1_movement` (`Layout::RikuDecks`), Settings opens the short list; without it (`Layout::RikuPlain`), Settings is Re:CoM's page. Combat = KH1 is unchanged.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 285 (fork branch Re-Re-Reverse/Rebirth): debug unlock for the Dark Mode costume; Riku stops while the transformation plays, version 0.156.1 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "deixa no ini do mod uma opção de debug pra deixar desbloqueado o modo desde o início para testes, além disso peguei um bug, quando vc está andando e troca a skin a animação fica tocando enquanto o personagem está se movimentando".
+
+- Ini `riku_dark_skin_unlocked = on | off` (debug, default off): the costume unlocked from the start.
+- The transformation zeroes Riku's horizontal velocity (`mover+0x80`) at its start and on every held frame (the held move exe left Re:CoM's mover sliding him).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 284 (fork branch Re-Re-Reverse/Rebirth): the Dark Mode costume unlocks at Riku's first Dark Mode, version 0.156.0 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "beleza já implementa essa pendência".
+
+- **Unlock**: the save's spare bit `DARK_SEEN` (0.151.0), now also set from any frame of Dark Riku as the main player, at either Combat setting (`win::riku_skin::frame`).
+- **Costume**: decided at each room / battle build, before Re:CoM's group queue (`win::riku_skin::refresh` from `win::models::group_load`). Without the unlock it is Default Attire (the setting goes back to off, logged).
+- **Costumes page**: Dark Mode is refused before the unlock (sound 5, its own help line). Default `riku_dark_skin = off`.
+- **Checked**: tests, the Windows build. **Not checked**: in game. Details: `docs/recom-riku-kh1.md` § 0.156.0.
+
+---
+
+## Stage 283 (fork branch Re-Re-Reverse/Rebirth): the costume change plays Dark Riku's entry flip and its effects; Riku's way-back effect, version 0.155.3 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "funcionou!, mas a animação ficou incompleta, não deu tempo dele dar aquele mortal, também pode ter aquele efeito de tela junto, igual a transição do combate".
+
+- **Re:CoM** (Checked (exe + files)): the transformation is Riku's row 0x37 `p002_057` (crouch), then Dark Riku's own row 0x37 `p003_067` (the flip, `ex_1580` / `transform` effects). The way back spawns `"transform"` effect 2 on Riku's bone 0x1B.
+- **Asset step**: the skin's pack and events get Dark Riku's `p003_067` (**re-run**, automatic).
+- **Game**: to Dark Mode, crouch → model change → the flip (row 0x37 pointed at its slot, rebound after); to Default Attire, crouch → model change → the `"transform"` effect. The switch-in's camera mode 4 is not carried.
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 282 (fork branch Re-Re-Reverse/Rebirth): the costume change plays Riku's transformation, version 0.155.2 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "funcionou perfeitamente!, só que eu realmente queria a transição quando altera-se a skin de uma para outra, a animação e o efeito".
+
+- Re:CoM's transformation (Checked (exe: disasm)): action 0x20 (`0x140215380`) plays row 0x37 (`p002_057`, blend −1) with its EET / SES events and switches at the motion's end (`0x1401A57D0`).
+- Ours: the costume change plays the same row and events, holds Riku's move exe while it plays, and changes the model in place at its end (≤ 240 frames). Re:CoM's action 0x20 is not entered (its end switches to the battle-only Dark Riku).
+- **Checked**: tests, the Windows build. **Not checked**: in game. Details: `docs/recom-riku-kh1.md` § 0.155.2.
+
+---
+
+## Stage 281 (fork branch Re-Re-Reverse/Rebirth): the in-place costume change sizes the transform node again, version 0.155.1 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "é bugou mesmo, mas no próprio jogo em teoria já existe uma transição... quando o personagem usa a transformação o próprio jogo recarrega a forma não seria possível utilar essa mesma transição?"
+
+- **Cause** (Checked (the owner's log + exe)): the entity's transform node is sized once (`0x14023EBE0` allocates only at count 0), and the motion controller takes its bone count from it. The log showed 102 kept for Dark Riku's 128 bones and 128 kept for Riku's 102: the T-pose and the garbled model.
+- **Fix**: before the rebuild, the node's array is released as the node's dtor does (`0x14023DE20`: deferred free `0x14028F800` through a deleter, vtable `0x140605B38`), so the bind allocates it at the new count. The weapon's node gets the same before its attach.
+- **The transformation** (Checked (exe)): a second, battle-only player (`CPlayerDRiku`) swapped in by the main player pointer. Nothing is reloaded, so it can't serve a field costume.
+- **HUD face**: diagnostic log of the face layer (layer count, set).
+- **Checked**: tests, the Windows build. **Not checked**: in game.
+
+---
+
+## Stage 280 (fork branch Re-Re-Reverse/Rebirth): the costume changed in place (no door), the HUD face follows it; Halloween Town confirmed, version 0.155.0 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "importante que quando essa skin estiver ativa na halloween town … essa skin fica com a variação da halloween town, além disso... seria possível trocar a skin sem ter que passar por uma porta?" (chose "Trocar no lugar"); "quando trocar a skin para a darkmode também deve alterar a foto no hud".
+
+- **Halloween Town**: skin group 131 is `PL0211` (Dark Riku's Halloween textures), Riku's group 111 there (Checked (files)). Already so.
+- **In place** (`win::riku_skin`): the model part is released as the entity dtor `0x1401A2440` does and rebuilt as the model init `0x1401A4E70` and the player state init `0x1401FA6E0` build it. That covers parts, matrices, sub-models, motion controller, materials, texture animation, EET / SES players, step-effect defaults, the clips bound by name, the bones by name, the weapon re-attached, and the idle row. Each step and address: Checked (exe: disasm). It runs at the camp's close, or at Riku's frame once the group is loaded; only plain Riku in the field, standing / walking / running. 21 callees' first bytes are checked.
+- **HUD face**: Re:CoM's own Dark Mode gauge switch's two face steps (`0x14020BC60`): set `+0x88` to `"gauge:02"`, then the face layer 4 replaced with group 3 / 0. They run when the costume is Dark Mode, never in the Dark gauge state.
+- **Assumptions**: no live pointer into the old model at the change; the node resized by the parts' bind (logged).
+- **Checked**: tests, the Windows build. **Not checked**: in game. Asset step: unchanged. Details: `docs/recom-riku-kh1.md` § 0.155.0.
+
+---
+
+## Stage 279 (fork branch Re-Re-Reverse/Rebirth): Dark Mode skin hides the Soul Eater where Riku does (the menu), version 0.154.4 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "ficou bom mas no menu não precisa ele segurar a espada na mão, além disso no menu ela ficou invertida, mas o modelo na gameplay ficou perfeito agora".
+
+- **Cause** (Checked (files)): Riku's 4 scaled clips hide the blade (`wep0`, `k1`..`k9` scale 0; 54 frames). The retarget dropped scale channels.
+- **Fix**: Riku's local scale is copied bone for bone (`riku_skin::retarget`, 9-channel clips where he has them).
+- **Checked**: test (Dark's `wep0` scale = Riku's on every frame), the Windows build. **Not checked**: in game. Asset step: **re-run** (automatic).
+
+---
+
+## Stage 278 (fork branch Re-Re-Reverse/Rebirth): the Dark blade turned over to Riku's grip; the menu's model shows the costume, version 0.154.3 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "estranho, ainda etá invertida … ao entrar no Menu quero que a skin também seja alterada".
+
+- **Blade** (Checked (files)): both blade meshes hang on `wep0` with the same rest pose. Dark Riku's mesh is modelled turned over about the blade axis, and his own clips turn it back (137..178° in 12 clips); 0.154.2's chain fix drew the same as before. Now Dark's `wep0` = Riku's grip turned half a turn about its x (`riku_skin::BLADE_FLIP`), and the chain `k9`..`k1` stays where Riku's is.
+  - Test: every frame of the 51 clips; 0.00° from Riku's grip turned over, 2 cm.
+- **Menu**: `CMenuModel`'s group comes from immediates (camp `0x1400E4701`, level-up `0x14010EF68`; Checked (exe)). Riku's 101 / 111 there follow the loaded group (`riku_skin::sync_menu` from the group-load wrapper).
+- **Checked**: tests, the Windows build. **Not checked**: in game. Asset step: **re-run** (automatic). Details: `docs/recom-riku-kh1.md` § 0.154.3.
+
+---
+
+## Stage 277 (fork branch Re-Re-Reverse/Rebirth): Dark Mode skin's Soul Eater held the right way round, version 0.154.2 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "por algum motivo a keyblade do Riku ficou invertida mas o modelo e a gameplay ficaram perfeitas"; "mas ela só inverteu na Skin Dark Mode".
+
+- **Cause** (Checked (files)): Riku's `k11` / `k10` and Dark Riku's `wep2` / `wep1` are different hand → blade chains (17 cm along −z against 22 cm along +z); mapped bone to bone, they turned the blade over. `wep0` sits the same in both hands at rest.
+- **Fix** (`kh1_recom_assets::riku_skin::Grip`): Dark's `wep0` takes Riku's pose in the hand; `wep2` / `wep1` follow it as in Dark's rest; the blade segments follow `wep0`.
+- **Checked**: test (every frame of the 51 clips: blade root and tip in the hand within 2 cm of Riku's), the Windows build. **Not checked**: in game. Asset step: **re-run** (automatic).
+
+---
+
+## Stage 276 (fork branch Re-Re-Reverse/Rebirth): the skin's T-pose fixed, Costumes on Riku's top list (Default Attire / Dark Mode), version 0.154.1 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "a skin foi implementada mas ficou um Tpose, lembrando que é não é pra trocar as animações... além disso … é pra colocar uma nova opção no menu chamada Costumes onde ativa essa skin, chame ela de Dark Mode, e a normal se chamará Default Attire".
+
+- **T-pose cause** (Checked (exe + the owner's log)): the player's clips are found by name in the `.ANN` resource named by `0x1407C6338[char]` ("PL0101" for Riku; readers `0x1401FA7F6`, `0x1401F425C` → `0x1402A42B0`). 0.154.0 changed the group, not this name.
+- **Fix**: the names of chars 3 / 4 (`0x1407C6350` / `58`, the only pointers to them; Checked (exe)) are switched with the groups, to `PL0121` / `PL0131`. Both writes are checked.
+- **Moves**: Riku's own clips (retargeted), as the owner asked.
+- **Costumes**:
+  - Riku's top list is now eight: Customize, World Map … D Report, **Costumes**, Settings (`top::RIKU_ORDER`). It runs on the same reordered-list code as Sora's KH1 list (`top::order` / `extras` / `list_fix`).
+  - Costumes opens a settings page with one row, **Costume: Default Attire / Dark Mode** (ini `riku_dark_skin`), switched live (`win::riku_skin::apply`) and shown from the next room or battle.
+- **Assumption**: the other group stays loaded after a switch until Re:CoM unloads it.
+- **Checked**: tests, the Windows build. **Not checked**: in game. Asset step: unchanged. Details: `docs/recom-riku-kh1.md` § 0.154.1.
+
+---
+
+## Stage 275 (fork branch Re-Re-Reverse/Rebirth): Riku's Dark Form skin, Dark Riku's model with Riku's own moves, version 0.154.0 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "ele vai desbloquear a skin do Dark Mode e vai poder jogar com ela no modo sem estar com darkmode ativado, testa com ela liberada já de começo e depois a gente bota o requisito do jogo pra liberar ela"; "pode colocar a skin mas os movimentos ser o normal mesmo".
+
+- **Way round 0.152.0's blocker**: the Dark mesh is not rebound. Riku's 51 clips are retargeted onto Dark Riku's 128-bone skeleton by world rotation (`kh1_recom_assets::riku_skin`). Bone names match; rest axes differ. Checked (files).
+- **Events**: Riku's `.SES` / `.EET` bone indices are remapped by name.
+- **Bone 1**: renamed `ex_1010_sk`, because Riku's code looks his bones up by name (`0x1401A4450`, strings `0x1407C5E10..`). Checked (exe).
+- **Asset step** (**re-run**: automatic, the step's hash changed): new player groups 121 / 131 (`PLAYER/01x1/PL01x1.{MDL,ANN,EET,SES}`, `raw/…{RTM,TXA}`), plus `kh1-riku-skin.json`. Placeholders are made for the new names.
+- **DLL** (`crate::riku_skin`, `win::riku_skin`):
+  - the skin groups' rows copy Riku's in the PLAYER table copy (`win::models`);
+  - with `riku_dark_skin = on` (ini, default on; unlocked from the start, as the owner asked for the test), Re:CoM's char → group entries for chars 3 / 4 (`0x1405A6910 + 12`, checked 101 / 111) become 121 / 131. Checked (exe: every reader of the table).
+  - Riku's weapon takes no group. Dark Mode is unchanged.
+- **Not yet**: the unlock rule and a menu switch.
+- **Assumptions**: Dark Riku and the skin share texture names in Dark Mode; no Re:CoM Riku code reads a bone by index; the coat tails at rest.
+- **Checked**: tests, the asset step on the local install, the Windows build. **Not checked**: in game. Details: `docs/recom-riku-kh1.md` § 0.154.0.
+
+---
+
+## Stage 274 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard runs KH1's frame (his own action-6 exes wrapped), version 0.153.1 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "BRO, still not effective!!! … i tried rikus guard against Heartless Wizard thunder and ice magic"; "also parry should be effective just like KH1 Sora with this mod bro!".
+
+- **Cause** (Checked (the owner's 0.153.0 log: no `riku guard:` line, no guard success; exe: `CPlayerRiku` / `CPlayerDRiku` vtable `+0x1C8`)): KH1's Guard and its recoil put Riku in Re:CoM's action 6, whose exe is his own (`0x140212350`, Dark Riku `0x1401FFC30`), not Sora's `0x140217310`, the only one wrapped. So the KH1 frame never ran while he guarded: no guard object, no block, no parry.
+- **Fix**: two new hooks (`sites::MOVE_HOOKS` "CPlayerRiku / CPlayerDRiku avoid exe (action 6)", first 16 bytes = Sora's, Checked (exe)) with Sora's rule: his Re:CoM roll keeps his exe whole; the Guard / recoil run the KH1 frame (`win::movement::avoid_kh1`). His parry is Sora's kind-6 guard success (recoil, clink, the attacker's reaction, a shot cancelled, the DP parries); no Counterattack (no clip of his).
+- A shot within 1 m of him (the Wizard's spells appear near the player, a thunder from above): the front test uses its caster's position.
+- Checked: tests, the Windows build, the DLL copied into the owner's OpenKH folders. Not checked: in game.
+
+---
+
+## Stage 273 (fork branch Re-Re-Reverse/Rebirth): Riku's Guard really blocks (KH1's front test after Re:CoM's) and cancels magic shots, version 0.153.0 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "a defes do Riku deve poder fazer parry e cancelar o ataque do oponente caso for uma magia!"; "percebi que a defesa dele não está sendo efetiva contra nada, precisa ser efetiva tal qual o KH1 é".
+
+- **Found** (Checked (the owner's 0.152.0 log)): his Guards started, Re:CoM's body guard (`0x14016F1C0`) never blocked (no block line, no guard success, only missed parries). Its rule read from the exe (Checked (exe: disasm)); which part refuses on Riku: not known (no decomp here); the first 40 guarded hits log its fields (`riku guard:`). His Guard clip `p002_043` is 56 game frames, so KH1's live frames 10..36 run (Checked (files)).
+- **Change** (`win::attack::riku_guard_block`, `crate::riku::guard_faces`, `win::guard::{riku_block, cancel_shot}`): in the damage-check wrapper, a hit on Riku / Dark Riku while his KH1 guard is live that Re:CoM didn't block is KH1's block when its attacker is within ±100° of his facing (Re:CoM's own angle rule): Re:CoM's protection bit for the check, KH1's guard success (recoil, clink, parries), the melee attacker's block reaction.
+- **Magic**: a shot his Guard blocks is cancelled (attack off `0x14014DE80`, life `+0x160` = 0), KH1's inert blocked shot; Sora's still turn back.
+- **Thunder** (owner, verbatim: "remebering, that it should be like the kh1 guard, if an enemy cast like thunder, then it should be effective"): the KH1 Yellow Opera's bolt, which skips Sora's Guard (KH1's Thunder has no clash pass, Stage 178), meets Riku's Guard (the owner's rule, not KH1's). Re:CoM's own thunder shots are bullets: blocked and cancelled as above; one straight down counts as in front.
+- No new hook or site; per hit only. Assumptions: the attacker's position for KH1's hit point; a plain `CBullet`'s life at `+0x160`; the caster isn't interrupted. Checked: tests (`riku::tests::rikus_guard_faces_the_front`), the Windows build. Not checked: in game. Details: `docs/recom-riku-kh1.md` § 0.153.0.
+
+---
+
+## Stage 272 (fork branch Re-Re-Reverse/Rebirth): Dark Riku with KH1 combat, DP on Re:CoM's Dark gauge, Riku's Guard and parries, version 0.152.0 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "implementa tudo pra eu testar de uma vez e faz push no final".
+
+- **Dark Riku** (`CPlayerDRiku`, `docs/recom-riku-kh1.md` § Research): `win::movement::is_main_riku` covers him (`is_main_dark_riku` tells them apart). His Battle exe is the shared one, and actions 2..4 / 7 call the shared move / jump exes (Checked (exe: the jump table at `0x1401FA050`)), so KH1's movement runs on him as on Riku. His data: rows with clips (`riku::DARK_NO_CLIP`), swing ids 0x9E..0xA4 (`attack_id_for`), his row-pick slot `0x1405A5210` (old `0x140204F80`) → `win::attack::dark_picker` (falls back to his own), his sleight start `0x140206830` (takes 0x5F..0x63, 0x65..0x6B: its jump table `0x140206894`, Checked (exe)) and his Sleights list `riku::DARK_SLEIGHTS` (Dark Break, Dark Firaga, Dark Aura, Dark Impulse / Maelstrom / Barrage; MP ours). His roll is Re:CoM's own (his roll exe).
+- **DP on Re:CoM's gauge** (Checked (exe: disasm)): Re:CoM's DP are the player's `+0x44C` (cap 30, `0x1401F57A4`), the gauge `+0x3E0`, its setter `0x14020BFA0(gauge, dp, max)` (first 10 bytes checked). Ours are written there and shown. Re:CoM's own DP rules in its damage check (`0x1401E7255`: +1 on a hit, −5 in Dark Mode, the way-back flags `+0x424 & 0x100000`, card battle `+0x208 & 0x400000`) are undone around the check: only the owner's tables move them.
+- **Riku's Guard** (owner: "falta a defesa"): KH1's Guard rule for Riku and Dark Riku on their block-recoil row 0x24 (`riku::GUARD_ROW`): KH1's Riku has no Guard request (212); his request 110 is that recoil (Checked (files: `xa_ex_1010.mset`'s request table)). Enemies react to his blocks (`win::guard`, as Sora's). **Parries**: a block within 20 frames of the Guard's start = perfect (+5 / +3 in Dark Mode), a Guard that blocks nothing in 60 frames = missed (−3).
+- Customize: his picker lists Riku's and Dark Riku's sleights.
+- **Not built**: the Dark Form skin. `PL0201.MDL`'s mesh packets are a format our MDL reader refuses (header at `0x2A50`: a vertex count 45 for 49 vertices and 2 quadwords a vertex in a textured packet: multi-bone vertices, Assumption); without it the mesh can't be rebound to Riku's skeleton. Its unlock is recorded (save spare bit 4).
+- Asset step: **re-run** (Dark Riku's three new sleight names). Checked: tests, the asset step on the local install, the Windows build. Not checked: in game.
+
+---
+
+## Stage 271 (fork branch Re-Re-Reverse/Rebirth): Riku's Dark Points (the owner's tables) start and end Re:CoM's own Dark Mode, version 0.151.0 (2026-11-22)
+
+Fork owner, 2026-11-22: the DP gain / loss tables (outside and in Dark Mode), "go", "faz ai".
+
+- Re:CoM (Checked (exe: disasm), `docs/recom-riku-kh1.md` § Research): Dark Mode is a second player, `CPlayerDRiku` (vtable `0x1405A50E8`, group 201), made with Riku's battle player when `+0x41C & 0x4000000`, linked both ways at `+0x8A0`. Riku's `+0x198` `0x140215FB0(riku, 1)` = action 0x20, his transformation (exe `+0x1A0` `0x140215380` → `0x140206810`); Dark Riku's `0x1402046D0(dark, 1)` writes him to `0x14087B380`, `(dark, 0)` = his way back (action 0x20 sub-state 4).
+- Ours (`crate::dark_points`, `win::dark_points`): DP 0..30 per battle, the owner's two tables (definitions in the module: critical / heavy = Re:CoM's knock-away kind 2, special = a hit from a `CBoss…`, one count per hit taken that took HP, one per swing that landed, finisher = attack ids 4 / 7 / 0x9A / 0x9D / 0xA1 / 0xA4, idle 5 s then every 3 s, in Dark Mode every 5 s, missed dodge 0.5 s after a roll, streak 5). At 30, Re:CoM's `+0x198(riku, 1)` when he stands / walks / runs; at 0 in Dark Mode, `+0x198(dark, 0)`. Both functions' first 10 bytes checked at first use. No Dark Riku in the battle (Dark Mode not unlocked in the story): DP stay at 30 (logged). First Dark Mode kept in the save block's spare byte bit 4 (the skin's unlock).
+- Hooks used (no new site): Riku's / Dark Riku's request bits, the enemy hit handler, the damage check, the defeat prize, the battle manager ctor.
+- Not yet: parries (no defense), the Dark gauge showing DP (the log shows them: `dark points:` lines), KH1 gameplay on Dark Riku (Re:CoM's own until the next stage), the skin.
+- Assumptions: Re:CoM's request bits / damage check run for Dark Riku (shared Battle exe); calling the switches from the request bits is safe (Re:CoM calls `+0x198` from its exes).
+- Checked: tests (`dark_points::tests`), the Windows build. Not checked: in game.
+
+---
+
+## Stage 270 (fork branch Re-Re-Reverse/Rebirth): Riku's camp list at Combat = KH1 (Customize in Review Decks' place) and the King's friend sleights in his Party list, version 0.150.0 (2026-11-22)
+
+Fork owner, 2026-11-22 (screenshot: Riku's camp with Review Decks), verbatim: "se não há mais cartas ent nn tem mais pq usar o review deck, igual a gameplay do Sora, certo? , minha sugestão pra cura, igual no caso do donald e do goofy são tratados na gameplay do Sora … poderia substituir o Review Decks quando a gameplay do KH1 estiver ativa, IGUAL a do Sora … o que tiver na gameplay do Sora tem que ter o equivalente adaptado a do Riku só preenchendo os Caveats".
+
+- Camp (`keyblades::top::Layout::Riku`, `riku_fix`; `win::keyblades`): in Riku's story at Combat = KH1 with `riku_kh1_movement`, Re:CoM's entry 0 (Review Decks) is relabelled Customize and opens his Customize page (0.149.0's), through the KH1 list's own confirm path (Re:CoM's confirm skipped, state 0x11 → the Config states); Re:CoM's other six stay where they are; Settings opens Game Settings, Combat, Movement, Camera (Customize left the Settings list). At Combat = Re:CoM his list is 0.147.1's.
+- Party (`crate::party::ALL` + Mickey Miracle 0x63 (MM Miracle LV3), Holy Burst 0x64; `win::party::learned`, `win::command_menu::riku_world`, `win::summons::begin`): as Donald / Goofy for Sora, each shown on page 2's Party list in a battle where Re:CoM's Friend-card roll can give the King's card (`0x1401602A0`'s Riku rows 14..25: only card 0x38, Checked (exe, the checked table)) and the King is met (int var (0, 0x22) bit 0x80); counted as taught in his story; started by Riku's own sleight start (`0x140216AB0` takes 0x62..=0x64, Checked (exe)). MP ours: 3 / 2. Usable as shortcuts (his Customize picker lists them). Sora's story: never (no King card in his rows; test).
+- Asset step: the two names in `PARTY_WORDS` (re-run, automatic).
+- Assumptions: MM Miracle heals (not read); the King's met bit is set in Riku's story; his page byte is per session (the summon block stays Sora's).
+- Caveats for parity, not built: Items (Riku has no item motion row known; Re:CoM's Riku uses no items), Abilities / AP Up, Summon row (greyed: no summons for Riku), KH1 drops / Lucky Bounty, Enemy Skills, Guard / Counterattack (no clips).
+- Checked: tests (`party::tests::the_kings_sleights_only_in_rikus_battles`, `keyblades` layout tests), the asset step on the local install, the Windows build. Not checked: in game.
+
+---
+
+## Stage 269 (fork branch Re-Re-Reverse/Rebirth): Riku gets the KH1 HUD (Re:CoM's HP gauge at KH1's place with the MP ring), the KH1 look of the command menu, and a Customize page for his shortcuts, version 0.149.0 (2026-11-22)
+
+Fork owner, 2026-11-22 (screenshot: Riku's Re:CoM HP gauge top left, the 7.2 MP bar under it, the command menu in Re:CoM's look), verbatim: "falta poder configurar os shortcuts igual da com o Sora, e ainda o command menu não aparece na tela igual do Sora, além disso a HUD ta com o mesmo problema que está com a do Sora … na prática o fix pode ser o mesmo entretanto trocando a foto do sóra com a do Riku".
+
+- Found: Riku's `FO0071.SPR` `gauge:01` is `FO0002`'s byte for byte (47 groups; groups 7..9 identical), and `FO0071.RTM` holds `Cockpit.imz` with the same five language copies. Checked (files: the local install).
+- Asset step: `kh1hud.lad` (+ copies) and Re:CoM's HP ring turned 180° (same first group 47) go into `FO0071.SPR`; `kh1hud.imz` (+ copies) into `FO0071.RTM` (new output `raw/FORM/0071/FO0071.RTM`). Riku's six sleight names are menu words (`command_menu::RIKU_WORDS`, ids `0x8100 + id`), baked in KH1's font. Not fatal: without it his story keeps Re:CoM's HUD. **Re-run** (automatic: the hash changed).
+- DLL: `kh1_hud::active` holds in Riku's story with `riku_kh1_movement` (Re:CoM's gauge at KH1's place, its own face, which is Riku's; KH1's MP ring; room plate top left; Re:CoM's pieces hidden as for Sora); the KH1 menu look in his story only when his `FO0071` has the set (registry lookup); the registry check logged once per story.
+- Customize for Riku: first row of his Settings list, Re:CoM's camp page with his three L1 slots and his six sleights + None, written to his save block's slot bytes; slots set (by the page or the one-time fill) are marked in the block's spare byte so emptied slots are not filled again.
+- No new hook, patch or site. Checked: tests (workspace), the asset step on the local install (`FO0071.SPR` / `.RTM` written and copied into the mod folder), the Windows build. Not checked: in game; Riku's Dark gauge with the turned HP gauge. Details: `docs/recom-riku-kh1.md` § 0.149.0.
+
+---
+
+## Stage 268 (fork branch Re-Re-Reverse/Rebirth): Riku's HUD file (`FO0071.SPR`) gets the command menu's plates and the MP bar's groups, version 0.148.0 (2026-11-22)
+
+Fork owner, 2026-11-22 (screenshot), verbatim: "aqui cara, ta faltando o COMMAND MENU e o Shortcut!!!".
+
+- Cause: Riku's story loads `FORM/0071/FO0071.SPR` for its HUD (Cockpit 152 groups, copies 157); only `FO0002` was patched. Checked (files + the owner's log).
+- Fix: the asset step patches `FO0071` (and its language copies) with the same groups (their atlas has the plate, colour, arrow and neutral texel at the same UVs: Checked (files)); `kh1-mp-bar.json` lists first group 152. Asset step: **re-run** (automatic: the hash changed); new output `raw/FORM/0071/FO0071.SPR`.
+- Checked: the step run on the owner's install (output written and copied into the mod folder), tests, the Windows build. Not checked: in game. Details: `docs/recom-riku-kh1.md` § 0.148.0.
+
+---
+
+## Stage 267 (fork branch Re-Re-Reverse/Rebirth): the Camera setting for Riku, version 0.147.1 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "as opções de câmera podem ter para o Riku tbm". With `riku_kh1_movement` on, Riku's story no longer forces Re:CoM's camera (`win::camera::init`); his Settings list gets the Camera page. Checked: tests, the Windows build. Not checked: in game.
+
+---
+
+## Stage 266 (fork branch Re-Re-Reverse/Rebirth): Riku's KH1 MP, his command menu with his Sleights list, his shortcuts, version 0.147.0 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "b" (a list of his sleights paid with KH1 MP, shortcuts); "e seria interessante, atribuir uma barra de mana dele já que não terão as cartas, possível?".
+
+- 0.146.0: `win::mp::{riku_live, live}`: his KH1 MP in the same save block (Sora's `active()` unchanged); charge from his KH1 hits; refill; save point; the MP bar built for him (placement not seen).
+- 0.147.0: his sleight ids from `SY0002.CTD` (id = row − 1) and his sleight start `0x140216AB0` (takes 0x62..0x64, 0x66..0x6B). Checked (files + exe). His command menu (Re:CoM's look) with Attack and a Sleights list (Impulse, Maelstrom, Barrage and their Dark versions; MP ours), started by his own sleight start; his L1 shortcuts filled with his first three.
+- Checked: tests (`riku::tests::rikus_sleights`), the Windows build. Not checked: in game. Details: `docs/recom-riku-kh1.md` § 0.146.0, § 0.147.0.
+
+---
+
+## Stage 265 (fork branch Re-Re-Reverse/Rebirth): Riku's KH1 swings show his own hit effect, version 0.145.1 (2026-11-22)
+
+Fork owner, 2026-11-22, verbatim: "parece que funcionou mas os ataques estão sem efeitos/feedback quando acertam ent por um momento achei que não tivesse dando dano, mas deu sim".
+
+- Cause: `onAttack` `0x1402250B0` reads the hit effect by attack id from Sora's row table; Sora's ids 1..7 name `ex_5010`, which only Sora's `EFFECT/1000` holds. Checked (exe + files).
+- Fix (`riku::attack_id`): Riku's swings carry his own twin ids 0x97..0x9D (same clips and columns; effect `weapon` 12 / 0 from his `EFFECT/1500`). Checked (exe). Not checked: in game. Details: `docs/recom-riku-kh1.md` § 0.145.1.
+
+---
+
+## Stage 264 (fork branch Re-Re-Reverse/Rebirth): KH1's Attack for Riku, his empty deck and cardless enemies; the Settings list in Riku's story, version 0.145.0 (2026-11-22)
+
+Fork owner, 2026-11-22 (screenshot: Riku's camp with Re:CoM's menu), verbatim: "certo mas não sei se foi intencional mas no menu ta faltando as opções tbm"; "e sim, vamos prosseguir com os testes, mas pode ser mais agressivo e já implementar o combate".
+
+- All behind `riku_kh1_movement` (default off): the camp's Settings list in Riku's story (Game Settings, Combat, Movement); KH1's Attack on Riku's own swing rows 0x30..0x36 (Checked (exe): Re:CoM's attack rows 1-7); his row pick slot `0x1405A8990` patched like Sora's (checked old value `0x1401F7520`); hits through Re:CoM's own weapon volume, landing during enemy attacks; Re:CoM's card AP of Soul Eater (0x12) at both Damage settings; the empty revolver, no Friend-card drops, and KH1 battles (cardless enemies) in his story.
+- Details, assumptions and what is lost (Dark Mode, card breaks, sleights): `docs/recom-riku-kh1.md` § 0.145.0.
+- Checked: `cargo test -p kh1-recom` (`keyblades::tests` Riku layout / rows); the Windows build. Not checked: in game.
+
+---
+
+## Stage 263 (fork branch Re-Re-Reverse/Rebirth): Riku moves with KH1's movement in Reverse/Rebirth, behind `riku_kh1_movement` (default off), version 0.144.0 (2026-11-22)
+
+Fork owner, 2026-11-22: "probably the riku from recom, is more compatible with kh1 combat system than yout think, i think if you try to use moves from kh1 boss, it will become too overpower"; "we have every animation already in KH recom, we would need just to rearange the animations and the system"; "ok now start the work". Lifts design rule 6 on this branch only, behind a default-off switch.
+
+- **Research** (`docs/recom-riku-kh1.md`): Riku's action table `0x1407C6370` has Sora's row meanings for 0x00..0x38. Checked (exe). His Battle exe `0x140216B10` is `jmp 0x1401F9840`. Checked (exe). His roll exe is `0x140212350`, and he has no glide. Checked (exe). His skeleton is KH1's `xa_ex_1010` Riku (`ex_1010_sk`). Checked (files).
+- **Change** (`crate::riku`, `win::movement::{kh1_riku, kh1_mover, player_abilities}`, `sites::data::RIKU_VTABLE`, ini `riku_kh1_movement`): the shared movement hooks run KH1's frame for the main `CPlayerRiku`. Only rows with a clip of his are played. Re:CoM's own roll, his cards, and High Jump from his ability word are kept. No Guard, Glide, menus, Enemy Skills or KH1 effects.
+- Readers fixed: `kh1-formats` mset (an empty motion's 0xFFFFFFFF channel table); `kh1-recom-assets` MDL (the first part's offset from the file's first word: 0x20 in Riku's files).
+- No new hook, patch or site. Assumptions: Re:CoM's card dispatch for Riku runs inside the move exe before its move step; Dark Mode doesn't disturb the KH1 frame.
+- Checked: tests (`riku::tests::{rikus_rows_cover_kh1_movement, rikus_abilities}`, `cargo test -p kh1-recom -p kh1-formats -p kh1-recom-assets`); the Windows build (no new warnings). Not checked: in game; the Re:CoM decompile (not on this machine).
+
+---
+
 ## Stage 262: the KH1 HUD is the default, and older settings files switch to it once (2026-11-05, version 0.143.1)
 
 Owner, 2026-11-05 (a tester's screenshot: Re:CoM's HP gauge and FRIENDS row top left, the room plate bottom right, the command menu in its Re:CoM look, at combat = kh1), verbatim: "people that are trying the mod are seeing this. Lets fix that to be how the hud is supposed to look"
@@ -3893,7 +5843,7 @@ Owner, 2026-11-03, on 0.101.4, answering which special the Triangle prompt picks
 - `kh1-anim` matches Square Enix's own Re:CoM bakes of the same KH1 motions to ≤0.019° local
   rotation and ≤0.051 mm world position on swing / roll / run / jump. Checked (files, tests).
 - `kh1-core` corrections to the notes (cone 22°, air row 17 above, combo 13→14→8 with a close
-  target, …) are in `docs/kh1-sora.md`. Checked (decomp).
+  target, …) are in `knowledge/KH1/kh1-sora.md`. Checked (decomp).
 - Assumptions are marked in the code and the HUD: root travel subtraction, MSVC `rand`, task order,
   dummy stats (Strength 5, Defence 2, 300 HP), and the camera (an orbit camera, not KH1's).
 - Headless check: a scripted combo runs rows 13 → 14 → 8 and hits the close dummy for 3, 3 and 7.
@@ -3942,21 +5892,21 @@ Owner, 2026-11-03, on 0.101.4, answering which special the Triangle prompt picks
 
 No code. `VERSION` not created yet; the first change under `crates/` starts it.
 
-- Repo seeded: these rules files, `docs/sources.md`.
-- Re:CoM Steam decomp made (see `docs/sources.md`). Checked (exe): SHA-256 `acf42e96…6bbf`.
+- Repo seeded: these rules files, `docs/sources.md` (now `knowledge/sources.md`).
+- Re:CoM Steam decomp made (see `knowledge/sources.md`). Checked (exe): SHA-256 `acf42e96…6bbf`.
 - Finding: Re:CoM's exe is mixed-mode C++/CLI; the .NET part is only the shell. Checked (exe).
 - Finding: the KH1 notes in KH2-Combat-in-KH1 use Epic addresses; convert to Steam before use.
   Checked (files).
 
 Step 0 mapping (2026-10-29, notes only):
 
-- `docs/recom-timing.md`: both games step by a variable delta in 60 Hz frames. Re:CoM uses 50
+- `knowledge/ReCoM/recom-timing.md`: both games step by a variable delta in 60 Hz frames. Re:CoM uses 50
   units per frame, so KH1 frames × 50 = Re:CoM time. Checked (decomp + exe, both games).
-- `docs/recom-player.md`: player state machine (table-driven, 4 states: Field / Battle / Wait /
+- `knowledge/ReCoM/recom-player.md`: player state machine (table-driven, 4 states: Field / Battle / Wait /
   Hide), the action switch, and the card path from button to `initAttack`. Checked (decomp).
-- `docs/recom-combat.md`: motion request and advance, Sora's attack-row table `0x1407C6C70`, the
+- `knowledge/ReCoM/recom-combat.md`: motion request and advance, Sora's attack-row table `0x1407C6C70`, the
   hit path and the damage formula. Checked (decomp; rows read from the exe).
-- `docs/recom-battle-entry.md`: field-to-battle handover (separate battle room) and the native
+- `knowledge/ReCoM/recom-battle-entry.md`: field-to-battle handover (separate battle room) and the native
   cardless field swing (action `0xA`, card id 0) that shares battle collision. Checked (decomp).
 - Assumption, well supported: Re:CoM's motion system is not KH2's mset system.
 
@@ -3964,7 +5914,7 @@ Step 0 still to do:
 
 1. Plan the trace tool with the tester: the same fields from both games (tick, state, motion,
    frame, position, velocity, hit events).
-2. KH1's side mapped in `docs/kh1-sora.md` (states, movement, jump, glide, roll, guard, motion
+2. KH1's side mapped in `knowledge/KH1/kh1-sora.md` (states, movement, jump, glide, roll, guard, motion
    requests, the Attack combo). Still needed: the numbers in KH1's data files (`btltbl.bin`,
    `xa_ex_0010.mset`) and Re:CoM's (`stockskilllist.bin`, `PL0001.ANN`), from the player's
    extracted files.

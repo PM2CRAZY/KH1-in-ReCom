@@ -287,7 +287,9 @@ pub fn sweep<'a>(swing: (u32, i32), rows: impl IntoIterator<Item = LiveRow<'a>>)
             ke::guard::Met::Repels => EnemyGets::Repelled { attack: r.row.attack },
             _ => EnemyGets::Nothing,
         };
-        out.push(Met { enemy: r.enemy, coll: r.coll, gets, stops: m.b_stops });
+        // 0.198.11: a row that gave Sora a clash record does him no harm this frame (`Meeting::a_unharmed`: his kind 6 / 7 comes
+        // first and its flag 0x80 makes the row's hit 0 HP), even when the row itself is not stopped (priority 98-100)
+        out.push(Met { enemy: r.enemy, coll: r.coll, gets, stops: m.a_unharmed() });
     }
     (sora, marked, out)
 }
@@ -1006,9 +1008,10 @@ mod tests {
         // A charging Large Body's belly: Sora the strong recoil, the Large Body kind 6 (its handler ends the charge).
         let (sora, _, m) = sweep((0, 30), [live(1, &charge)]);
         assert_eq!((sora, m[0].gets), (Some((7, -60)), EnemyGets::Clash { attack: 2, kind: 6, diff: 60 }));
-        // A diving Neoshadow (100): Sora bounces, the dive goes on and still hits.
+        // A diving Neoshadow (100): Sora bounces (kind 7); the dive is not stopped but does him no harm (0.198.11: his clash
+        // record's flag 0x80 comes before its hit record).
         let (sora, marked, m) = sweep((0, 30), [live(1, &dive)]);
-        assert_eq!((sora, marked, m[0].gets, m[0].stops), (Some((7, -70)), true, EnemyGets::Nothing, false));
+        assert_eq!((sora, marked, m[0].gets, m[0].stops), (Some((7, -70)), true, EnemyGets::Nothing, true));
         // Two fists in one frame: Sora's first record only; the second fist still takes its clash.
         let (sora, _, m) = sweep((0, 30), [live(1, &punch), live(2, &punch)]);
         assert_eq!((sora, m.len(), m[1].gets), (Some((6, 0)), 2, EnemyGets::Clash { attack: 0, kind: 6, diff: 0 }));

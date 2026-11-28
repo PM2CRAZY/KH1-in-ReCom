@@ -11,6 +11,7 @@ mod crash;
 mod d2;
 mod damage;
 mod damage_cap;
+mod dark_points;
 mod deck;
 mod drops;
 mod effects;
@@ -38,6 +39,8 @@ mod mp;
 mod mp_bar;
 mod notices;
 mod revenge;
+mod riku_skin;
+mod sora_costume;
 mod kh1_enemy;
 mod kh1_thrown;
 mod kh1_cure;
@@ -95,17 +98,13 @@ pub(crate) fn settings() -> Settings {
     SETTINGS.lock().ok().and_then(|g| g.clone()).unwrap_or_default()
 }
 
-/// A row of the KH1 entry's settings pages (`crate::menu`) set to option `v`: the setting changes,
-/// `kh1-recom.ini` is rewritten (other lines and comments kept), and whatever reads the setting
-/// live is told now. When each change takes effect: `menu::Item::effect` and
-/// `docs/recom-config-menu.md`.
-pub(crate) fn set_item(item: crate::menu::Item, v: usize) {
-    use crate::menu::Item;
+/// The setting changed and `kh1-recom.ini` rewritten, nothing else told (None: unchanged).
+pub(crate) fn store_item(item: crate::menu::Item, v: usize) -> Option<Settings> {
     let mut s = settings();
     let was = s.clone();
     item.set(&mut s, v);
     if s == was {
-        return;
+        return None;
     }
     if let Ok(mut g) = SETTINGS.lock() {
         *g = Some(s.clone());
@@ -116,10 +115,21 @@ pub(crate) fn set_item(item: crate::menu::Item, v: usize) {
             log(&format!("kh1 entry: could not write {}: {e}", p.display()));
         }
     }
+    Some(s)
+}
+
+/// A row of the KH1 entry's settings pages (`crate::menu`) set to option `v`: the setting changes,
+/// `kh1-recom.ini` is rewritten (other lines and comments kept), and whatever reads the setting
+/// live is told now. When each change takes effect: `menu::Item::effect` and
+/// `docs/recom-config-menu.md`.
+pub(crate) fn set_item(item: crate::menu::Item, v: usize) {
+    use crate::menu::Item;
+    let Some(s) = store_item(item, v) else { return };
     let shown = String::from_utf8_lossy(item.options()[v.min(item.options().len() - 1)]).trim_end_matches('\0').to_string();
     let when = match item.effect() {
         crate::menu::Effect::Now => "now",
         crate::menu::Effect::NextBattle => "from the next battle",
+        crate::menu::Effect::NextRoom => "from the next room",
     };
     log(&format!("kh1 entry: {} = {shown} ({when})", item.key()));
     match item {
@@ -131,8 +141,19 @@ pub(crate) fn set_item(item: crate::menu::Item, v: usize) {
         // M12 camera: the dispatcher switches the live camera at its next frame.
         Item::Camera => camera::set_choice(s.camera),
         Item::AutoCamera => camera::set_auto(s.auto_camera),
+        // Read by the lock-on wrapper each frame (`lock_on`).
+        Item::AutoLock | Item::TargetLock => {}
         Item::GuardReactions => attack::set_guard_reactions(s.guard_reactions),
         Item::RevengeValue => revenge::set_enabled(s.boss_revenge),
+        // Fork: Riku's Costume: Re:CoM's char -> group entries now; the next player build shows it.
+        // SAFETY: two checked writes of Re:CoM's static tables (the camp: no player is being built).
+        // Fork (0.170.0): Sora's costume, from the next room or battle.
+        // SAFETY: checked writes of Re:CoM's static tables (the camp: no player is being built).
+        Item::SoraCostume => unsafe { sora_costume::apply(base(), s.sora_halloween && sora_costume::unlocked()) },
+        Item::Costume | Item::Blade | Item::Hair => unsafe {
+            riku_skin::apply(base(), riku_skin::chosen(&s));
+            riku_skin::costume_chosen(base());
+        },
         // Read by each KH1 frame (`movement::run_frame`, `stick_class`).
         Item::RunSpeed | Item::JumpHeight | Item::AirSpeed => movement::set_speeds(crate::movement::speeds::Speeds { run: s.run_speed, jump: s.jump_height, air: s.air_speed }),
         Item::DodgeRoll => {
@@ -286,6 +307,8 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
         hook::Hook { site: site("avoid init (0x1401F10C0)"), ours: movement::avoid_init as *const () as usize, original: &movement::ORIG_AVOID_INIT },
         hook::Hook { site: site("jump exe (action 7)"), ours: movement::jump_exe as *const () as usize, original: &movement::ORIG_JUMP_EXE },
         hook::Hook { site: site("CPlayerSora avoid exe (action 6)"), ours: movement::avoid_exe as *const () as usize, original: &movement::ORIG_AVOID_EXE },
+        hook::Hook { site: site("CPlayerRiku avoid exe (action 6)"), ours: movement::riku_avoid_exe as *const () as usize, original: &movement::ORIG_RIKU_AVOID_EXE },
+        hook::Hook { site: site("CPlayerDRiku avoid exe (action 6)"), ours: movement::driku_avoid_exe as *const () as usize, original: &movement::ORIG_DRIKU_AVOID_EXE },
         hook::Hook { site: site("CPlayerSora glide exe (action 8)"), ours: movement::glide_exe as *const () as usize, original: &movement::ORIG_GLIDE_EXE },
     ];
     // SAFETY: the targets' bytes are checked again inside, before anything is written.
@@ -296,6 +319,10 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
         movement::set_abilities(s.abilities);
         abilities::set_ini(&s.abilities);
         movement::set_mode(s.combat == settings::Mode::Kh1);
+        movement::set_riku(s.riku_kh1_movement);
+        if s.riku_kh1_movement {
+            log("riku: riku_kh1_movement = on: at combat = kh1, Riku in Reverse/Rebirth moves with KH1's movement (testing)");
+        }
         log(&format!(
             "movement: KH1 handlers in Re:CoM's actions 2/3/4, 6, 7, 8 ({}); abilities {:?}; dodge_roll = {} ({}); run_speed = {}, jump_height = {}, air_speed = {}",
             if s.combat == settings::Mode::Kh1 { "on: combat = kh1" } else { "pass-through: combat = recom" },
@@ -324,6 +351,8 @@ fn install_movement(base: usize, s: &Settings, dirs: &[PathBuf], game_dir: &Path
     if movement::installed() {
         fx::preload(recom_bases(dirs).into_iter().map(|b| b.join(crate::fx::MANIFEST)).find(|p| p.is_file()).as_deref());
     }
+    // Riku's Dark Form skin (fork): its groups' rows go in the same table.
+    riku_skin::preload(recom_bases(dirs).into_iter().map(|b| b.join(kh1_recom_assets::riku_skin::MANIFEST)).find(|p| p.is_file()).as_deref());
     install_attack(base, s, stats_file.as_deref(), bar_file.as_deref(), menu_file.as_deref(), hud_file.as_deref(), sound_file.as_deref());
     // M13 stage 2: KH1's system bank also carries the KH1 effects' sounds, so it is read even
     // without the KH1 command menu look; then KH1's own SCD banks.
@@ -493,6 +522,9 @@ fn install_magic(base: usize) {
     if unsafe { hook::install_all(base, &hooks) } {
         magic::mark_installed();
         log(&magic::start_line());
+        // 0.184.0: Riku's / Dark Riku's empty exeMagic slots run the KH1 cast too.
+        // SAFETY: data patches of the mapped image with checked old values.
+        unsafe { magic::riku_slots(base) };
         // A Gravity-flattened enemy stays hittable in KH1 battles (`crate::magic::flatten`).
         let fl = crate::sites::FLATTEN_HOOKS;
         let flatten = [
@@ -523,6 +555,9 @@ fn install_magic(base: usize) {
         if unsafe { magic_fx::install(base) } {
             log("magic fx: Re:CoM's battle set (spell effects) in the field at combat = kh1 in Sora's story: field state 1 0x1401AF933 -> 0x140211AA0 then 0x140211960; camp unloads 0x1401A95BD / 0x1401A99F9 keep it");
         }
+        // 0.184.2: Riku's battles load Sora's spell effects too (his KH1 spells).
+        // SAFETY: a branch patch with checked old bytes.
+        unsafe { magic_fx::install_riku(base) };
     } else {
         log("magic: exeMagic not hooked; no KH1 cast (the Field case stays patched but is not reached: Re:CoM never casts in the field)");
     }
@@ -962,6 +997,9 @@ fn run(mod_dir: Option<PathBuf>) {
     if let Ok(mut g) = LOG_PATH.lock() {
         *g = Some(log_path);
     }
+    // 0.198.18: development builds (feature `dev`, `tools/dev-install.sh`) say so; a released DLL has no such line.
+    #[cfg(feature = "dev")]
+    log("DEV BUILD (feature dev): development-only debug aids are on (the all_unlock key, which also shows Riku's Dark Mode shortcut rows); never released");
     if !migrated.is_empty() {
         log(&format!("settings: {} updated: {}", ini_path.display(), migrated.join("; ")));
     }

@@ -433,7 +433,7 @@ pub fn locals_for(skel: &RecomSkeleton, tg: &[Target], root_parent: Option<&Targ
 }
 
 /// A clip from per-frame locals.
-fn encode_clip(spec: &ClipSpec, rows: &[Vec<[f64; 9]>]) -> Clip {
+pub fn encode_clip(spec: &ClipSpec, rows: &[Vec<[f64; 9]>]) -> Clip {
     let nb = rows[0].len();
     let scale = rows.iter().any(|r| r.iter().any(|b| (6..9).any(|c| (b[c] - 1.0).abs() > CONST_EPS[2])));
     let chans = if scale { 9 } else { 6 };

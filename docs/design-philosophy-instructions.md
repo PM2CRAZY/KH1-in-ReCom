@@ -10,6 +10,134 @@ Every setting has a Config-menu toggle between **Re:CoM** and **KH1**.
 
 These rules override any habit of the assistant.
 
+## Fork branch `Re-Re-Reverse/Rebirth`: the fork owner's intent (2026-11-23)
+
+Fork owner, 2026-11-23, verbatim: "minha intenção com este mod que fique bem claro não é refazer o
+KH1 de 1:1 no Recom mas sim reimplementar o Combate, mantendo a originalidade do Kingdom Hearts
+Recom".
+
+On this branch that intent leads, ahead of § 1:1 target below:
+
+- The goal is Re:CoM with a reimplemented, cardless combat, not KH1 rebuilt inside Re:CoM. KH1 is
+  the main reference for how the combat works (its numbers stay where they serve), not a target to
+  match frame for frame.
+- Re:CoM's own identity is kept and preferred: its characters' resources and rules (Riku's DP and
+  Dark Mode, his sleights, Re:CoM's sleight ideas), its look, its progression. When KH1 1:1 and
+  Re:CoM's originality pull apart, propose the Re:CoM-faithful option first and ask.
+- Systems already built 1:1 stay as they are unless the fork owner asks for a change.
+- The author's rules for `testing` (`PM2CRAZY/KH1-in-ReCom`) are unchanged: this section is the fork's.
+
+### Every KH1 feature follows Re:CoM's own game rules, or adapts them (2026-11-27)
+
+Fork owner, 2026-11-27, verbatim: "coloca no mod já, regras que reforçam todas as novas features e implementações
+precisarem seguir ou adaptar as regras normais do Jogo quando implementar a jogabilidade do KH1!". Asked after the King's
+sleights (0.150.0) and Riku's own (0.147.0) were found listed from a new game, against Re:CoM's rule.
+
+This binds every new feature and every change that brings KH1 gameplay in (spells, sleights, abilities, items, menus,
+HUD, party, unlocks, shops, story events), in both stories:
+
+1. **Find the rule first.** Before building, find how Re:CoM itself governs the nearest thing: when it is learned or
+   unlocked (story script, battle, level, card, room), where it can be used (battle / field, worlds, floors), what it
+   costs, how it is shown (hidden, `?????`, greyed), what ends it. Cite it (an address, a script, a `knowledge/` note)
+   in the Stage. No rule found: say so and tag the choice `Assumption`.
+2. **Follow it, or adapt it.** The KH1 feature runs under that rule (Re:CoM's own tests and flags, read from the game,
+   never a copy). When KH1 has its own rule for the same thing, keep Re:CoM's progression and timing and fit KH1's
+   piece into it (as KH1 spells unlock through Riku's floors and bosses, Stage 399). An adaptation is written in the Stage and shown to
+   the owner.
+3. **No shortcuts past the game.** Never "counts as learned / unlocked / available" by default, never a flag forced on
+   to make a feature reachable, never a free unlock for testing left in a build. Testing aids go behind a setting that
+   is off by default and named as such (`all_unlock`).
+4. **New saves and old saves.** Check what a new game shows (0:00) and what a mid-story save shows; both must match
+   what Re:CoM would show at that point.
+5. **When unsure, ask** the owner before building (§ Known open design questions); do not guess the rule.
+
+### Riku's combat: KH1's system, fully adapted to Riku's own gameplay (2026-11-27)
+
+Fork owner, 2026-11-27, verbatim, on 0.198.22 in game: "as animações de combate do sistema do Riku estão meio estranhas
+ainda e mal adaptadas os danos a defesa está melhor mas ainda está problemática, alguns ataques parece que não pegam";
+then, told that Riku's own swing clips were played in KH1 Sora's order and timing: "então ela é tocada no ritmo do KH1 mas
+eu já falei que era para reproduzir o sistema do KH1 ENTRETANTO adaptando totalmente a jogabilidade do Riku! e
+respeitando as especialidades dele, e até o momento está pouco fluído".
+
+This refines 0.162.0's "fora as específicidades do Riku todas as regras de combate precisam ser iguais as do Sora":
+
+- **KH1's system stays**: the rules of the combat (lock-on, the combo counter and its limits, MP and its charge, the
+  Guard and its reactions, the post-hit invulnerability, no card duel, KH1 battles and enemies).
+- **Riku's moves are his own**: his swings, their order, their rhythm, their hit windows, their clip lengths and their
+  travel come from Re:CoM's Riku (and Dark Riku in Dark Mode), never from KH1 Sora's motions. KH1's numbers that only
+  describe Sora's animations (his hit frames, motion lengths, root travel) do not apply to Riku.
+- **His specialties are kept**: Dark Points and Dark Mode, his sleights, his weapon and his own reactions.
+- The goal is a fluid combo: a swing flows into the next as in Re:CoM, not cut by Sora's timing.
+
+### Riku's Guard: defending from the press, everything from in front (2026-11-27, final)
+
+Fork owner, 2026-11-27, verbatim, on 0.198.28 in game: "a defesa segue uma merda, eu aperto o X e ela não conta, assim que
+apertar o X em teoria ela tem que estar defendendo igual o KH1, preciso que vc pare de tanto retrabalho sobre esse ponto";
+on the proposal (live from the first frame, every hit from in front, not only the blade): "a defesa é a defesa e se movendo
+é esquiva parsa". Also: "veja se da para reaproveitar algo da gameplay com o Sora, aliás tome ela de base, mas novamente...
+adaptando de forma 100% com a gameplay do riku".
+
+- Riku's Guard is live from the press to the end of KH1's live window (frame 36 of 54), and blocks every hit from in front
+  (±100°), on the blade or not. Behind him it is not blocked; KH1's attack types / priorities that pass a guard still pass.
+- Square while moving at run speed or more is the roll (KH1's Dodge Roll rule); standing or walking, the Guard.
+- Sora's Guard stays KH1's (blade contact, frames 10..36).
+- This is settled: no further change to when or what Riku's Guard blocks without a new ask from the owner.
+- Sora's gameplay is the base for Riku's, adapted to Riku's own moves (§ Riku's combat).
+
+### Modularity is the base principle (2026-11-27)
+
+Fork owner, 2026-11-27, verbatim: "para os MEUS mods coloque a Modularidade como princípio BAZILAR as coisas precisam ser
+intercambiáveis e compatíveis umas com as outras!"; then "pra mim esse é o princípio mais importante da customização, sem modularidade não há customização, é IMPOSSÍVEL haver ser perda de eficiência" (also the workspace's
+`CLAUDE.md` rule 12, for all of the owner's mods). The most important principle of customization: an option that is not
+modular is not done.
+
+- Every option is a piece that works with every other: any mix the player can choose must work (Riku's hair × Keyblade ×
+  costume × Dark Mode; Sora's and Riku's settings; each KH1 / Re:CoM toggle with the others).
+- A change is done only when its combinations with the existing pieces work, or its Stage lists the combination that
+  doesn't, why, and what falls back.
+- Pieces are built apart (own module, own data, own toggle) and joined through one shared rule (e.g. one look table keyed by
+  costume, Keyblade and hair), never copied per case.
+
+### Cosmetics are earned: reward after effort (2026-11-27)
+
+Fork owner, 2026-11-27, verbatim: "modularidade e senso de rencompensa após esforço são os pontos mais importântes para diversão, então por isso as nossas features de costméticos precisam ser desbloqueádas a partir da narrativa ou de ações específicas nos jogos" (also the workspace's `CLAUDE.md` rule 13).
+
+- Every cosmetic (costumes, hair, the Keyblade look, any later one) unlocks through Riku's / Sora's story or a specific
+  action in game, kept in the save, never free from the start in a released DLL; `all_unlock` stays development-only.
+- Today: the Dark Mode costume and the Keyblade of Heart unlock at his first Dark Mode, the Halloween Town costume on
+  reaching Halloween Town; the hair choice (`riku_hair`: KH2 / BBS) has no unlock yet (to be chosen by the owner).
+- A new cosmetic is not done without its unlock, written in its Stage.
+
+### Riku's Dark Mode keeps every look the player chose (2026-11-27)
+
+Fork owner, 2026-11-27, verbatim, on 0.198.29-0.198.32 in game: "reparei que quando o personagem se transforma no DarkMode o
+cabelo é resetado para o Default"; then "no darkmode a keyblade tbm nn troca, já coloca essas regrs para o futuro... além
+disso percebi que o cabelo do bbs tem alguns espaços vazios no modo dark mode, testei pulando e atacando".
+
+- Every look chosen for Riku (hair, Keyblade, costume pieces, and any added later) carries into the battle's Dark Mode (Dark
+  Riku, Re:CoM's chars 5 / 6), as Dark Riku's own version of that look; the transformation never resets one to Re:CoM's.
+- A new look option for Riku is not done until it also works on Dark Riku (model, his own clips and packs, his sleights
+  and events), or the Stage says why not and what he shows instead.
+- Before a look change goes to the owner it is checked on Dark Riku too: renders of idle, walk, run, **jump**, swings and
+  the finisher, guard, a cast, a sleight (`model-change-validation`; jump and attacks are where gaps show).
+
+### Riku's sleights: learned as in Re:CoM, and Re:CoM's Sleights List in his Customize (2026-11-27)
+
+Fork owner, 2026-11-27, verbatim, with three screenshots (Re:CoM's camp Sleights List at 0:02, every row `?????`;
+Re:CoM's Shortcuts page with its "Sleights" button; our KH1 Customize page for Riku): "mas eu te passei um print dele
+no modo recom, e na listagem de sleight que fica quando vc acessa o menu de shortcuts inclusive falei pra vc
+implementar esse sleight lists no modo kh1 nessa tela e vc nn fez.. mas minha duvida é no jogo normal os sleights vem
+daquele jeito ali parece... ou estou enganado?"; to the four-part proposal (research, learned-only lists, the Sleights
+List in Customize, record the ask): "ss".
+
+- Riku's command menu, shortcuts and Customize list only the sleights Re:CoM has taught (its learned test), as Re:CoM:
+  none at a new game, nine at the Ansem tutorial's end, Inverse Burst with the King's at B11 (the workspace's
+  `knowledge/ReCoM/recom-riku-sleights.md`). Built 0.198.15.
+- His KH1 Customize page gets Re:CoM's own Sleights List (the Shortcuts page's "Sleights" button), `?????` on what is
+  not learned. Built 0.198.17 (Square, as on Re:CoM's page; Re:CoM's own list code, `knowledge/ReCoM/recom-riku-sleights.md` § 3).
+- Dark Mode has its own three shortcuts (a tester's suggestion, the owner's choice, 2026-11-27): rows "Dark" + the button
+  on his Customize once he has reached Dark Mode, filled the first time from his own set with the Dark twins. Built 0.198.18.
+
 ## Native always
 
 Re:CoM's own systems own Sora. Native means giving Re:CoM's engine more abilities so it can do
@@ -669,3 +797,25 @@ At KH1 setting:
   - **Re:CoM's extras stay under the cap** (weak parts, the frozen +100, Back Attack, Enemy Skills multipliers), as KH1 puts every bonus before its cap.
   - Combat = KH1 only.
 - **Release repository** (owner, 2026-11-05, verbatim: "Can you actually just put the release version of the mod into a seperate github repository?"; answers): the release also lives in its own repository, **`PM2CRAZY/KH1-Combat-in-ReCoM`** (branch `main`; the owner created it), and **`main` in this repo is kept as well** (owner: "Keep main as well"). Both get the same release files, updated **only when the owner says so**, never force-pushed. Releases: 0.142.0; 0.143.0; 0.143.1 (2026-11-05, both copies).
+- **Open questions round** (fork owner, 2026-11-23, fork branch `Re-Re-Reverse/Rebirth`; the questions were gathered from
+  `ROADMAP.md` § Owner questions waiting, `recom-kh1-hud.md`, `recom-m7-command-menu.md`, `recom-m13-plan.md` § Open and
+  `recom-m6-battles.md` § Marluxia 3's card duel; answers verbatim in Portuguese, then what they mean):
+  - **Marluxia 3's card duel at Combat = KH1** (verbatim: "pode ser um duelo usando padrões do Marluxia dos outros jogos
+    caso necessário, e de forma balanceada!"): a duel Sora can win without cards, built from Marluxia's patterns in his
+    other games where needed, balanced. **Research and a design spec first** (which games, which patterns, Checked from
+    their files / decomps where available); no code before the fork owner approves the spec.
+  - **Re:CoM's HUD extras** (minimap, room plate, EXP popup) at HUD = KH1: **stay hidden** (2a).
+  - **Donald's and Goofy's rings** (Re:CoM's friends have no HP / MP): **hidden** (4b; changes what is built).
+  - **KH1's orange auto-target ring**: **shown** (5a).
+  - **EXP / munny popups and the level-up box**: **build KH1's popups** (6b; Re:CoM counts EXP at the battle end, so this
+    needs research first).
+  - **Command menu row 3 before the first summon**: KH1's greyed **"–"** (7a, as built).
+  - **Near NPCs**: **KH1 1:1**, Talk in row 0 and Attack dimmed with the error buzz (8b; changes what is built).
+  - **Context tab in Re:CoM's look**: the **teal-green tint** (9a, as built).
+  - **Effects = KH1 with Sounds = Re:CoM**: KH1's effects **keep their own sounds** (10a, as built).
+  - **KH1's room dust and splashes**: **add them** (11b; M13, research first).
+  - **KH1's clash EXP**: **add it** (12b; M13, research first).
+  - **Re:CoM's event hides at HUD = KH1**: the HUD goes **at once, as Re:CoM does** (3b; replaces the built 10-frame
+    KH1 fade).
+  - **KH1's hand effect when an item is used** (34 frames in): **none**; Re:CoM's own item effect stays at the heal
+    (13a, as built).

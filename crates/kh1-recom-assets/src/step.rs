@@ -547,6 +547,240 @@ fn run_inner(opt: &Options) -> Result<(), String> {
             }
         }
     }
+    // Riku's Dark Form skin (fork, 0.154.0): Dark Riku's model with Riku's motions retargeted,
+    // as player groups 121 / 131 (`riku_skin`). Not fatal: without it Riku keeps his own model.
+    {
+        let manifest = root.join(kh1_recom_assets::riku_skin::MANIFEST);
+        let mut done = Vec::new();
+        // 0.158.0: KH1 Riku's own guard (the Destiny Islands duel set) for Riku's own pack.
+        let guard_files = install::kh1(&game, keys.clone()).ok().and_then(|i| Some((i.read("xa_ex_1010.mset").ok()?, i.read("xa_ex_1010.mdls").ok()?)));
+        // 0.184.7: KH1 Riku-Ansem's set for Riku's Stop motion.
+        let ansem_files = install::kh1(&game, keys.clone()).ok().and_then(|i| Some((i.read("xa_ex_1580.mset").ok()?, i.read("xa_ex_1580.mdls").ok()?)));
+        // 0.189.0 (fork owner, 2026-11-24: Riku's Block and spells from BBS FM's Terra): Terra's skeleton and cast / Guard clips
+        // from BBS FM (in the 1.5+2.5 collection, the same keys). 0.193.0: the only source ("pode remover o do DDD"); without
+        // it Riku's casts and Guard keep their Re:CoM / KH1 motions.
+        let terra_files = match kh1_recom_assets::terra::read_terra(&game, &keys) {
+            Ok(t) => {
+                println!("Riku's casts and Guard: BBS Terra's motions (315..318, 354)");
+                Some(t)
+            }
+            Err(e) => {
+                println!("note: BBS Terra's motions not read ({e}): Riku's casts and Guard keep their Re:CoM / KH1 motions");
+                None
+            }
+        };
+        let sora_guard = guard_files.as_ref().map(|(m, d)| kh1_recom_assets::riku_skin::GuardSource { mset: m, mdls: d, ansem: ansem_files.as_ref().map(|(a, b)| (a.as_slice(), b.as_slice())), terra: terra_files.as_ref().map(|(k, c)| (k, c.as_slice())) });
+        if sora_guard.is_none() {
+            println!("note: KH1's xa_ex_1010.mset / .mdls not read: Riku's Guard keeps his clash recoil");
+        }
+        use kh1_recom_assets::riku_skin::{self as rsk, Made};
+        let mut have: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
+        for &(riku, dark, skin) in &rsk::SKIN_GROUPS {
+            match rsk::build_with(&arc, &keys, riku, dark, skin, sora_guard.as_ref()) {
+                Ok(b) => {
+                    for (rel, bytes) in &b.files {
+                        write(&rel.split('/').fold(root.clone(), |p, s| p.join(s)), bytes)?;
+                        have.insert(rel.clone(), bytes.clone());
+                    }
+                    println!("Riku's Dark Form skin: group {skin} = PL{dark:04}'s model with PL{riku:04}'s {} clips", b.clips);
+                    done.push(Made { riku, skin, dark: true, blade: 0, hair: 0 });
+                }
+                Err(e) => println!("note: Riku's Dark Form skin (group {skin}) not built: {e}"),
+            }
+        }
+        // 0.160.0: Riku's Keyblade (the Keyblade of People's Hearts, KH1's Riku-Ansem's) for each look.
+        let blade = install::kh1(&game, keys.clone()).ok().and_then(|i| i.read_full(rsk::BLADE_MODEL).ok()).map(|(_, a, _)| rsk::BladeSource::from_assets(&a));
+        match blade {
+            Some(Ok(src)) => {
+                for &(base, raw_src, target, dark) in &rsk::BLADE_GROUPS {
+                    let Some(riku) = (if dark { done.iter().find(|m| m.skin == base).map(|m| m.riku) } else { Some(base) }) else {
+                        println!("note: Riku's Keyblade (group {target}) not built: no group {base}");
+                        continue;
+                    };
+                    match rsk::build_blade(&arc, &keys, &have, base, raw_src, target, dark, &src) {
+                        Ok(b) => {
+                            for (rel, bytes) in &b.files {
+                                write(&rel.split('/').fold(root.clone(), |p, s| p.join(s)), bytes)?;
+                            }
+                            println!("Riku's Keyblade: group {target} = group {base} with the Keyblade of People's Hearts ({} clips)", b.clips);
+                            done.push(Made { riku, skin: target, dark, blade: 1, hair: 0 });
+                        }
+                        Err(e) => println!("note: Riku's Keyblade (group {target}) not built: {e}"),
+                    }
+                }
+            }
+            Some(Err(e)) => println!("note: Riku's Keyblade not built: {e}"),
+            None => println!("note: KH1's {} not read: Riku's Keyblade not built", rsk::BLADE_MODEL),
+        }
+        // 0.198.21: Riku's level-up motion with his pant panels in his model's bone order (Re:CoM's `PL4042.ANN` has four children of
+        // each femur shuffled; `pants_order`). Replaces Re:CoM's file.
+        for g in kh1_recom_assets::pants_order::FIXED_PACKS {
+            match kh1_recom_assets::pants_order::fixed_pack(&arc, &keys, g) {
+                Ok(Some(bytes)) => {
+                    write(&rsk::path(g, "ANN").split('/').fold(root.clone(), |p, s| p.join(s)), &bytes)?;
+                    println!("Riku's level-up motion: PL{g:04}.ANN with the pant panels on their own bones");
+                }
+                Ok(None) => println!("note: PL{g:04}.ANN already in the model's order: left as Re:CoM's"),
+                Err(e) => println!("note: PL{g:04}.ANN not fixed: {e}"),
+            }
+        }
+        let mut event_packs: Vec<(u16, u16)> = vec![];
+        let mut dark_packs: Vec<(u16, u16)> = vec![];
+        // 0.188.0: Riku's default attire with KH2 Riku's hair (KH2 FM, the 1.5+2.5 collection). Stage 363: the DDD hair of 0.186.0 is gone.
+        // 0.198.36: the sources kept for the battle's Dark Riku's looks below
+        let kh2_src = install::kh2(&game, keys.clone()).map_err(|e| e.to_string()).and_then(|i| kh1_recom_assets::kh2_hair::Kh2HairSource::read(&i).map_err(|e| e.to_string()));
+        match &kh2_src {
+            Ok(hair) => {
+                let heart = install::kh1(&game, keys.clone()).ok().and_then(|i| i.read_full(rsk::BLADE_MODEL).ok()).and_then(|(_, a, _)| rsk::BladeSource::from_assets(&a).ok());
+                for &(target, base, with_heart, atlas) in &rsk::KH2_HAIR_GROUPS {
+                    if with_heart && heart.is_none() {
+                        println!("note: Riku's KH2 hair with the Keyblade of Heart (group {target}) not built: no Keyblade");
+                        continue;
+                    }
+                    match rsk::build_hair(&arc, &keys, &have, base, target, if with_heart { heart.as_ref() } else { None }, hair, &atlas) {
+                        Ok(b) => {
+                            for (rel, bytes) in &b.files {
+                                write(&rel.split('/').fold(root.clone(), |p, s| p.join(s)), bytes)?;
+                            }
+                            println!("Riku's KH2 hair: group {target} = group {base} with KH2 Riku's hair{}", if with_heart { " and the Keyblade of People's Hearts" } else { "" });
+                            done.push(Made { riku: base, skin: target, dark: false, blade: with_heart as u8, hair: 1 });
+                        }
+                        Err(e) => println!("note: Riku's KH2 hair (group {target}) not built: {e}"),
+                    }
+                }
+                // 0.198.7: the Dark Form skin (121 / 131, built above) with KH2 Riku's hair
+                for &(target, base, raw_src, with_heart, atlas) in &rsk::DARK_KH2_HAIR_GROUPS {
+                    let Some(riku) = done.iter().find(|m| m.skin == base).map(|m| m.riku) else {
+                        println!("note: Riku's KH2 hair on the Dark Form skin (group {target}) not built: no group {base}");
+                        continue;
+                    };
+                    if with_heart && heart.is_none() {
+                        println!("note: Riku's KH2 hair on the Dark Form skin with the Keyblade of Heart (group {target}) not built: no Keyblade");
+                        continue;
+                    }
+                    match rsk::build_hair_from(&arc, &keys, &have, base, raw_src, true, target, if with_heart { heart.as_ref() } else { None }, hair, &atlas) {
+                        Ok(b) => {
+                            for (rel, bytes) in &b.files {
+                                write(&rel.split('/').fold(root.clone(), |p, s| p.join(s)), bytes)?;
+                            }
+                            println!("Riku's KH2 hair: group {target} = the Dark Form skin (group {base}) with KH2 Riku's hair{}", if with_heart { " and the Keyblade of People's Hearts" } else { "" });
+                            done.push(Made { riku, skin: target, dark: true, blade: with_heart as u8, hair: 1 });
+                        }
+                        Err(e) => println!("note: Riku's KH2 hair on the Dark Form skin (group {target}) not built: {e}"),
+                    }
+                }
+                // 0.197.4: Riku's event packs for the 109-bone KH2-hair skeleton (the boss end's card get and the other event motions)
+                if done.iter().any(|m| m.hair == 1) {
+                    match rsk::build_event_packs(&arc, &keys, hair) {
+                        Ok(packs) => {
+                            for (src, alt, bytes) in packs {
+                                write(&rsk::path(alt, "ANN").split('/').fold(root.clone(), |p, s| p.join(s)), &bytes)?;
+                                event_packs.push((src, alt));
+                            }
+                            println!("Riku's event packs for the KH2 hair: {event_packs:?}");
+                        }
+                        Err(e) => println!("note: Riku's event packs for the KH2 hair not built: {e}"),
+                    }
+                }
+            }
+            Err(e) => println!("note: KH2 Riku's model not read: Riku's KH2 hair not built: {e}"),
+        }
+        // 0.194.0: the same with BBS kid Riku's hair (BBS FM, the 1.5+2.5 collection).
+        let bbs_src = kh1_recom_assets::bbs_hair::BbsHairSource::read(&game, &keys);
+        match &bbs_src {
+            Ok(hair) => {
+                let heart = install::kh1(&game, keys.clone()).ok().and_then(|i| i.read_full(rsk::BLADE_MODEL).ok()).and_then(|(_, a, _)| rsk::BladeSource::from_assets(&a).ok());
+                for &(target, base, with_heart, atlas) in &rsk::BBS_HAIR_GROUPS {
+                    if with_heart && heart.is_none() {
+                        println!("note: Riku's BBS kid hair with the Keyblade of Heart (group {target}) not built: no Keyblade");
+                        continue;
+                    }
+                    match rsk::build_hair(&arc, &keys, &have, base, target, if with_heart { heart.as_ref() } else { None }, hair, &atlas) {
+                        Ok(b) => {
+                            for (rel, bytes) in &b.files {
+                                write(&rel.split('/').fold(root.clone(), |p, s| p.join(s)), bytes)?;
+                            }
+                            println!("Riku's BBS kid hair: group {target} = group {base} with BBS kid Riku's hair{}", if with_heart { " and the Keyblade of People's Hearts" } else { "" });
+                            done.push(Made { riku: base, skin: target, dark: false, blade: with_heart as u8, hair: 2 });
+                        }
+                        Err(e) => println!("note: Riku's BBS kid hair (group {target}) not built: {e}"),
+                    }
+                }
+                // 0.198.7: the Dark Form skin (121 / 131, built above) with BBS kid Riku's hair
+                for &(target, base, raw_src, with_heart, atlas) in &rsk::DARK_BBS_HAIR_GROUPS {
+                    let Some(riku) = done.iter().find(|m| m.skin == base).map(|m| m.riku) else {
+                        println!("note: Riku's BBS kid hair on the Dark Form skin (group {target}) not built: no group {base}");
+                        continue;
+                    };
+                    if with_heart && heart.is_none() {
+                        println!("note: Riku's BBS kid hair on the Dark Form skin with the Keyblade of Heart (group {target}) not built: no Keyblade");
+                        continue;
+                    }
+                    match rsk::build_hair_from(&arc, &keys, &have, base, raw_src, true, target, if with_heart { heart.as_ref() } else { None }, hair, &atlas) {
+                        Ok(b) => {
+                            for (rel, bytes) in &b.files {
+                                write(&rel.split('/').fold(root.clone(), |p, s| p.join(s)), bytes)?;
+                            }
+                            println!("Riku's BBS kid hair: group {target} = the Dark Form skin (group {base}) with BBS kid Riku's hair{}", if with_heart { " and the Keyblade of People's Hearts" } else { "" });
+                            done.push(Made { riku, skin: target, dark: true, blade: with_heart as u8, hair: 2 });
+                        }
+                        Err(e) => println!("note: Riku's BBS kid hair on the Dark Form skin (group {target}) not built: {e}"),
+                    }
+                }
+            }
+            Err(e) => println!("note: BBS kid Riku's model not read: Riku's BBS kid hair not built: {e}"),
+        }
+        // 0.198.30 / 0.198.32 / 0.198.36 (fork owner, 2026-11-27: "no darkmode a keyblade tbm nn troca, já coloca essas regrs para o futuro"):
+        // the battle's Dark Mode (Re:CoM's Dark Riku, 201 / 211: his own model and pack, as this step wrote them above) in every look of
+        // `DARK_MODE_LOOKS` (hair × Keyblade), one builder for all; the KH2 rows (139 bones) only with every copy of his 11 other packs
+        // (a sleight would freeze him), the copies written once for all of them
+        {
+            let heart = install::kh1(&game, keys.clone()).ok().and_then(|i| i.read_full(rsk::BLADE_MODEL).ok()).and_then(|(_, a, _)| rsk::BladeSource::from_assets(&a).ok());
+            let (kh2, bbs) = (kh2_src.as_ref().ok(), bbs_src.as_ref().ok());
+            let packs = match kh2.map(|h| rsk::build_dark_packs(&arc, &keys, rsk::DARK_MODE_GROUPS[0], h)) {
+                Some(Ok(p)) => Some(p),
+                Some(Err(e)) => {
+                    println!("note: the battle's Dark Riku's packs for the KH2 hair not built ({e}): he keeps Re:CoM's hair with it");
+                    None
+                }
+                None => None,
+            };
+            let mut groups = vec![];
+            for look in rsk::DARK_MODE_LOOKS {
+                let (target, dark, hair, blade) = look;
+                let what = rsk::dark_look_name(hair, blade);
+                if hair == 1 && packs.is_none() {
+                    println!("note: the battle's Dark Riku with {what} (group {target}) not built: no KH2 pack copies");
+                    continue;
+                }
+                match rsk::build_dark_mode(&arc, &keys, &have, look, kh2, bbs, heart.as_ref()) {
+                    Ok(b) => {
+                        for (rel, bytes) in &b.files {
+                            write(&rel.split('/').fold(root.clone(), |p, s| p.join(s)), bytes)?;
+                        }
+                        println!("the battle's Dark Riku: group {target} = group {dark} with {what} ({} clips)", b.clips);
+                        groups.push(Made { riku: dark, skin: target, dark: true, blade, hair });
+                    }
+                    Err(e) => println!("note: the battle's Dark Riku with {what} (group {target}) not built: {e}"),
+                }
+            }
+            if let Some(packs) = packs.filter(|_| groups.iter().any(|m| m.hair == 1)) {
+                for (src, alt, bytes) in packs {
+                    write(&rsk::path(alt, "ANN").split('/').fold(root.clone(), |p, s| p.join(s)), &bytes)?;
+                    dark_packs.push((src, alt));
+                }
+                println!("the battle's Dark Riku's packs for the KH2 hair: {dark_packs:?}");
+            }
+            done.extend(groups);
+        }
+        if done.is_empty() {
+            if manifest.is_file() {
+                std::fs::remove_file(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
+            }
+        } else {
+            write(&manifest, kh1_recom_assets::riku_skin::manifest_json(&done, sora_guard.is_some(), &event_packs, &dark_packs).as_bytes())?;
+        }
+    }
     // M13 stage 3: KH1's trails and finisher effects as Re:CoM's EET events at the KH1 variant
     // (Sora's PL0001.EET, the Keyblade's PL0002.EET) and kh1-fx.json, the moves the DLL switches.
     let fx_manifest_path = root.join(kh1_recom_assets::kh1_fx::MANIFEST);
@@ -602,6 +836,10 @@ fn run_inner(opt: &Options) -> Result<(), String> {
         Some(b) => {
             let entry = kh1_formats::egs::build_plain_entry(&b.spr, &b.assets, b.date).map_err(|e| e.to_string())?;
             write(&root.join("raw").join(kh1_recom_assets::mp_bar::SPR_PATH.replace('/', std::path::MAIN_SEPARATOR_STR)), &entry)?;
+            if let Some(r) = &b.riku {
+                let entry = kh1_formats::egs::build_plain_entry(&r.spr, &r.assets, r.date).map_err(|e| e.to_string())?;
+                write(&root.join("raw").join(RIKU_SPR_PATH.replace('/', std::path::MAIN_SEPARATOR_STR)), &entry)?;
+            }
             write(&bar_manifest, b.manifest.as_bytes())?;
         }
         None => {
@@ -685,6 +923,15 @@ fn run_inner(opt: &Options) -> Result<(), String> {
     match &hud {
         Some(h) => {
             write(&root.join("raw").join(kh1_recom_assets::mp_bar::RTM_PATH.replace('/', std::path::MAIN_SEPARATOR_STR)), &h.rtm_entry)?;
+            let riku_rtm = root.join("raw").join(RIKU_RTM_PATH.replace('/', std::path::MAIN_SEPARATOR_STR));
+            match &h.riku_rtm {
+                Some(r) => write(&riku_rtm, r)?,
+                None if riku_rtm.is_file() => {
+                    std::fs::remove_file(&riku_rtm).map_err(|e| format!("{}: {e}", riku_rtm.display()))?;
+                    println!("removed {} (Riku's HUD without the KH1 set this run)", riku_rtm.display());
+                }
+                None => {}
+            }
             write(&hud_manifest, h.manifest.as_bytes())?;
         }
         None => {
@@ -918,6 +1165,49 @@ struct MpBar {
     assets: Vec<kh1_formats::egs::HdAsset>,
     date: i32,
     manifest: String,
+    /// Riku's HUD (`FORM/0071/FO0071.SPR`, fork branch Re-Re-Reverse/Rebirth): the same groups added
+    /// to his `Cockpit:00`, so his command menu and MP bar have their plates (0.148.0); the KH1 HUD
+    /// set and the turned HP ring are added to it as to `FO0002`'s (0.149.0). Built at write time.
+    riku: Option<RikuForm>,
+}
+
+/// Riku's patched `FO0071.SPR`: the container, its PC assets and the entry's date word.
+struct RikuForm {
+    spr: Vec<u8>,
+    assets: Vec<kh1_formats::egs::HdAsset>,
+    date: i32,
+}
+
+/// Riku's story's HUD container: `gauge.lad`, `Cockpit.lad` (152 groups; its language copies 157,
+/// as `FO0002`'s), `layout_card.lad`, `duelmode.lad`. Its atlas has Re:CoM's text plate, the magic
+/// plate's colour, the arrow and the neutral texel where `FO0002`'s has them. Checked (files).
+/// Riku's HUD container (see above).
+pub const RIKU_SPR_PATH: &str = "FORM/0071/FO0071.SPR";
+/// Its atlas.
+pub const RIKU_RTM_PATH: &str = "FORM/0071/FO0071.RTM";
+
+/// The bar's and the plates' groups added to Riku's `FO0071.SPR` (and its language copies); the
+/// first groups of each copy for the manifest.
+fn riku_form(keys: &kh1_formats::egs::KeyTable, arc: &kh1_formats::egs::Archive, look: &kh1_recom_assets::mp_bar::Kh1Look) -> Result<(RikuForm, Vec<usize>), String> {
+    use kh1_recom_assets::mp_bar::{self as mb, Patched};
+    let rtm = install::read_recom(arc, keys, RIKU_RTM_PATH).map_err(|e| format!("{RIKU_RTM_PATH}: {e}"))?;
+    let neutral = mb::neutral_texel(&rtm).map_err(|e| format!("{RIKU_RTM_PATH}: {e}"))?;
+    let e = arc.find(RIKU_SPR_PATH).ok_or_else(|| format!("{RIKU_SPR_PATH} not in Recom.hed"))?;
+    let raw = arc.read_raw_entry(e).map_err(|e| format!("{RIKU_SPR_PATH}: {e}"))?;
+    let date = i32::from_le_bytes(raw.get(12..16).ok_or("short entry")?.try_into().unwrap());
+    let (spr, assets) = kh1_formats::egs::decode_entry_full(keys, &raw).map_err(|e| format!("{RIKU_SPR_PATH}: {e}"))?;
+    let (base, first) = mb::patch_spr(&spr, look, neutral).map_err(|e| format!("{RIKU_SPR_PATH}: {e}"))?;
+    let mut firsts = vec![first];
+    let mut out = Vec::with_capacity(assets.len());
+    for a in &assets {
+        let (data, how) = mb::patch_asset(&a.name, &a.data, look, neutral).map_err(|e| format!("{RIKU_SPR_PATH} asset {}: {e}", a.name))?;
+        if let Patched::Bar(f) = how {
+            firsts.push(f);
+        }
+        out.push(kh1_formats::egs::HdAsset { name: a.name.clone(), orig_offset: a.orig_offset, data });
+    }
+    println!("MP bar: Riku's {RIKU_SPR_PATH}: groups added after {firsts:?}");
+    Ok((RikuForm { spr: base, assets: out, date }, firsts))
 }
 
 /// Reads KH1's gauge look (`command2/uitex.bin`) and Re:CoM's neutral texel (`FO0002.RTM`), and adds
@@ -958,6 +1248,17 @@ fn mp_bar_build(game: &Path, keys: kh1_formats::egs::KeyTable, arc: &kh1_formats
         ("FO0002.SPR sha256", kh1_formats::egs::sha256_hex(&spr)),
     ];
     let mut firsts: Vec<usize> = files.iter().filter_map(|f| if let Patched::Bar(g) = f.1 { Some(g) } else { None }).collect();
+    // Riku's HUD (fork testing): not fatal; without it his story has no plates (logged by the DLL).
+    let riku = match riku_form(&keys, arc, &look) {
+        Ok((form, f)) => {
+            firsts.extend(f);
+            Some(form)
+        }
+        Err(e) => {
+            println!("note: Riku's HUD not patched: {e}");
+            None
+        }
+    };
     firsts.sort_unstable();
     firsts.dedup();
     let manifest = mb::manifest_json(first, &firsts, &look, neutral, &files, &sources);
@@ -981,7 +1282,7 @@ fn mp_bar_build(game: &Path, keys: kh1_formats::egs::KeyTable, arc: &kh1_formats
         patched,
         if kept.is_empty() { String::new() } else { format!("; kept as they are: {kept:?}") }
     );
-    Ok(MpBar { spr: base, assets: out_assets, date, manifest })
+    Ok(MpBar { spr: base, assets: out_assets, date, manifest, riku })
 }
 
 /// M13 stage 1's files: the raw `EF1000.EFF` entry and `kh1-effects.json`.
@@ -1320,10 +1621,41 @@ fn shop_tabs_build(keys: kh1_formats::egs::KeyTable, arc: &kh1_formats::egs::Arc
     Ok(ShopTabs { entry, manifest })
 }
 
+/// Riku's `FO0071` given the KH1 HUD set (0.149.0, fork owner 2026-11-22: "a HUD ta com o mesmo
+/// problema que está com a do Sora … o fix pode ser o mesmo"): `kh1hud.lad` (+ copies) in his
+/// `FO0071.SPR`, Re:CoM's HP ring turned in his `gauge.lad` copies (the same first group as
+/// `FO0002`'s, or refused: the manifest has one), `kh1hud.imz` (+ copies) in his `FO0071.RTM`.
+/// Returns the patched SPR and the RTM's raw entry; the input is left as it was on failure.
+fn riku_hud(keys: &kh1_formats::egs::KeyTable, arc: &kh1_formats::egs::Archive, r: &RikuForm, b: &kh1_recom_assets::kh1_hud::Built, recom_hp: Option<usize>) -> Result<(RikuForm, Vec<u8>), String> {
+    use kh1_recom_assets::kh1_hud as kh;
+    let mut assets = r.assets.clone();
+    let langs = kh::languages(&assets);
+    if langs.is_empty() {
+        return Err(format!("{RIKU_SPR_PATH} has no <LANG>_Cockpit.lad PC layouts"));
+    }
+    let mut spr = kh::add_to_spr(&r.spr, &mut assets, b, &langs).map_err(|e| format!("{RIKU_SPR_PATH}: {e}"))?;
+    if let Some(first) = recom_hp {
+        let (f, _) = kh1_recom_assets::recom_hp::patch_spr(&mut spr, &mut assets).map_err(|e| format!("{RIKU_SPR_PATH}: {e}"))?;
+        if f != first {
+            return Err(format!("{RIKU_SPR_PATH}: gauge:01's turned ring starts at {f}, FO0002's at {first}"));
+        }
+    }
+    let e = arc.find(RIKU_RTM_PATH).ok_or_else(|| format!("{RIKU_RTM_PATH} not in Recom.hed"))?;
+    let raw = arc.read_raw_entry(e).map_err(|e| format!("{RIKU_RTM_PATH}: {e}"))?;
+    let date = i32::from_le_bytes(raw.get(12..16).ok_or("short entry")?.try_into().unwrap());
+    let (rtm, mut rtm_assets) = kh1_formats::egs::decode_entry_full(keys, &raw).map_err(|e| format!("{RIKU_RTM_PATH}: {e}"))?;
+    let rtm_new = kh::add_to_rtm(&rtm, &mut rtm_assets, b, &langs).map_err(|e| format!("{RIKU_RTM_PATH}: {e}"))?;
+    let rtm_entry = kh1_formats::egs::build_plain_entry(&rtm_new, &rtm_assets, date).map_err(|e| e.to_string())?;
+    println!("KH1 HUD: Riku's {RIKU_SPR_PATH}: kh1hud.lad + {} copies{}; {RIKU_RTM_PATH}: kh1hud.imz + {} copies", langs.len(), if recom_hp.is_some() { ", Re:CoM's HP ring turned" } else { "" }, langs.len());
+    Ok((RikuForm { spr, assets, date: r.date }, rtm_entry))
+}
+
 /// The KH1 HUD's files (stage H1): the raw `FO0002.RTM` entry and `kh1-hud.json`.
 struct Hud {
     rtm_entry: Vec<u8>,
     manifest: String,
+    /// Riku's `FO0071.RTM` with `kh1hud.imz` (0.149.0), when his `FO0071.SPR` got the set.
+    riku_rtm: Option<Vec<u8>>,
 }
 
 /// Builds the `kh1hud` set from KH1's `uitex.bin` (+ PC assets), `UK_uibin_g_s.bin`,
@@ -1358,6 +1690,16 @@ fn kh1_hud_build(game: &Path, keys: kh1_formats::egs::KeyTable, arc: &kh1_format
         return Err("FO0002.SPR has no <LANG>_Cockpit.lad PC layouts (no language to build for)".into());
     }
     let lrefs: Vec<&str> = langs.iter().map(String::as_str).collect();
+    // 0.179.1: Re:CoM's Heartless emblem (Riku's level-up texture) for the DP sleights' mark.
+    let dp_emblem = (|| -> Result<Vec<u8>, String> {
+        let e = arc.find(kh::menu::DP_EMBLEM_FILE).ok_or("not in Recom.hed")?;
+        let raw = arc.read_raw_entry(e).map_err(|e| e.to_string())?;
+        let (_, assets) = kh1_formats::egs::decode_entry_full(&keys, &raw).map_err(|e| e.to_string())?;
+        assets.into_iter().find(|a| a.name == kh::menu::DP_EMBLEM_ASSET).map(|a| a.data).ok_or_else(|| format!("no {}", kh::menu::DP_EMBLEM_ASSET))
+    })();
+    if let Err(e) = &dp_emblem {
+        println!("note: KH1 HUD: no DP sleight mark ({}: {e})", kh::menu::DP_EMBLEM_FILE);
+    }
     let menu = match &menu_files {
         Ok(m) => Some(kh::MenuSources {
             com: &m.com,
@@ -1369,6 +1711,7 @@ fn kh1_hud_build(game: &Path, keys: kh1_formats::egs::KeyTable, arc: &kh1_format
             cut: m.cut.as_deref(),
             item: m.item.as_deref(),
             sum: m.sum.as_deref(),
+            dp_emblem: dp_emblem.as_deref().ok(),
         }),
         Err(e) => {
             println!("note: KH1 HUD: no KH1 command menu look: {e}");
@@ -1396,6 +1739,22 @@ fn kh1_hud_build(game: &Path, keys: kh1_formats::egs::KeyTable, arc: &kh1_format
     let (rtm, mut rtm_assets) = kh1_formats::egs::decode_entry_full(&keys, &raw).map_err(|e| format!("{}: {e}", mb::RTM_PATH))?;
     let rtm_new = kh::add_to_rtm(&rtm, &mut rtm_assets, &b, &langs).map_err(|e| format!("{}: {e}", mb::RTM_PATH))?;
     let rtm_entry = kh1_formats::egs::build_plain_entry(&rtm_new, &rtm_assets, date).map_err(|e| e.to_string())?;
+    // Riku's story (0.149.0): the same set and turned ring in his FO0071 (its gauge:01 is FO0002's,
+    // byte for byte; its RTM holds Cockpit.imz as FO0002's). Not fatal: his story then keeps
+    // Re:CoM's HUD (the DLL checks the registry).
+    let riku_rtm = match bar.riku.as_mut() {
+        Some(r) => match riku_hud(&keys, arc, r, &b, recom_hp) {
+            Ok((form, rtm)) => {
+                *r = form;
+                Some(rtm)
+            }
+            Err(e) => {
+                println!("note: KH1 HUD: Riku's {RIKU_SPR_PATH} / {RIKU_RTM_PATH} not given the set (his story keeps Re:CoM's HUD look): {e}");
+                None
+            }
+        },
+        None => None,
+    };
     let sources = [
         ("uitex.bin sha256", kh1_formats::egs::sha256_hex(&uitex)),
         ("UK_uibin_g_s.bin sha256", kh1_formats::egs::sha256_hex(&g_s)),
@@ -1404,12 +1763,18 @@ fn kh1_hud_build(game: &Path, keys: kh1_formats::egs::KeyTable, arc: &kh1_format
         ("FO0002.RTM sha256", kh1_formats::egs::sha256_hex(&rtm)),
     ];
     let manifest = kh::manifest_json(&b, &langs, &sources, recom_hp);
+    let hud_riku_rtm = riku_rtm;
     if let Some(m) = &b.menu {
         println!("KH1 HUD: command menu look from group {}: {} glyphs of KH1's menu font, words for {:?}{}", m.first, m.glyphs, m.words.iter().map(|w| w.0.as_str()).collect::<Vec<_>>(), if m.missing.is_empty() { String::new() } else { format!("; no glyph for {:?} (drawn as a space)", m.missing) });
         println!("KH1 HUD: FM context tab from uitex.bin picture 2's PC rows; Triangle {}", if m.tab_icon { "from Theater's Icon.tm2 (the PlayStation glyph)" } else { "MISSING (no Icon.tm2 / FontIcon.inf): the tab shows without it" });
         match m.items_list {
             Some(g) => println!("KH1 HUD: Items list (M8 stage 8a.1) from group {g}: {}", kh::ITEM),
             None => println!("note: KH1 HUD: no Items list panels (no {}): the DLL draws the Items list with the Magic list's", kh::ITEM),
+        }
+        match (m.dp_icon, &m.dp_note) {
+            (Some(g), _) => println!("KH1 HUD: DP sleight mark (Re:CoM's Heartless emblem, {}) as group {g}", kh::menu::DP_EMBLEM_FILE),
+            (None, Some(n)) => println!("note: KH1 HUD: no DP sleight mark ({n})"),
+            (None, None) => {}
         }
         match (m.summon_list, &m.summon_note) {
             (Some(g), _) => println!("KH1 HUD: Summon list (M8b) from group {g}: {}", kh::SUM),
@@ -1419,10 +1784,14 @@ fn kh1_hud_build(game: &Path, keys: kh1_formats::egs::KeyTable, arc: &kh1_format
     }
     match &b.shortcut {
         Some(sc) => println!(
-            "KH1 HUD: shortcut panel (M7 stage 7.12) from group {}: {} (picture 0's frame, picture 1's title); button glyphs {}",
+            "KH1 HUD: shortcut panel (M7 stage 7.12) from group {}: {} (picture 0's frame, picture 1's title); button glyphs {}{}",
             sc.first,
             kh::CUT,
-            if sc.icons { "Triangle / Square / Cross / Circle from Theater's Icon.tm2" } else { "MISSING (no Icon.tm2 / FontIcon.inf): the panel shows without them" }
+            if sc.icons { "Triangle / Square / Cross / Circle from Theater's Icon.tm2" } else { "MISSING (no Icon.tm2 / FontIcon.inf): the panel shows without them" },
+            match sc.pads {
+                Some(p) => format!("; the other pad types' (Xbox Y / X / A / B, the generic pad's) from group {p}"),
+                None => String::new(),
+            }
         ),
         None => println!("note: KH1 HUD: no shortcut panel (no {} or no command menu look): the DLL's shortcuts cast without a panel", kh::CUT),
     }
@@ -1449,7 +1818,7 @@ fn kh1_hud_build(game: &Path, keys: kh1_formats::egs::KeyTable, arc: &kh1_format
         rs.gap_alpha,
         rs.cell_conflicts
     );
-    Ok(Hud { rtm_entry, manifest })
+    Ok(Hud { rtm_entry, manifest, riku_rtm: hud_riku_rtm })
 }
 
 /// The command menu look's KH1 inputs (H4).
@@ -1676,3 +2045,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+
+
+

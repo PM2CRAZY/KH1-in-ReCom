@@ -50,7 +50,7 @@ pub unsafe fn hp(pl: usize) -> i32 {
 /// KH1: MP Rage's charge for the HP the check took.
 pub unsafe fn after_damage(pl: usize, hp_before: i32) {
     let after: i32 = rd(pl + HP);
-    if after >= hp_before || !mp::active() {
+    if after >= hp_before || !mp::live() {
         return;
     }
     let Some(e) = super::abilities::equipped_live() else { return };
@@ -99,7 +99,7 @@ static BERSERK_LINES: AtomicU32 = AtomicU32::new(30);
 /// Berserk is on now: Sora's HP in KH1's low-HP state (`crate::kh1_support::berserk::low_hp` on
 /// Re:CoM's HP and max HP) and Berserk equipped.
 unsafe fn berserk_now(pl: usize) -> bool {
-    ks::berserk::low_hp(rd(pl + HP), rd(pl + MAX_HP)) && mp::active() && super::abilities::equipped_live().is_some_and(ab::berserk)
+    ks::berserk::low_hp(rd(pl + HP), rd(pl + MAX_HP)) && mp::live() && super::abilities::equipped_live().is_some_and(ab::berserk)
 }
 
 /// A KH1 swing row starts (`win::attack::apply_row`): KH1's moment for Berserk's test.
@@ -158,7 +158,7 @@ static SECOND_LINES: AtomicU32 = AtomicU32::new(20);
 /// Before Re:CoM's damage check (`win::attack::damage_check`, a hit having arrived, Combat = KH1):
 /// arms the stub for Sora when Second Chance is equipped.
 pub unsafe fn arm(pl: usize) {
-    if !SECOND_CHANCE_ON.load(Ordering::Relaxed) || !mp::active() || !super::abilities::equipped_live().is_some_and(ab::second_chance) {
+    if !SECOND_CHANCE_ON.load(Ordering::Relaxed) || !mp::live() || !super::abilities::equipped_live().is_some_and(ab::second_chance) {
         return;
     }
     SAVED_BEFORE.store(ARMED.saved.load(Ordering::Relaxed), Ordering::Relaxed);

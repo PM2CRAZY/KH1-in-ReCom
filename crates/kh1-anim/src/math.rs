@@ -129,15 +129,6 @@ impl Affine {
         o
     }
 
-    /// The matrix as a flat 4×4 row-major array of the row-vector form. Read as column-major,
-    /// this is the column-vector matrix (e.g. `glam::Mat4::from_cols_array`).
-    pub fn to_array(&self) -> [f32; 16] {
-        let r = &self.r;
-        [
-            r[0][0], r[0][1], r[0][2], 0.0, r[1][0], r[1][1], r[1][2], 0.0, r[2][0], r[2][1], r[2][2], 0.0, self.t[0], self.t[1],
-            self.t[2], 1.0,
-        ]
-    }
 
     /// Converts a KH1 world matrix (identity model matrix: KH1 units ≈ cm, Y down) into the
     /// model's Y-up space in metres: `W · diag(1, −1, −1)`, translation × 0.01. This is Re:CoM's

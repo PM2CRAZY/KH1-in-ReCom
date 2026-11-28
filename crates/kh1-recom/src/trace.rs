@@ -41,6 +41,9 @@ pub struct PadView {
     pub lock: Option<Vec3>,
     /// Re:CoM's attack target (`player+0x84C`, locked on or not) as a KH1 body part.
     pub target: Option<kh1_core::TargetPart>,
+    /// 0.181.0: `target` is KH1's Auto Lock target (the soft target or its auto lock): the swing
+    /// aims and closes on it as on a lock (KH1's command target, `0x140293480`).
+    pub auto_target: bool,
 }
 
 /// KH1's view of that pad: kh1-core's stick (x right, y forward, KH1's dead zone on the raw
@@ -72,7 +75,7 @@ pub fn kh1_pad(p: &PadView) -> Kh1Pad {
 
 pub fn frame_input(p: &PadView) -> FrameInput {
     let k = kh1_pad(p);
-    FrameInput { move_dir: k.move_dir, tilt: k.tilt, recom_tilt: if p.enabled { crate::movement::speeds::recom_tilt(p.stick_int[0], p.stick_int[1]) } else { 0.0 }, jump: p.jump, square: p.square, lock_target: p.lock, attack: p.confirm, target: p.target, locked: p.lock.is_some(), magic: None, item: None, special: None }
+    FrameInput { move_dir: k.move_dir, tilt: k.tilt, recom_tilt: if p.enabled { crate::movement::speeds::recom_tilt(p.stick_int[0], p.stick_int[1]) } else { 0.0 }, jump: p.jump, square: p.square, lock_target: p.lock, attack: p.confirm, target: p.target, locked: p.lock.is_some() || p.auto_target, magic: None, item: None, special: None }
 }
 
 fn replay(b: Button) -> i32 {
@@ -232,6 +235,16 @@ pub fn file_name(n: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 0.181.0: KH1's Auto Lock target is the command target: the swing aims at it as at a lock.
+    #[test]
+    fn auto_target_aims_like_a_lock() {
+        let t = kh1_core::TargetPart { owner: 7, centre: Vec3::new(100.0, 0.0, 0.0), radius: 0.0 };
+        let soft = PadView { target: Some(t), auto_target: true, ..pad_for([128, 128], 0.0) };
+        assert!(frame_input(&soft).locked);
+        let pick = PadView { target: Some(t), ..pad_for([128, 128], 0.0) };
+        assert!(!frame_input(&pick).locked, "Re:CoM's pick without Auto Lock only feeds the picker");
+    }
 
     fn pad_for(stick_bytes: [u8; 2], camera: f32) -> PadView {
         // What Re:CoM's device and pad wrapper hold for these bytes and camera (`0x14029C560`,

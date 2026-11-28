@@ -869,3 +869,58 @@ fn kh1_flatten_in_recoms_state_is_kh1s_frame_by_frame() {
     let s = flatten::spring_back(0.9).unwrap();
     assert!((s.y - 0.9).abs() < 1e-6);
 }
+
+/// 0.184.2: Riku's rows are Sora's but Fire's effect set, Dark Firaga's.
+#[test]
+fn rikus_rows_change_only_fires_effect_set() {
+    let live: Vec<[[u8; 16]; 3]> = recom_rows();
+    let t = kh1_magic_table(&live);
+    let r = riku_look(&t);
+    for (i, (a, b)) in t.iter().zip(&r).enumerate() {
+        if i < 3 {
+            assert_eq!(b[2], DARK_FIRAGA_SET, "Fire level {}", i + 1);
+            let (mut a2, mut b2) = (*a, *b);
+            a2[2] = 0;
+            b2[2] = 0;
+            assert_eq!(a2, b2, "Fire level {}: only the set", i + 1);
+        } else {
+            assert_eq!(a, b, "row {i}");
+        }
+    }
+}
+
+/// 0.184.3 (fork owner, 2026-11-23: "teste cada uma com o Neo shadow em cada nível"): each KH1 spell at each level on
+/// KH1's Neoshadow, with Riku's KH1 MP (max 3, the owner's 0.184.2 log: "max MP 3") and the Neoshadow's KH1 record
+/// (the owner's files, `kh1-stats.json` `CEnemyNeoshadow`, every world the same; Checked (files)): 150 HP, Defence 30,
+/// floor 10 / cap 40 a hit, level 55, resist % [0] 50, [2] fire 49, [3] blizzard 50, [4] thunder 50, [8] gravity 0,
+/// [9] stop 20. KH1's own formulas (`0x1402BFA80` through `kh1_core`, `gravity_damage`, `stop::frames`). Printed as a
+/// table (`--nocapture`); the asserts hold KH1's rules on it.
+#[test]
+fn every_spell_and_level_on_kh1s_neoshadow() {
+    let mut resist = [1.0f32; 16];
+    for (i, v) in [50, 100, 49, 50, 50, 100, 100, 100, 0, 20, 50, 100, 100, 100, 100, 100].iter().enumerate() {
+        resist[i] = *v as f32 / 100.0;
+    }
+    let neo = |hp: i32| DefenderStats { hp, max_hp: 150, defence: 30, level: 55, min_damage: 10, max_damage: 40, resist, hp_percent_scale: resist[8], ..Default::default() };
+    let max_mp = 3;
+    let mut rng = kh1_core::Kh1Rand::new(1);
+    let hits_to_kill = |d: i32| if d > 0 { (150 + d - 1) / d } else { 0 };
+    for lv in 1..=3u8 {
+        for (s, name, data) in [(spell::FIRE, "Fire", fire_attack(lv)), (spell::BLIZZARD, "Blizzard", blizzard_attack(lv)), (spell::THUNDER, "Thunder", thunder_attack(lv))] {
+            let d = spell_damage(&data, max_mp, &neo(150), &mut rng);
+            eprintln!("{name} {lv}: power {} element {} -> {d} a hit (cap 40, resist {}%), {} casts to beat 150 HP", data.power, data.element, (resist[data.element as usize] * 100.0) as i32, hits_to_kill(d));
+            assert!((1..=40).contains(&d), "{name} {lv}: within the Neoshadow's floor / cap ({d})");
+            let _ = s;
+        }
+        let g = gravity_damage(lv, max_mp, 150, resist[8], 10);
+        eprintln!("Gravity {lv}: power {} -> {g} on a full Neoshadow (resist[8] 0 %: KH1's % of HP times 0)", gravity_attack(lv).power);
+        let w = spell_damage(&aero_wind_attack(lv), max_mp, &neo(150), &mut rng);
+        eprintln!("Aero {lv}: barrier {} frames; wind {} (power 8, element 0, resist 50 %) every 30 frames: {w}", aero::frames(max_mp), if aero::has_wind(lv) { "on" } else { "off" });
+    }
+    let stop = stop::frames(max_mp, resist[9]);
+    eprintln!("Stop (every level): {stop:?} frames on the Neoshadow ((2 + max MP) x 60 x 20 %)");
+    assert_eq!(stop, Some(60.0), "(2 + 3) x 60 x 0.2");
+    for lv in 1..=3u8 {
+        eprintln!("Cure {lv}: Re:CoM's heal {} HP on Riku", cure::heal(lv));
+    }
+}

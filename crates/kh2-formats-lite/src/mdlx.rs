@@ -97,12 +97,6 @@ pub struct Model {
     pub textures: Vec<Texture>,
 }
 
-impl Model {
-    pub fn triangle_count(&self) -> usize {
-        self.groups.iter().map(|g| g.triangles.len()).sum()
-    }
-}
-
 /// Reads the first model of an MDLX with its skeleton and textures.
 pub fn parse(mdlx: &[u8]) -> Result<Model> {
     let bar = Bar::parse(mdlx)?;

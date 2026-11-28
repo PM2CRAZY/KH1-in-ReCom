@@ -49,6 +49,53 @@ pub unsafe extern "win64" fn field_load(ch: u32) {
     if wanted() {
         load_set("field room");
     }
+    // 0.184.3 (fork owner, 2026-11-23: "fora do combate só a firaga solta projetil"): in Riku's story the field never
+    // loads the spell effects (Dark Firaga's are his own `EF1500.EFF`): Sora's 1001 for his KH1 spells, which stays
+    // resident once loaded (`battle_load`).
+    riku_sora_set("field room");
+}
+
+/// 0.184.2: `0x1402A53E0(1, group)`: a PLAYER group is loaded; `0x14023CCE0(group)`: queue it (Checked (decomp): the
+/// battle-set loader's own pair).
+const GROUP_LOADED_RVA: u32 = 0x002A_53E0;
+const GROUP_LOAD_RVA: u32 = 0x0023_CCE0;
+/// Riku's battle set (`0x140211960`: chars 3 / 4, `0x1407C7AE4` = 0x44D; Checked (decomp)).
+const RIKU_SET: u32 = 1101;
+static RIKU_LINES: AtomicU32 = AtomicU32::new(20);
+
+/// 0.184.2 (fork owner, 2026-11-23, on Riku's spells: "não tem efeito, som projetil cadê o resto?"): Re:CoM's spell
+/// effects (`fire_all` … `airo_all`) and the sounds riding them come with Sora's battle set, PLAYER 1001, whose LINK
+/// rows alone load EFFECT 2000..2063 (`docs/recom-m7-magic.md` § Spell effects in the field; Checked (exe)); Riku's
+/// set 1101 doesn't link them, so his KH1 spells drew nothing. `CGameSubBattle` state 1's tail call: Re:CoM's
+/// `0x140211960(ch)`, then, when it chose Riku's set and his KH1 spells are on, Sora's 1001 too (unless loaded). The
+/// room waits on the loader queue as for Re:CoM's set. It is not unloaded (Re:CoM's unloader takes the set the
+/// world chose): it stays resident, as Re:CoM keeps 1001 under its system byte 0x60; the next battle finds it loaded.
+pub unsafe extern "win64" fn battle_load(ch: u32) {
+    func::<CharFn>(fx::LOAD_RVA)(ch);
+    if rd::<u32>(va(base(), fx::SET_GLOBAL)) == RIKU_SET {
+        riku_sora_set("Riku's battle");
+    }
+}
+
+/// Riku's KH1 spells are on (his story, `riku_kh1_movement`, Combat = KH1, the cast installed).
+fn riku_wanted() -> bool {
+    // SAFETY: atomics and settings reads.
+    super::stats::riku_story() && unsafe { super::movement::riku_on() && super::movement::kh1_on() } && super::magic::installed()
+}
+
+/// Sora's battle set (PLAYER 1001, the spell effects) queued when Riku's KH1 spells are on and it isn't loaded.
+unsafe fn riku_sora_set(why: &str) {
+    if !riku_wanted() {
+        return;
+    }
+    type LoadedFn = unsafe extern "win64" fn(i32, i32) -> u64;
+    if func::<LoadedFn>(GROUP_LOADED_RVA)(1, fx::SORA_SET as i32) & 0xFF != 0 {
+        return;
+    }
+    func::<CharFn>(GROUP_LOAD_RVA)(fx::SORA_SET);
+    if RIKU_LINES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1)).is_ok() {
+        log(&format!("magic fx: {why}: Sora's battle set (PLAYER group 1001: the spell effects) queued too, for Riku's KH1 spells"));
+    }
 }
 
 /// The camp openings' unload call: Re:CoM's `0x140211560(ch)`, unless the field keeps the set.
@@ -64,7 +111,7 @@ pub unsafe extern "win64" fn camp_unload(ch: u32) {
 /// camp is on the main thread). At Re:CoM it stays until Re:CoM's next unload (a room change or
 /// camp opening), as under Re:CoM's own byte.
 pub fn setting_changed() {
-    if !INSTALLED.load(Ordering::Acquire) || !wanted() {
+    if !INSTALLED.load(Ordering::Acquire) || !(wanted() || riku_wanted()) {
         return;
     }
     // SAFETY: a static pointer of the image; Re:CoM's own queue call, from the camp's update
@@ -73,6 +120,10 @@ pub fn setting_changed() {
         let pl: usize = rd(va(base(), crate::sites::data::MAIN_PLAYER));
         if super::movement::is_main_sora(pl) {
             load_set("Combat = KH1");
+        }
+        // 0.184.3: Riku's KH1 spells.
+        if super::movement::is_main_riku(pl) {
+            riku_sora_set("Combat = KH1");
         }
     }
 }
@@ -114,4 +165,19 @@ pub unsafe fn install(b: usize) -> bool {
     }
     INSTALLED.store(true, Ordering::Release);
     true
+}
+
+/// 0.184.2: retargets `CGameSubBattle` state 1's tail jump to [`battle_load`] (`sites::RIKU_FX_BRANCH`, its bytes
+/// checked by `patch`). Not fatal: without it Riku's spells draw nothing, as before.
+pub unsafe fn install_riku(b: usize) {
+    let s = &crate::sites::RIKU_FX_BRANCH[0];
+    let at = b + s.rva as usize;
+    let Some(t) = super::hook::place_near(at, &crate::hookplan::abs_jmp(battle_load as *const () as u64)) else {
+        log("magic fx: no memory near the battle state's jump; Riku's spells draw no effects");
+        return;
+    };
+    let Some(j) = crate::hookplan::rel_jmp(at as u64, t as u64) else { return };
+    if !super::hook::patch(at, s.expect, &j, s.name) {
+        log("magic fx: the battle state's jump to 0x140211960 is not Re:CoM's; Riku's spells draw no effects");
+    }
 }

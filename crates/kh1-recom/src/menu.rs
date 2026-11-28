@@ -51,6 +51,12 @@ pub enum Page {
     /// M12 camera: Re:CoM's, KH1's or KH2's player camera (ini `camera`; owner, 2026-11-04: "a
     /// new Settings > Camera page", independent of Combat).
     Camera,
+    /// Fork (0.154.1, owner 2026-11-22: "uma nova opção no menu chamada Costumes"): Riku's look,
+    /// Default Attire or Dark Mode (`crate::riku_skin`), from Riku's top list.
+    Costumes,
+    /// Fork (0.170.0): Sora's look, Default Attire or Halloween Town (Re:CoM's own Halloween model,
+    /// group 11; `win::sora_costume`), from Sora's top list.
+    SoraCostumes,
 }
 
 /// A row of a settings page: one `kh1-recom.ini` key.
@@ -82,6 +88,18 @@ pub enum Item {
     Camera,
     /// `auto_camera` (M12 camera stage 2)
     AutoCamera,
+    /// `auto_lock` (fork, 0.173.0: KH1 FM's Auto Lock)
+    AutoLock,
+    /// `target_lock` (fork, 0.173.0: KH1 FM's Target Lock, Auto / Manual)
+    TargetLock,
+    /// `riku_costume` (fork): Default Attire / Dark Mode / Halloween Town (0.178.0).
+    Costume,
+    /// `riku_keyblade` (fork, 0.160.0): Soul Eater / Keyblade of Heart.
+    Blade,
+    /// `sora_costume` (fork, 0.170.0): Default Attire / Halloween Town.
+    SoraCostume,
+    /// `riku_hair` (fork, 0.186.0): Re:CoM / KH2 / BBS (0.194.0).
+    Hair,
 }
 
 /// When a change takes effect (from what reads the setting; `docs/recom-config-menu.md`).
@@ -91,6 +109,8 @@ pub enum Effect {
     Now,
     /// Read when a battle starts (the battle manager's construction / each enemy's).
     NextBattle,
+    /// Read when the player is built (the next room or battle).
+    NextRoom,
 }
 
 impl Page {
@@ -102,7 +122,10 @@ impl Page {
             Page::Combat => &[Item::Combat, Item::GuardReactions, Item::EnemyPace, Item::EnemyAi, Item::RevengeValue],
             Page::Movement => &[Item::RunSpeed, Item::JumpHeight, Item::AirSpeed, Item::DodgeRoll],
             Page::EffectsSound => &[Item::Effects, Item::Sounds],
-            Page::Camera => &[Item::Camera, Item::AutoCamera],
+            Page::Camera => &[Item::Camera, Item::AutoCamera, Item::AutoLock, Item::TargetLock],
+            // 0.163.0: the Keyblade is chosen on the Items page's Keyblade slot, as Sora's.
+            Page::Costumes => &[Item::Costume, Item::Hair],
+            Page::SoraCostumes => &[Item::SoraCostume],
         }
     }
 
@@ -115,6 +138,7 @@ impl Page {
             // (`0x1403480C0`, Checked (decomp)); that its font has a `&` glyph is an Assumption.
             Page::EffectsSound => b"Effects & Sound\0",
             Page::Camera => b"Camera\0",
+            Page::Costumes | Page::SoraCostumes => b"Costumes\0",
         }
     }
 
@@ -124,15 +148,29 @@ impl Page {
             Page::Combat => b"Combat, Guard reactions, enemy pace and AI, Revenge Value.\0",
             Page::Movement => b"Run speed, jump height, air speed and Dodge roll.\0",
             Page::EffectsSound => b"KH1's or Re:CoM's effects and sounds on Sora's KH1 moves.\0",
-            Page::Camera => b"Re:CoM's, KH1's or KH2's camera, and their Auto camera.\0",
+            Page::Camera => b"Camera, Auto camera, and KH1's Auto Lock and Target Lock.\0",
+            Page::Costumes => b"Change Riku's attire and hair.\0",
+            Page::SoraCostumes => b"Change Sora's attire.\0",
         }
     }
 }
 
 const RECOM_KH1: &[&[u8]] = &[b"Re:CoM\0", b"KH1\0"];
+const AUTO_MANUAL: &[&[u8]] = &[b"Auto\0", b"Manual\0"];
 const OFF_ON: &[&[u8]] = &[b"Off\0", b"On\0"];
 const ROLL: &[&[u8]] = &[b"Re:CoM\0", b"KH1\0", b"Off\0"];
 const CAMERAS: &[&[u8]] = &[b"Re:CoM\0", b"KH1\0", b"KH2\0"];
+const COSTUMES: &[&[u8]] = &[b"Default Attire\0", b"Dark Mode\0", b"Halloween Town\0"];
+/// The help line when Dark Mode is asked for before Riku has reached it (0.156.0).
+pub const COSTUME_LOCKED: &[u8] = b"Riku must reach Dark Mode once to wear this attire.\0";
+pub const RIKU_HALLOWEEN_LOCKED: &[u8] = b"Riku must reach Halloween Town once to wear this attire.\0";
+pub const HAIR_KH2_LOCKED: &[u8] = b"Riku must defeat Riku Replica once to wear this hair.\0";
+pub const HAIR_BBS_LOCKED: &[u8] = b"Riku must defeat Vexen once to wear this hair.\0";
+const BLADES: &[&[u8]] = &[b"Soul Eater\0", b"Keyblade of Heart\0"];
+const HAIRS: &[&[u8]] = &[b"Re:CoM\0", b"KH2\0", b"BBS\0"];
+const SORA_COSTUMES: &[&[u8]] = &[b"Default Attire\0", b"Halloween Town\0"];
+pub const SORA_COSTUME_LOCKED: &[u8] = b"Sora must reach Halloween Town once to wear this attire.\0";
+pub const BLADE_LOCKED: &[u8] = b"Riku must reach Dark Mode once to hold this Keyblade.\0";
 
 fn mode_index(m: Mode) -> usize {
     match m {
@@ -166,22 +204,34 @@ impl Item {
             Item::Sounds => b"Sounds\0",
             Item::Camera => b"Camera\0",
             Item::AutoCamera => b"Auto camera\0",
+            Item::AutoLock => b"Auto Lock\0",
+            Item::TargetLock => b"Target Lock\0",
+            Item::Costume => b"Costume\0",
+            Item::Blade => b"Keyblade\0",
+            Item::SoraCostume => b"Costume\0",
+            Item::Hair => b"Hair\0",
         }
     }
 
     /// Its options, in the order left / right cycle through them.
     pub fn options(self) -> &'static [&'static [u8]] {
         match self {
-            Item::GuardReactions | Item::RevengeValue | Item::AutoCamera => OFF_ON,
+            Item::GuardReactions | Item::RevengeValue | Item::AutoCamera | Item::AutoLock => OFF_ON,
+            Item::TargetLock => AUTO_MANUAL,
             Item::DodgeRoll => ROLL,
             Item::Camera => CAMERAS,
+            Item::Costume => COSTUMES,
+            Item::Blade => BLADES,
+            Item::SoraCostume => SORA_COSTUMES,
+            Item::Hair => HAIRS,
             _ => RECOM_KH1,
         }
     }
 
     /// Two options: Re:CoM's pair row; more: Re:CoM's single-value row.
     pub fn style(self) -> Style {
-        if self.options().len() == 2 {
+        // "Default Attire" is too wide for a pair row's value: one value showing the current one.
+        if self.options().len() == 2 && !matches!(self, Item::Costume | Item::Blade | Item::SoraCostume) {
             Style::Pair
         } else {
             Style::Single
@@ -204,6 +254,12 @@ impl Item {
             Item::Sounds => b"KH1: KH1's swing and finisher sounds. KH1 only.\0",
             Item::Camera => b"Re:CoM's camera, KH1's, or KH2's (its distances x 0.89).\0",
             Item::AutoCamera => b"On: the KH1 / KH2 camera swings behind Sora as he runs.\0",
+            Item::AutoLock => b"On: swings aim at the nearest enemy without a lock. KH1 only.\0",
+            Item::TargetLock => b"Manual: the lock lasts while R1 is held. KH1 only.\0",
+            Item::Costume => b"Dark Mode: his first Dark Mode. Halloween Town: visiting it.\0",
+            Item::Blade => b"Keyblade of Heart: Riku-Ansem's. Unlocked by Riku's first Dark Mode.\0",
+            Item::SoraCostume => b"Halloween Town: Sora's costume there. Unlocked by visiting it.\0",
+            Item::Hair => b"KH2: his KH2 hair. BBS: kid Riku's (needs the 1.5+2.5 collection).\0",
         }
     }
 
@@ -211,6 +267,7 @@ impl Item {
     pub fn effect(self) -> Effect {
         match self {
             Item::EnemyPace | Item::EnemyAi => Effect::NextBattle,
+            Item::Costume | Item::Blade | Item::SoraCostume | Item::Hair => Effect::NextRoom,
             _ => Effect::Now,
         }
     }
@@ -231,6 +288,12 @@ impl Item {
             Item::Sounds => "sounds",
             Item::Camera => "camera",
             Item::AutoCamera => "auto_camera",
+            Item::AutoLock => "auto_lock",
+            Item::TargetLock => "target_lock",
+            Item::Costume => "riku_costume",
+            Item::Blade => "riku_keyblade",
+            Item::SoraCostume => "sora_costume",
+            Item::Hair => "riku_hair",
         }
     }
 
@@ -258,6 +321,12 @@ impl Item {
                 Camera::Kh2 => 2,
             },
             Item::AutoCamera => s.auto_camera as usize,
+            Item::AutoLock => s.auto_lock as usize,
+            Item::TargetLock => s.target_lock_manual as usize,
+            Item::Costume => s.riku_costume.min(2) as usize,
+            Item::Blade => s.riku_heart_blade as usize,
+            Item::SoraCostume => s.sora_halloween as usize,
+            Item::Hair => s.riku_hair.min(2) as usize,
         }
     }
 
@@ -291,6 +360,12 @@ impl Item {
                 }
             }
             Item::AutoCamera => s.auto_camera = v == 1,
+            Item::AutoLock => s.auto_lock = v == 1,
+            Item::TargetLock => s.target_lock_manual = v == 1,
+            Item::Costume => s.riku_costume = v.min(2) as u8,
+            Item::Blade => s.riku_heart_blade = v == 1,
+            Item::SoraCostume => s.sora_halloween = v == 1,
+            Item::Hair => s.riku_hair = v.min(2) as u8,
         }
     }
 }
@@ -435,8 +510,8 @@ mod tests {
         assert_eq!(labels(Page::EffectsSound), ["Effects", "Sounds"], "M13; Voices once voices exist");
         assert_eq!((Page::Combat.label(), Page::Movement.label(), Page::EffectsSound.label()), (&b"Combat\0"[..], &b"Movement\0"[..], &b"Effects & Sound\0"[..]));
         let keys: Vec<&str> = Page::ALL.iter().flat_map(|p| p.items().iter().map(|i| i.key())).collect();
-        assert_eq!(keys, ["combat", "guard_reactions", "enemy_pace", "enemy_ai", "boss_revenge", "run_speed", "jump_height", "air_speed", "dodge_roll", "effects", "sounds", "camera", "auto_camera"]);
-        assert_eq!(labels(Page::Camera), ["Camera", "Auto camera"], "M12 camera stages 1 and 2");
+        assert_eq!(keys, ["combat", "guard_reactions", "enemy_pace", "enemy_ai", "boss_revenge", "run_speed", "jump_height", "air_speed", "dodge_roll", "effects", "sounds", "camera", "auto_camera", "auto_lock", "target_lock"]);
+        assert_eq!(labels(Page::Camera), ["Camera", "Auto camera", "Auto Lock", "Target Lock"], "M12 camera stages 1 and 2; KH1 FM's lock options (0.173.0)");
         // Damage stays ini-only (owner).
         assert!(!keys.contains(&"damage"));
     }
@@ -450,7 +525,7 @@ mod tests {
         assert_eq!(slots_used(Page::Combat), 15);
         assert_eq!(slots_used(Page::Movement), 11);
         assert_eq!(slots_used(Page::EffectsSound), 6);
-        assert_eq!(slots_used(Page::Camera), 5);
+        assert_eq!(slots_used(Page::Camera), 11);
         assert_eq!(Item::AutoCamera.options(), OFF_ON);
         assert_eq!(Item::Camera.options(), CAMERAS, "M12 camera stage 4: Re:CoM / KH1 / KH2");
         assert_eq!(Item::Camera.style(), Style::Single, "a single row like Dodge roll");
@@ -553,7 +628,7 @@ mod tests {
 
     #[test]
     fn texts_are_terminated_ascii_and_fit_the_help_box() {
-        let mut all: Vec<&[u8]> = Vec::new();
+        let mut all: Vec<&[u8]> = vec![COSTUME_LOCKED, RIKU_HALLOWEEN_LOCKED, BLADE_LOCKED, SORA_COSTUME_LOCKED, HAIR_KH2_LOCKED, HAIR_BBS_LOCKED];
         for p in Page::ALL {
             all.extend([p.label(), p.help()]);
             for it in p.items() {

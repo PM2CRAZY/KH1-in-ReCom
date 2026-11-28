@@ -18,7 +18,7 @@
 //! Units: the logic is in KH1 units (cm, y down), like [`crate::movement`]; the blade is computed in
 //! Re:CoM metres from Re:CoM's own weapon bones (the line is the same at any scale).
 
-use crate::movement::{action, FrameOut, Host, Kh1Sora, SwingStart};
+use crate::movement::{action, Host, Kh1Sora, SwingStart};
 use kh1_core::combo::{pick_air, pick_ground, AirCtx, GroundCtx, TargetPart};
 use kh1_core::controller::{state, Event, Refused};
 use kh1_core::damage::{AttackerStats, LiveAttack};
@@ -69,6 +69,52 @@ pub const RECOM_ROWS_1_7: [[u8; 16]; 7] = [
     [0x35, 0x00, 0x01, 0x00, 0x04, 0x10, 0x00, 0x0C, 0x14, 0x08, 0x00, 0x01, 0x08, 0x0A, 0x00, 0x19],
     [0x36, 0x00, 0x03, 0x00, 0x0A, 0x2A, 0x0A, 0x0E, 0x14, 0x08, 0x02, 0x02, 0x08, 0x10, 0x00, 0x18],
 ];
+
+/// Riku's own swing rows 0x97..=0x9D (`RECOM_ATTACK_ROWS + id × 16`), the twins of Sora's rows 1–7:
+/// the same action rows (clips `p002_044..050`), his own hit windows `+4` / `+5`. Read from the
+/// Steam exe (Checked (exe), 2026-11-27); the runtime refuses Riku's table unless the live rows match.
+pub const RIKU_ROWS_1_7: [[u8; 16]; 7] = [
+    [0x30, 0x00, 0x12, 0x00, 0x0C, 0x1A, 0x08, 0x1E, 0x14, 0x08, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01],
+    [0x31, 0x00, 0x12, 0x00, 0x0C, 0x20, 0x08, 0x28, 0x14, 0x08, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01],
+    [0x32, 0x00, 0x12, 0x00, 0x14, 0x26, 0x0A, 0x28, 0x14, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 0x01],
+    [0x33, 0x00, 0x14, 0x00, 0x12, 0x30, 0x06, 0x1C, 0x14, 0x08, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00],
+    [0x34, 0x00, 0x12, 0x00, 0x08, 0x1A, 0x00, 0x14, 0x14, 0x08, 0x01, 0x01, 0x02, 0x18, 0x00, 0x19],
+    [0x35, 0x00, 0x12, 0x00, 0x04, 0x10, 0x00, 0x0E, 0x14, 0x08, 0x00, 0x01, 0x08, 0x0A, 0x00, 0x19],
+    [0x36, 0x00, 0x14, 0x00, 0x0A, 0x26, 0x0A, 0x10, 0x14, 0x08, 0x02, 0x02, 0x08, 0x10, 0x00, 0x18],
+];
+
+/// Dark Riku's swing rows 0x9E..=0xA4 (clips `p003_*` on the same action rows 0x30..=0x36), his own
+/// hit windows. Checked (exe), 2026-11-27.
+pub const DARK_ROWS_1_7: [[u8; 16]; 7] = [
+    [0x30, 0x00, 0x15, 0x00, 0x04, 0x16, 0x04, 0x12, 0x14, 0x08, 0x03, 0x01, 0x00, 0x00, 0x00, 0x01],
+    [0x31, 0x00, 0x15, 0x00, 0x04, 0x2A, 0x0A, 0x10, 0x14, 0x08, 0x03, 0x01, 0x00, 0x00, 0x00, 0x01],
+    [0x32, 0x00, 0x15, 0x00, 0x08, 0x1A, 0x08, 0x18, 0x14, 0x08, 0x03, 0x01, 0x00, 0x00, 0x00, 0x01],
+    [0x33, 0x00, 0x16, 0x00, 0x12, 0x28, 0x08, 0x1A, 0x14, 0x08, 0x03, 0x02, 0x00, 0x00, 0x00, 0x00],
+    [0x34, 0x00, 0x15, 0x00, 0x08, 0x1A, 0x00, 0x14, 0x14, 0x08, 0x03, 0x01, 0x02, 0x18, 0x00, 0x19],
+    [0x35, 0x00, 0x16, 0x00, 0x08, 0x1E, 0x00, 0x10, 0x14, 0x08, 0x03, 0x02, 0x08, 0x0A, 0x00, 0x10],
+    [0x36, 0x00, 0x16, 0x00, 0x04, 0x32, 0x0A, 0x12, 0x14, 0x08, 0x03, 0x02, 0x08, 0x10, 0x00, 0x19],
+];
+
+/// Riku's (or Dark Riku's) copy of the KH1 table: the swing rows of [`ROW_MAP`] take the hit window
+/// (`+4` / `+5`) and the homing (`+6..=+9`, 0.198.26) of his own Re:CoM row of the same clip, in
+/// Re:CoM's own frame terms (no [`HIT_LEAD`]: Re:CoM's exe reads these bytes itself). Everything else
+/// stays the KH1 row's (combo window, kind, flag 0x80). Fork owner, 2026-11-27: KH1's system adapted to Riku's own moves
+/// (`docs/design-philosophy-instructions.md` § Riku's combat); before this his clips swung with KH1
+/// Sora's hit frames and the blade passed through enemies while its volume was off.
+pub fn riku_table(kh1: &[[u8; 16]], own_rows_1_7: &[[u8; 16]; 7]) -> Vec<[u8; 16]> {
+    let mut t = kh1.to_vec();
+    for &(r, id) in ROW_MAP.iter() {
+        let Some(row) = t.get_mut(r).filter(|b| b[0] != 0) else { continue };
+        let own = &own_rows_1_7[id as usize - 1];
+        row[4] = own[4];
+        row[5] = own[5];
+        // 0.198.26: his approach too (Re:CoM's homing: turn to the target until `+6`, then close in
+        // at `+9` / 60 until within `+8` × 0.1 m before `+7`, while nothing is hit;
+        // `knowledge/ReCoM/recom-riku-combo.md` § 5). KH1 Sora's rows carry none.
+        row[6..10].copy_from_slice(&own[6..10]);
+    }
+    t
+}
 
 /// Row flag `0x80` (unused by all 188 Re:CoM rows, Checked (exe)): a KH1 row, whose `+1` / `+3`
 /// hold KH1's combo window.
@@ -176,6 +222,19 @@ pub fn row_bytes_from(recom: &[u8; 16], info: &kh1_core::MotionInfo, data: &Atta
     // Not chainable by Re:CoM's own gate, no early cancel, no push: KH1's window decides.
     b[0xF] = FLAG_KH1;
     Some(b)
+}
+
+/// What Re:CoM's pick reads about the target, from KH1's target part (KH1 units, y down) in metres.
+/// The part's centre is the target's vtable `+0x50` point (`win::attack::attack_target`), the one
+/// Re:CoM's pick reads; `above` = its height over Riku's position minus 1.0 m (`+0x864 − +0x4B4 −
+/// 1.0`), then the flat distance and the angle off his facing. Assumption: Riku's position stands for
+/// `+0x4B4`, and `0x1401A3050`'s distance is flat (its body not read); the angle is wrapped to ±π.
+pub fn riku_combo_target(t: TargetPart, pos: Vec3, facing: f32) -> crate::riku::ComboTarget {
+    let m = crate::units::METRES_PER_UNIT;
+    let d = t.centre - pos;
+    let flat = d.flat();
+    let angle = if flat.is_zero_xz() { 0.0 } else { kh1_core::math::wrap_angle(flat.yaw() - facing).abs() };
+    crate::riku::ComboTarget { above: -d.y * m - 1.0, distance: flat.length() * m, angle }
 }
 
 /// KH1's Counterattack row (motion 213, record `0x4E18`).
@@ -386,6 +445,11 @@ impl Kh1Sora {
         let finisher = length <= self.combo_counter;
         // Without a lock the scan sees Re:CoM's current target (Assumption: not every enemy; M12).
         let parts: Vec<TargetPart> = target.into_iter().collect();
+        if let Some(dark) = self.riku_moves {
+            // Riku: Re:CoM's own pick of his next swing (`crate::riku::situation`) on KH1's counter.
+            self.riku_attack(h, dir, w, target, pos, dark, finisher, length, ev);
+            return;
+        }
         let picked = match self.state {
             state::GROUND => {
                 let ctx = GroundCtx {
@@ -419,6 +483,51 @@ impl Kh1Sora {
             }
         };
         self.row_exec(h, picked, dir, w, finisher, length, pos, ev);
+    }
+
+    /// Riku's swing (fork owner, 2026-11-27: KH1's system on Riku's own moves): Re:CoM's situation
+    /// (`crate::riku::situation`, `0x1401F7520` / Dark `0x140204F80`) from his last swing and the target,
+    /// on KH1's combo counter and length; KH1's row of that clip; KH1's row exec. His rising swing from
+    /// the ground leaves it as KH1's jump-up (its hop toward the target). Sora's combo modifiers are not
+    /// offered (they are Sora's clips).
+    #[allow(clippy::too_many_arguments)]
+    fn riku_attack(&mut self, h: &mut dyn Host, dir: &mut Vec3, w: &mut f32, target: Option<TargetPart>, pos: Vec3, dark: bool, finisher: bool, length: u8, ev: &mut Vec<Event>) {
+        let airborne = self.state == state::AIR;
+        if self.combo_counter <= 1 {
+            self.riku_prev_sit = 0;
+        }
+        let t = target.map(|t| riku_combo_target(t, pos, self.facing));
+        let sit = crate::riku::situation(self.riku_prev_sit, finisher, airborne, dark, t);
+        let r = crate::riku::situation_row(sit, airborne);
+        if let Some(t) = target {
+            let (aim, len) = (t.centre - pos).flat().normalize_len();
+            if len > 0.0 {
+                *dir = aim;
+                self.target_yaw = aim.yaw();
+            }
+        }
+        *w = 0.0;
+        if r == row::JUMP_UP {
+            // KH1's jump-up hop toward the target (`pick_ground`'s jump-up branch numbers).
+            let p = &self.params.combo;
+            let (hop, speed) = match target {
+                Some(t) => {
+                    let d = t.centre - pos;
+                    let gap = d.flat().length() - t.radius;
+                    let s = ((gap - p.jump_up_speed_offset) / p.jump_up_speed_div).clamp(-p.jump_up_speed_cap, p.jump_up_speed_cap);
+                    let reach = self.params.reach(&self.abilities);
+                    let hh = -d.y - p.jump_up_hop_offset;
+                    (hh.min(reach).max(p.jump_up_hop_min), s)
+                }
+                None => (p.jump_up_hop_min, 0.0),
+            };
+            *dir = Vec3::new(dir.x, hop, dir.z);
+            *w = speed;
+        } else if airborne {
+            *dir = Vec3::new(dir.x, 0.0, dir.z);
+        }
+        self.riku_prev_sit = sit;
+        self.row_exec(h, r, dir, w, finisher, length, pos, ev);
     }
 
     /// `0x1402A7510`, command type 99 (Counterattack, command 0x63): CB+0x41 + 1, then row 0x3E
@@ -546,18 +655,6 @@ pub mod battle_case {
     pub fn entry() -> [u8; 4] {
         CAVE_RVA.to_le_bytes()
     }
-}
-
-/// What a frame did with the attack, for the trace.
-pub fn attack_events(out: &FrameOut) -> Vec<String> {
-    out.events
-        .iter()
-        .filter_map(|e| match e {
-            Event::AttackStarted { row, request, counter, finisher } => Some(format!("attack(row={row} req={request} n={counter}{})", if *finisher { " fin" } else { "" })),
-            Event::AttackRefused(r) => Some(format!("refused({r:?})")),
-            _ => None,
-        })
-        .collect()
 }
 
 // ---- KH1 enemy stats (decisions 12, 21) ----

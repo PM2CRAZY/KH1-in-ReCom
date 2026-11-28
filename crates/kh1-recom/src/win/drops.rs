@@ -120,6 +120,8 @@ pub unsafe extern "win64" fn defeat_prize(enemy: usize, point: usize) -> u64 {
         }
     }
     let r = orig::<DefeatFn>(&ORIG_DEFEAT_PRIZE)(enemy, point);
+    // 0.151.0: Riku's DP for an enemy defeated.
+    super::dark_points::defeat(enemy);
     if ON.load(Ordering::Acquire) && enemy != 0 && point != 0 && super::movement::kh1_on() && rd::<usize>(enemy + ENP_ROW) != 0 {
         drop_items(enemy, point);
     }
@@ -190,6 +192,10 @@ pub unsafe extern "win64" fn prize_add(kind: u32, arg: u32, mode: i32) {
     if super::gimmick::prize_add(kind, arg, mode) {
         return;
     }
+    if let Some(amount) = exp_amount(kind) {
+        exp_note(kind, amount, || orig::<AddFn>(&ORIG_PRIZE_ADD)(kind, arg, mode));
+        return;
+    }
     if kind != dr::KH1_ITEM_KIND || !ON.load(Ordering::Acquire) {
         return orig::<AddFn>(&ORIG_PRIZE_ADD)(kind, arg, mode);
     }
@@ -202,6 +208,38 @@ pub unsafe extern "win64" fn prize_add(kind: u32, arg: u32, mode: i32) {
     if r.is_none() {
         note(|| format!("{} picked up but refused (stock at 99, or KH1 items not live): lost", crate::items::name(item as u8)));
     }
+}
+
+/// Re:CoM's EXP prizes: kinds 0xCB..=0xD1 add 1 / 10 / 60 / 5 / 30 / 99 / 1400 EXP through
+/// `0x1401E5730` (the prize player's `+0x440` EXP, `+0x444` level). Checked (decomp `0x1401F4AB0`'s
+/// switch, `0x1401E5730`), 2026-11-27.
+fn exp_amount(kind: u32) -> Option<u32> {
+    const AMOUNTS: [u32; 7] = [1, 10, 60, 5, 30, 99, 1400];
+    kind.checked_sub(0xCB).and_then(|i| AMOUNTS.get(i as usize)).copied()
+}
+
+/// The prize player (`DAT_14087B390`, the EXP add's player). Checked (decomp `0x1401E5730`).
+const PRIZE_PLAYER: u64 = 0x1_4087_B390;
+const EXP: usize = 0x440;
+const LEVEL: usize = 0x444;
+/// The player's HP and action (`win::kh1_cure::HP`, `items::ACTION`).
+const HP: usize = 0x274;
+const ACTION: usize = 0x40C;
+static EXP_LOG_LEFT: AtomicU32 = AtomicU32::new(200);
+
+/// One log line per EXP prize the player takes (fork owner, 2026-11-27: "tenho a impressão de que só ao
+/// tomar danho estou ganhando xp"): the amount, EXP and level before / after, his HP and action.
+unsafe fn exp_note(kind: u32, amount: u32, add: impl FnOnce()) {
+    let pl: usize = rd(va(super::base(), PRIZE_PLAYER));
+    let read = |pl: usize| if pl != 0 { (rd::<i32>(pl + EXP), rd::<i32>(pl + LEVEL)) } else { (0, 0) };
+    let before = read(pl);
+    add();
+    if EXP_LOG_LEFT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1)).is_err() {
+        return;
+    }
+    let after = read(pl);
+    let (hp, action) = if pl != 0 { (rd::<i32>(pl + HP), rd::<u32>(pl + ACTION)) } else { (0, 0) };
+    log(&format!("exp: prize {kind:#x} (+{amount}): EXP {} -> {}, level {} -> {}; HP {hp}, action {action:#x}", before.0, after.0, before.1, after.1));
 }
 
 /// The start line.

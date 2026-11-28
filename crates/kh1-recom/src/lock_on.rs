@@ -186,6 +186,84 @@ pub fn nearest(origin: [f32; 3], targets: &[Candidate], reach: f32, listed: &[u3
     best.map(|(_, h)| h)
 }
 
+/// 0.181.0: KH1's soft target (Auto Lock On, lock state 2) and an attack's auto lock (state 4), as
+/// the workspace's `knowledge/KH1/kh1-lock-on.md` has them (Checked (decomp + exe)).
+pub mod soft {
+    use super::{kh1, Candidate};
+
+    /// The pick's reach (`0x14042F998`): the flat distance to the lock point less its radius.
+    pub const REACH: f32 = 300.0;
+    /// The pick's height window (`0x1403EF4E8` / `0x1403EF6D8`): ±350.
+    pub const HEIGHT: f32 = 350.0;
+    /// The facing weight (`0x14042F7EC` = 0.5, squared) and the height weight (`0x1403D7CC4`).
+    pub const FACING: f32 = 0.25;
+    pub const HEIGHT_WEIGHT: f32 = 0.2;
+    /// State 4 ends this long after the last command that took it (`0x14042F980`, the frame delta
+    /// summed; Assumption: 60 Hz frames, so 1.5 s).
+    pub const HOLD: f32 = 90.0;
+    /// A held target past these ends it (`0x1402B13F0`: 1500 across, 1000 up).
+    pub const HOLD_ACROSS: f32 = 1500.0;
+    pub const HOLD_UP: f32 = 1000.0;
+
+    /// The flat gap (KH1 units, less the radius, at least 0) and the height difference (KH1 units)
+    /// from `origin` to `c`, with the flat distance (metres) and direction.
+    fn gap(origin: [f32; 3], c: &Candidate) -> (f32, f32, f32, [f32; 2]) {
+        let (dx, dz) = (c.point[0] - origin[0], c.point[2] - origin[2]);
+        let flat = dx.hypot(dz);
+        let g = (flat * kh1::CM - c.radius).max(0.0);
+        (g, (c.point[1] - origin[1]) * kh1::CM, flat, if flat > 0.0 { [dx / flat, dz / flat] } else { [0.0, 0.0] })
+    }
+
+    /// KH1's pick (`0x1402B0A00`): among the targets within [`REACH`] and [`HEIGHT`], the lowest
+    /// `((1 − cos) × 0.25 + 1) × gap + |dy| × 0.2`, `cos` the flat cosine between the player's
+    /// facing `forward` (x, z) and the direction to the target (`0x1402A8D20`). Assumption: no line
+    /// of sight test (`0x140193B60` has no Re:CoM twin here).
+    pub fn pick(origin: [f32; 3], forward: [f32; 2], targets: &[Candidate]) -> Option<u32> {
+        let mut best: Option<(f32, u32)> = None;
+        for c in targets {
+            if c.handle == 0 {
+                continue;
+            }
+            let (g, dy, flat, dir) = gap(origin, c);
+            if g > REACH || dy.abs() > HEIGHT {
+                continue;
+            }
+            let cos = if flat > 0.0 { dir[0] * forward[0] + dir[1] * forward[1] } else { 1.0 };
+            let s = ((1.0 - cos) * FACING + 1.0) * g + dy.abs() * HEIGHT_WEIGHT;
+            if best.is_none_or(|(b, _)| s < b) {
+                best = Some((s, c.handle));
+            }
+        }
+        best.map(|(_, h)| h)
+    }
+
+    /// A held target stays while it is within [`HOLD_ACROSS`] / [`HOLD_UP`].
+    pub fn holds(origin: [f32; 3], c: &Candidate) -> bool {
+        let (g, dy, ..) = gap(origin, c);
+        g <= HOLD_ACROSS && dy.abs() <= HOLD_UP
+    }
+
+    /// An attack's auto lock (state 4): the target a command took and the time since.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Held {
+        pub handle: u32,
+        pub frames: f32,
+    }
+
+    impl Held {
+        /// A command took `handle` (`0x1402B08A0(…, 4)` zeroes the time each time).
+        pub fn take(handle: u32) -> Held {
+            Held { handle, frames: 0.0 }
+        }
+
+        /// One frame of `step` frames: false when it ends ([`HOLD`] reached, or L2 / R2).
+        pub fn tick(&mut self, step: f32, l2_r2: bool) -> bool {
+            self.frames += step;
+            self.frames < HOLD && !l2_r2
+        }
+    }
+}
+
 /// KH1's lock list (`0x142DB3520`, its cursor and count): the targets L2 has stepped through
 /// since the lock began, in order, and the one locked now.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -277,6 +355,30 @@ impl History {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn kh1_soft_target_pick_and_hold() {
+        use super::soft::{holds, pick, Held, HOLD};
+        let c = |h: u32, x: f32, y: f32, z: f32, r: f32| Candidate { handle: h, point: [x, y, z], radius: r };
+        let o = [0.0; 3];
+        let fwd = [0.0, 1.0];
+        // 3 m flat less the radius; ±3.5 m up.
+        assert_eq!(pick(o, fwd, &[c(1, 0.0, 0.0, 3.4, 50.0)]), Some(1));
+        assert_eq!(pick(o, fwd, &[c(1, 0.0, 0.0, 3.6, 50.0)]), None);
+        assert_eq!(pick(o, fwd, &[c(1, 0.0, 3.6, 1.0, 0.0)]), None);
+        // In front beats behind at the same gap (behind weighs ×1.5).
+        assert_eq!(pick(o, fwd, &[c(1, 0.0, 0.0, -2.0, 0.0), c(2, 0.0, 0.0, 2.5, 0.0)]), Some(2));
+        assert_eq!(pick(o, fwd, &[c(1, 0.0, 0.0, -1.5, 0.0), c(2, 0.0, 0.0, 2.5, 0.0)]), Some(1), "1.5 m × 1.5 < 2.5 m");
+        // Height weighs 0.2.
+        assert_eq!(pick(o, fwd, &[c(1, 0.0, 2.0, 1.0, 0.0), c(2, 0.0, 0.0, 1.3, 0.0)]), Some(2));
+        // The hold: 15 m across, 10 m up; 90 frames since the last command; L2 / R2.
+        assert!(holds(o, &c(1, 0.0, 0.0, 14.0, 0.0)) && !holds(o, &c(1, 0.0, 0.0, 16.0, 0.0)) && !holds(o, &c(1, 0.0, 10.5, 0.0, 0.0)));
+        let mut h = Held::take(7);
+        assert!(h.tick(HOLD - 1.0, false));
+        assert!(!h.tick(1.0, false));
+        assert!(!Held::take(7).tick(1.0, true));
+    }
+
     use super::*;
 
     #[test]

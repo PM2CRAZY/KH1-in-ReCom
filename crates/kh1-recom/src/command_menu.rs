@@ -163,6 +163,23 @@ pub mod cmd {
         }
     }
 
+    /// 0.181.0: KH1's command table flag 4 (byte `+0`, `btltbl.bin` `+0xA58`, the owner's file,
+    /// SHA-256 `b70db229…`; Checked (files)) for commands 0..0x7F: the commands with a target.
+    /// While the highlighted command has it, KH1 picks the soft target (`0x1402B11B0`; Checked
+    /// (decomp)). Set: Attack, Magic, Items, Fire / Blizzard / Gravity, the specials, Counterattack,
+    /// the default 0x43; not: Talk, Examine, Summon, Thunder, Cure, Stop, Aero, Lift, Open, Save.
+    pub const TARGETED: [u64; 2] = [0x0000_0000_4038_1F8F, 0x0000_000D_CF86_6888];
+
+    /// The command has KH1's flag 4 ([`TARGETED`]). Ours past 0x7F: the sleights (Assumption: as
+    /// the specials, they attack a target); the Party row and the gimmick card's, no.
+    pub fn targets(c: u8) -> bool {
+        if c < 0x80 {
+            TARGETED[(c >> 6) as usize] >> (c & 63) & 1 != 0
+        } else {
+            crate::sleights::of_command(c).is_some_and(|id| crate::party::index(id).is_none())
+        }
+    }
+
     /// The list a command opens (record `+8`): Magic 1, Items 2, Summon 3 (Cure / Aero open the
     /// party list 4: with the casts, stage 7.4 / 7.7); ours: the Sleights list 4 (row 3), the
     /// Party list 5 (0.111.0).
@@ -291,8 +308,12 @@ pub struct World {
     pub counter: bool,
     /// Spell levels, 0 = not learned.
     pub spells: [u8; spell::COUNT],
+    /// 0.184.0: the spells cost no MP here (Riku with the `riku_free_magic` test setting).
+    pub free_spells: bool,
     /// KH1's MP (MP, max, charge), None when MP isn't live.
     pub mp: Option<(i32, i32, u16)>,
+    /// 0.179.0: Dark Riku's DP (now, Dark Mode's max) while he is out, for his DP sleights.
+    pub dp: Option<(i32, i32)>,
     /// Distance to the target (KH1 cm), when there is one.
     pub target_dist: Option<f32>,
     /// The context command (entry 3, shown in the tab; 0: none).
@@ -747,7 +768,7 @@ impl Menu {
         let mut usable_spell = [false; spell::COUNT];
         if flags & 0x20 != 0 {
             for (i, &(s, lv)) in learned.iter().enumerate() {
-                let pays = w.mp.is_some_and(|(mp, max, c)| crate::mp::Mp::new(mp, max, c).can_pay(spell::COSTS[s as usize]));
+                let pays = w.free_spells || w.mp.is_some_and(|(mp, max, c)| crate::mp::Mp::new(mp, max, c).can_pay(spell::COSTS[s as usize]));
                 let in_range = !spell::RANGED[s as usize] || w.target_dist.is_none_or(|d| d <= spell::range(s, lv));
                 if pays && in_range {
                     usable &= !(1 << i);
@@ -804,7 +825,7 @@ impl Menu {
                     short_ok = true;
                     if equipped_sl.iter().any(|&e| e as u16 == id) {
                         short_cmds[k] = crate::sleights::command(id);
-                        if crate::sleights::usable(&gate, id) {
+                        if crate::sleights::usable_with_dp(&gate, id, w.dp) {
                             short_grey &= !(1 << k);
                         }
                     }
@@ -865,7 +886,7 @@ impl Menu {
             let ok = match crate::sleights::special_index(id) {
                 // M12 step 7: a KH1 special as its prompt (`crate::sleights::special_usable`).
                 Some(_) => crate::sleights::special_usable(&gate, id, w.sleight_specials),
-                None => crate::sleights::usable(&gate, id),
+                None => crate::sleights::usable_with_dp(&gate, id, w.dp),
             };
             if ok {
                 lgrey &= !(1 << k);
@@ -947,7 +968,15 @@ impl Menu {
         // special offer, which KH1 runs last (`0x14028D0F0`) and only into an entry nothing took;
         // greyed when it scored 1 (MP short).
         let (c, special) = crate::gimmick::context_entry(w.context, w.gimmick, w.special);
-        if c != cmd::NONE {
+        if c == cmd::TALK && !special && w.follow == cmd::NONE {
+            // KH1 puts Talk in row 0, not entry 3 (`0x140293000(0, Talk)`, which ungreys it): FM
+            // draws the row as a dimmed "Attack" ([`Menu::scene`]), its confirm buzzes (sound 4,
+            // `row0_special`), the tab shows Talk and Triangle talks. Fork owner, 2026-11-23,
+            // answer 8b (until 0.178.2 Talk was entry 3's, with a normal Attack in row 0).
+            r.cmds[0] = cmd::TALK;
+            r.grey &= !1;
+            r.lock &= !1;
+        } else if c != cmd::NONE {
             r.cmds[3] = c;
             if special && w.special_grey {
                 r.grey |= 8;
@@ -959,6 +988,23 @@ impl Menu {
         }
         for l in [&mut self.root, &mut self.magic, &mut self.items, &mut self.summon, &mut self.sleight, &mut self.party] {
             l.bright.resize(l.cmds.len(), BRIGHT_GREY);
+        }
+    }
+
+    /// 0.181.0: the highlighted command has KH1's flag 4 ([`cmd::targets`]), as `0x1402931B0`
+    /// writes the highlighted slot's entry to `0x142D539E8` (Checked (decomp)): the root's row, or
+    /// the open list's. The Items, Summon and Party lists' rows are items, summons and friends (no
+    /// flag); the Sleights list's are attacks (Assumption). The shortcut list and no cursor: KH1's
+    /// default entry 0x43 (flag 4).
+    pub fn highlighted_targets(&self) -> bool {
+        if self.short_on {
+            return true;
+        }
+        let l = if self.open { self.sub_list() } else { &self.root };
+        match l.kind {
+            Kind::Items | Kind::Summon | Kind::Party => false,
+            Kind::Sleight => true,
+            _ => usize::try_from(l.cursor).ok().and_then(|i| l.cmds.get(i)).is_none_or(|&c| cmd::targets(c)),
         }
     }
 
@@ -1539,6 +1585,9 @@ impl Menu {
             // grey bit, as FM's Summon there).
             let (name, bright) = if i == 3 {
                 (crate::sleights::ROW_WORD, if self.sleight_grey { BRIGHT_GREY } else { BRIGHT_ON })
+            } else if i == 0 && self.root.cmds[0] == cmd::TALK {
+                // FM draws Talk's row 0 as a dimmed "Attack" (the tab carries Talk).
+                (cmd::name(cmd::ATTACK), BRIGHT_GREY)
             } else {
                 (cmd::name(self.root.cmds[i]), self.root.bright.get(i).copied().unwrap_or(BRIGHT_GREY))
             };
@@ -1852,7 +1901,7 @@ pub mod shortcut {
     /// byte unless the player sets that slot. Checked (code).
     pub fn slot_sleight(b: u8) -> Option<u16> {
         let id = b as u16;
-        (b >= 8 && (crate::abilities::of_sleight(id).is_some() || crate::party::index(id).is_some())).then_some(id)
+        (b >= 8 && (crate::abilities::of_sleight(id).is_some() || crate::party::index(id).is_some() || crate::riku::sleight(id).is_some())).then_some(id)
     }
 
     /// The slot byte of a sleight ability's Re:CoM id (None: not one of the 27).
@@ -1998,7 +2047,7 @@ pub fn parse_words(text: &str, lang: &str) -> Result<Words, String> {
     }
     // Our own words (not KH1's): the asset step writes them; a manifest from before them gets the
     // built-in text (the Re:CoM look draws it; the KH1 look needs the asset step's glyphs).
-    for (id, text) in OUR_WORDS.iter().copied().chain(crate::sleights::words()).chain(crate::party::words()) {
+    for (id, text) in OUR_WORDS.iter().copied().chain(crate::sleights::words()).chain(crate::party::words()).chain(crate::riku::words()) {
         if out.get(id).is_none() {
             out.by_id.push((id, font_bytes(text).0));
         }
@@ -2008,6 +2057,18 @@ pub fn parse_words(text: &str, lang: &str) -> Result<Words, String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn kh1_flag_4_commands() {
+        use cmd::*;
+        for c in [ATTACK, MAGIC, ITEMS, spell(0, 1), spell(1, 3), spell(4, 2), COUNTER, 0x43, crate::specials::cmd::SONIC_BLADE, crate::specials::cmd::STRIKE_RAID] {
+            assert!(targets(c), "{c:#x}");
+        }
+        for c in [TALK, EXAMINE, SUMMON, spell(2, 1), spell(3, 1), spell(5, 1), spell(6, 1), LIFT, OPEN, SAVE, BLANK, PARTY] {
+            assert!(!targets(c), "{c:#x}");
+        }
+    }
+
     use super::*;
 
     fn world() -> World {
@@ -2037,6 +2098,19 @@ mod tests {
         m.root.cursor = 1;
         let o = m.step(&world(), press(|p| p.confirm = true));
         assert!(!m.open && o.sounds == vec![Sound::Error] && !o.attack);
+    }
+
+    /// 0.184.0: Riku's test setting `riku_free_magic`: every spell is usable with no MP; range still greys.
+    #[test]
+    fn free_spells_never_grey_for_mp() {
+        let mut w = World { spells: all_spells(), mp: Some((0, 3, 0)), free_spells: true, ..world() };
+        let mut m = Menu::new();
+        m.build(&w);
+        assert_eq!(m.magic.grey & 0x7F, 0, "no MP, all usable");
+        assert!(m.root.grey & 2 == 0);
+        w.target_dist = Some(1150.0);
+        m.build(&w);
+        assert_eq!(m.magic.grey & 0x7F, 0b0110100, "range still applies");
     }
 
     #[test]
@@ -2338,6 +2412,36 @@ mod tests {
         assert_eq!(m.alpha, 1.0);
         assert_eq!(text_colour(0xE6, 1.0), 0x80E6_E6E6);
         assert_eq!(text_colour(0x73, 0.5), 0x4073_7373);
+    }
+
+    #[test]
+    fn talk_takes_row_0_as_a_dimmed_attack_that_buzzes() {
+        // 0.178.3 (fork owner's answer 8b): KH1's rule next to an NPC.
+        let w = World { context: cmd::TALK, ..world() };
+        let mut m = Menu::new();
+        m.show();
+        m.build(&w);
+        assert_eq!((m.root.cmds[0], m.root.cmds[3], m.root.grey & 1), (cmd::TALK, cmd::NONE, 0));
+        // Drawn as a dimmed "Attack"; the tab carries Talk.
+        let s = m.scene();
+        assert_eq!((s.rows[0].name, s.rows[0].bright), (cmd::name(cmd::ATTACK), BRIGHT_GREY as u8));
+        // Confirm on row 0: the error sound, no Attack.
+        let o = m.step(&w, press(|p| p.confirm = true));
+        assert!(o.sounds == vec![Sound::Error] && !o.attack);
+        // Triangle once the tab is in: Talk.
+        let mut frames = 0;
+        while m.tab.state != 2 {
+            m.step(&w, Pad::default());
+            m.tick(1.0);
+            frames += 1;
+            assert!(frames < 30);
+        }
+        assert_eq!(m.tab_cmd, cmd::TALK);
+        let o = m.step(&w, press(|p| p.triangle = true));
+        assert!(o.triangle && o.events == vec![Event::Context(cmd::TALK)]);
+        // Away from the NPC: Attack again.
+        m.build(&world());
+        assert_eq!(m.root.cmds[0], cmd::ATTACK);
     }
 
     #[test]
@@ -2983,7 +3087,7 @@ mod tests {
         assert!(src.contains(&format!("({}, \"{}\")", crate::sleights::ROW_WORD, crate::sleights::ROW_TEXT)));
         // 0.111.0: the Party row and names, and the arrow's motion.
         assert!(src.contains(&format!("({}, \"{}\")", cmd::PARTY_WORD, PARTY_TEXT)));
-        for (id, name) in crate::party::words() {
+        for (id, name) in crate::party::words().chain(crate::riku::words()) {
             let line = format!("({id:#06X}, \"{name}\")");
             assert!(src.contains(&line), "the asset step lacks {line}");
         }

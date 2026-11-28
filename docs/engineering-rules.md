@@ -41,7 +41,7 @@ Work only on repo `PM2CRAZY/KH1-in-ReCom`, branch `testing`.
   fact. If a source isn't in your session, ask for it.
 - Never put decompiled code or game files in the repo.
 
-Where the decomps live (on the owner's PC, outside any repo): see `docs/sources.md`.
+Where the decomps live (on the owner's PC, outside any repo): see the KH modding workspace's `knowledge/sources.md`.
 
 ## Don'ts
 

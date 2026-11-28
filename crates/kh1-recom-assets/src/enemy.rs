@@ -1641,6 +1641,27 @@ fn sight_bones(name: &str, mdls: &[u8], conv: &Converter) -> Result<Vec<(String,
 /// Every enemy this step builds (M11); the Shadow (M10) is `crate::shadow`.
 pub const SPECS: &[&Spec] = &[&crate::soldier::SPEC, &crate::airsoldier::SPEC, &crate::powerwild::SPEC, &crate::darkball::SPEC, &crate::bandit::SPEC, &crate::pirate::SPEC, &crate::airpirate::SPEC, &crate::wyvern::SPEC, &crate::searchghost::SPEC, &crate::largebody::SPEC, &crate::neoshadow::SPEC, &crate::wightknight::SPEC, &crate::fatbandit::SPEC, &crate::gargoyle::SPEC, &crate::defender::SPEC, &crate::bouncywild::SPEC, &crate::greenrequiem::SPEC, &crate::rednocturne::SPEC, &crate::bluerhapsody::SPEC, &crate::yellowopera::SPEC];
 
+/// Tests only: the player's files for `spec` (`KH1_M11_DIR`: KH1's `.mdls` / `.mset`, Re:CoM's
+/// `ENEMY__NNNN__ENNNNN.*`; `KH1_TEST_DATA`: `btltbl.bin`). `ses_required`: no Inputs without the
+/// enemy's `.SES` (else an empty one, for the classes Re:CoM ships none for). One helper for every
+/// enemy module's tests (0.178.4; each had its own copy).
+#[cfg(test)]
+pub(crate) fn test_inputs(spec: &Spec, ses_required: bool) -> Option<Inputs> {
+    let d = std::path::PathBuf::from(std::env::var_os("KH1_M11_DIR")?);
+    let t = std::path::PathBuf::from(std::env::var_os("KH1_TEST_DATA")?);
+    let r = |n: &str| std::fs::read(d.join(n)).ok();
+    let ses = r(&spec.flat("SES"));
+    Some(Inputs {
+        mset: r(&format!("{}.mset", spec.kh1))?,
+        mdls: r(&format!("{}.mdls", spec.kh1))?,
+        ann: r(&spec.flat("ANN"))?,
+        mdl: r(&spec.flat("MDL"))?,
+        asd: r(&spec.flat("ASD"))?,
+        ses: if ses_required { ses? } else { ses.unwrap_or_default() },
+        btltbl: std::fs::read(t.join("btltbl.bin")).ok()?,
+    })
+}
+
 #[cfg(test)]
 mod clash_tests {
     use super::*;
@@ -1648,18 +1669,7 @@ mod clash_tests {
     /// The player's files (`KH1_M11_DIR`: KH1's `.mdls` / `.mset`, Re:CoM's `ENEMY__NNNN__ENNNNN.*`;
     /// `KH1_TEST_DATA`: `btltbl.bin`) for one spec.
     fn inputs(spec: &Spec) -> Option<Inputs> {
-        let d = std::path::PathBuf::from(std::env::var_os("KH1_M11_DIR")?);
-        let t = std::path::PathBuf::from(std::env::var_os("KH1_TEST_DATA")?);
-        let r = |n: &str| std::fs::read(d.join(n)).ok();
-        Some(Inputs {
-            mset: r(&format!("{}.mset", spec.kh1))?,
-            mdls: r(&format!("{}.mdls", spec.kh1))?,
-            ann: r(&spec.flat("ANN"))?,
-            mdl: r(&spec.flat("MDL"))?,
-            asd: r(&spec.flat("ASD"))?,
-            ses: r(&spec.flat("SES")).unwrap_or_default(),
-            btltbl: std::fs::read(t.join("btltbl.bin")).ok()?,
-        })
+        test_inputs(spec, false)
     }
 
     /// M11, attack meets attack: every ported class's manifest lists, per attack row, KH1's clash type,

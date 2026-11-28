@@ -1,9 +1,14 @@
 [package]
 name = "kh1-recom"
-version = "0.143.1"
+version = "0.198.38"
 edition = "2021"
 description = "KH1 combat in Kingdom Hearts Re:Chain of Memories (PC, Steam): the DLL Panacea loads."
 license = "MIT OR Apache-2.0"
+
+# `dev`: development-only debug aids, built in only by `tools/dev-install.sh` (never by `tools/build-win.sh`, which the
+# release workflow runs): published DLLs never have them (fork owner, 2026-11-27).
+[features]
+dev = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -256,18 +256,7 @@ mod tests {
     /// The player's files: `KH1_M11_DIR` (KH1's `xa_*.mdls` / `.mset` and Re:CoM's `ENEMY__NNNN__ENNNNN.*`)
     /// and `KH1_TEST_DATA` (`btltbl.bin`).
     fn inputs() -> Option<Inputs> {
-        let d = std::path::PathBuf::from(std::env::var_os("KH1_M11_DIR")?);
-        let t = std::path::PathBuf::from(std::env::var_os("KH1_TEST_DATA")?);
-        let r = |n: &str| std::fs::read(d.join(n)).ok();
-        Some(Inputs {
-            mset: r(&format!("{}.mset", SPEC.kh1))?,
-            mdls: r(&format!("{}.mdls", SPEC.kh1))?,
-            ann: r(&SPEC.flat("ANN"))?,
-            mdl: r(&SPEC.flat("MDL"))?,
-            asd: r(&SPEC.flat("ASD"))?,
-            ses: r(&SPEC.flat("SES"))?,
-            btltbl: std::fs::read(t.join("btltbl.bin")).ok()?,
-        })
+        crate::enemy::test_inputs(&SPEC, true)
     }
 
     #[test]

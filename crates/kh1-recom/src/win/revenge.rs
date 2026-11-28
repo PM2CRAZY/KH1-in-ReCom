@@ -769,7 +769,9 @@ unsafe fn close_normal(e: usize) {
 }
 
 /// Checks the Wizard's and the Aquatank's classes and slots (`sites::DIM_NORMAL_PTRS`): their dim
-/// windows only when all hold (the bosses' don't depend on it).
+/// windows only when all hold (the bosses' don't depend on it). Not called since 0.168.0 (kept for
+/// a switch back).
+#[allow(dead_code)]
 unsafe fn install_normal(bs: usize) {
     for n in &dim::NORMAL {
         let want = format!(".?AV{}@@", n.class);
@@ -882,7 +884,11 @@ pub unsafe fn install(bs: usize) -> bool {
         log(&format!("revenge: {} held another pointer; revenge off (the step hooks pass through)", p.name));
         return false;
     }
-    install_normal(bs);
+    // 0.168.0 (fork owner, 2026-11-23: "a jogabilidade quando estiver no KH1 deve usar as mesmas
+    // regras, com exceção a bosses de fato, um wizard não é um boss"): the Wizard's / Aquatank's
+    // dimming moves are ordinary attacks again (hittable, interrupted by hits, as their other
+    // casts); only the bosses' dimming moves stay untouchable.
+    log("dim: the Wizard / Aquatank stay hittable in their dimming moves (only bosses' are untouchable)");
     INSTALLED.store(true, Ordering::Release);
     true
 }

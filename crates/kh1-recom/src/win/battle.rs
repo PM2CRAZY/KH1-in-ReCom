@@ -130,13 +130,7 @@ pub(super) unsafe fn may_start_attack(e: usize) -> bool {
     !Gate { lock: rd(c + cbtl::LOCK), gimmick: rd(c + cbtl::GIMMICK), duel: rd(c + cbtl::DUEL) }.locked()
 }
 
-unsafe fn class_name(obj: usize) -> String {
-    if obj == 0 {
-        return "none".into();
-    }
-    let vt: usize = rd(obj);
-    super::stats::rtti_name(base(), vt).map(|n| n.trim_start_matches(".?AV").trim_end_matches("@@").to_string()).unwrap_or_else(|| format!("vt {vt:#x}"))
-}
+use super::stats::object_class as class_name;
 
 /// Logs a class's path once.
 unsafe fn class_once(obj: usize, path: u8, what: impl FnOnce(&str) -> String) {
@@ -185,6 +179,9 @@ unsafe fn state_of(e: usize) -> Option<usize> {
     crate::guard::state_index(e, rd(e + enemy::STATE))
 }
 
+/// This battle's `enemy_pace = kh1` (each enemy attacks as if alone).
+static PACE_KH1: AtomicBool = AtomicBool::new(false);
+
 unsafe fn attacking_now() -> usize {
     enemies(256).into_iter().filter(|&e| b::attacking(rd(e + enemy::FLAGS), state_of(e))).count()
 }
@@ -222,6 +219,11 @@ pub unsafe extern "win64" fn card_play(e: usize) -> u64 {
     };
     match b::decide(&p) {
         Path::Cardless { flags, state } => {
+            // 0.175.0: Re:CoM's pace without cards: one ordinary enemy attacking at a time.
+            if b::one_at_a_time(PACE_KH1.load(Ordering::Relaxed), boss::is_boss_class(&class_name(e)), attacking_now().saturating_sub(usize::from(b::attacking(p.flags, state_of(e))))) {
+                capped(&REFUSAL_LINES, b::REFUSAL_LOG_LINES, || format!("Re:CoM's pace: {} id={} waits (another enemy is attacking)", class_name(e), rd::<u32>(e + enemy::ID)));
+                return 0;
+            }
             wr(e + enemy::FLAGS, flags);
             wr(e + enemy::NEXT_STATE, b::state_address(e, state));
             class_once(e, 0, |_| "attacks without a card (P1)".into());
@@ -573,13 +575,16 @@ pub fn install_pace(bs: usize) -> bool {
 
 /// Re:CoM's battle enemy manager ctor (once per battle): the battle's setting and P2–P4.
 pub unsafe extern "win64" fn manager_ctor(this: usize, a: usize, c: usize, d: usize) -> usize {
-    let kh1 = mv::kh1_on() && !super::stats::riku_story();
+    // Riku with `riku_kh1_movement` (`crate::riku`): his battles are KH1 battles too (cardless enemies).
+    let kh1 = mv::kh1_on() && (!super::stats::riku_story() || mv::riku_on());
     let pace_kh1 = super::settings().enemy_pace == crate::settings::Mode::Kh1;
+    PACE_KH1.store(pace_kh1, Ordering::Relaxed);
     let want = b::wanted(kh1, pace_kh1);
     let switched = switch_patches(M6_PATCHES, &want);
     // Stage 3, P5: "Sora is attacking" for the bosses, on its own (a foreign getter leaves P2-P4).
     let p5 = switch_patches(M6_BOSS_PATCHES, &[kh1]);
     KH1_BATTLE.store(kh1, Ordering::Release);
+    super::dark_points::battle_start();
     let battle = BATTLE_NO.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
     BOSS_BATTLE_LINES.store(0, Ordering::Relaxed);
     SIDE2_CARDS.store(0, Ordering::Relaxed);
@@ -588,7 +593,7 @@ pub unsafe extern "win64" fn manager_ctor(this: usize, a: usize, c: usize, d: us
     capped(&BATTLE_LINES, b::BATTLE_LOG_LINES, || {
         format!(
             "battle start (battle {battle}): {}; no-card attacks (P1) {}; think gate (P2) and grant all (P3): {}; crowd pace (P4): {}; Sora attacking for bosses (P5): {}",
-            if kh1 { "KH1 (Combat = KH1, Sora's story)" } else if mv::kh1_on() { "Re:CoM (Riku's story)" } else { "Re:CoM (Combat = Re:CoM)" },
+            if kh1 && super::stats::riku_story() { "KH1 (Combat = KH1, Riku's story)" } else if kh1 { "KH1 (Combat = KH1, Sora's story)" } else if mv::kh1_on() { "Re:CoM (Riku's story)" } else { "Re:CoM (Combat = Re:CoM)" },
             if kh1 { "on" } else { "off" },
             match switched {
                 Some(_) if want[0] => "ours",

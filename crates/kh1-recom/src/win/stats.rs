@@ -115,6 +115,17 @@ pub(super) unsafe fn rtti_name(b: usize, vt: usize) -> Option<String> {
     Some(String::from_utf8_lossy(&name[..end]).into_owned())
 }
 
+/// An object's class name for the log (its vtable's RTTI, `.?AV` / `@@` trimmed): "none" for a null
+/// object, `vt 0x…` when the vtable has no RTTI. Shared by `battle` and `guard` (0.178.4; each had a
+/// copy).
+pub(super) unsafe fn object_class(obj: usize) -> String {
+    if obj == 0 {
+        return "none".into();
+    }
+    let vt: usize = rd(obj);
+    rtti_name(base(), vt).map(|n| n.trim_start_matches(".?AV").trim_end_matches("@@").to_string()).unwrap_or_else(|| format!("vt {vt:#x}"))
+}
+
 /// Loads `kh1-stats.json` and checks the class vtables. False when either is missing.
 pub fn load(path: Option<&std::path::Path>) -> bool {
     let Some(p) = path else {
@@ -188,6 +199,17 @@ pub fn set_sora_cp(cp: i32) {
     }
 }
 
+/// Riku's DP stat (his story's stats `+0x14`: the level-up's DP row adds 2, cap 99;
+/// `0x14010F70F`, Checked (disasm)), or None without the stats.
+pub fn riku_dp() -> Option<i32> {
+    // SAFETY: as [`sora_cp`].
+    unsafe {
+        let p: usize = rd(va(base(), STATS_PTR));
+        (p != 0).then(|| rd::<i32>(p + 0x14))
+    }
+}
+
+
 /// Sora's Re:CoM level (the menu's), 1 when the save isn't there.
 pub fn sora_level() -> u32 {
     // SAFETY: a static pointer of the image, then the save block it points at.
@@ -200,11 +222,49 @@ pub fn sora_level() -> u32 {
     }
 }
 
+/// Sora's enemy rules apply: Sora's story, or Riku's with his KH1 combat (0.198.31, fork owner,
+/// 2026-11-27: his enemies' KH1 HP, Defence and records as Sora's, at Damage = KH1).
+fn sora_rules() -> bool {
+    !riku_story() || super::movement::riku_on()
+}
+
 fn twin(enemy: usize) -> Option<(&'static str, &'static EnemyStats)> {
-    let class = class_of(enemy)?;
-    if riku_story() {
+    if !sora_rules() {
         return None;
     }
+    twin_any(enemy)
+}
+
+/// Riku's swing at Damage = KH1 (0.198.31): KH1's damage of `kh1_row` on this enemy's twin / proxy with his
+/// KH1 Strength (`crate::riku::kh1_strength` from his attack stat; Dark Riku's column) and the equipped
+/// weapon's KH1 numbers with no Strength of their own (the Strength already holds his weapon). None:
+/// Damage = Re:CoM, or no record (Re:CoM's number stands).
+pub fn riku_kh1_hit(enemy: usize, kh1_row: usize, ap_stat: i32, dark: bool, hp_now: i32, max_mp: i32) -> Option<(i32, CapLater, i32)> {
+    if !super::damage::kh1() || !riku_story() {
+        return None;
+    }
+    let t = match twin(enemy) {
+        Some((_, t)) => t.clone(),
+        None => proxied(enemy)?,
+    };
+    let mut w = equipped_weapon();
+    w.strength = 0;
+    let strength = crate::riku::kh1_strength(ap_stat, dark);
+    let mut g = RNG.lock().ok()?;
+    let rng = g.get_or_insert_with(|| kh1_core::Kh1Rand::new(1));
+    let m = super::attack::moveset();
+    let (d, cap) = crate::attack::kh1_damage_cap_later(m, kh1_row, crate::attack::Sora { strength, max_mp }, 0, &w, &t, hp_now, rng)?;
+    let resist = m.row(kh1_row).and_then(|r| m.attack(r.attack)).map_or(1.0, |a| resist_of(&t, a));
+    Some((d.damage, cap.map(|c| (c, resist)), strength))
+}
+
+/// [`twin`] in either story (0.169.0, Riku's KH1 combat: the twin's lock radius and level for his
+/// lunge and his MP charge, as Sora's; his enemies' HP and damage stay Re:CoM's through [`twin`]).
+fn twin_any(enemy: usize) -> Option<(&'static str, &'static EnemyStats)> {
+    if riku_story() && !super::movement::riku_on() {
+        return None;
+    }
+    let class = class_of(enemy)?;
     let w = world();
     let t = STATS.get()?.twin(class, w)?;
     if let Ok(mut g) = LOGGED.lock() {
@@ -218,10 +278,12 @@ fn twin(enemy: usize) -> Option<(&'static str, &'static EnemyStats)> {
 }
 
 /// The KH1 twin's defeat drops for this enemy (M8 stage 8a.4): its class's table for Re:CoM's
-/// current world (format 6), with the class for the log. None: Riku's story, no twin, no table.
+/// current world (format 6), with the class for the log. None: no twin, no table. 0.163.0 (fork
+/// owner, 2026-11-23: Sora's features for Riku): in Riku's story too (only the drops: his enemies
+/// keep Re:CoM's HP and damage).
 pub fn drops(enemy: usize) -> Option<(&'static str, i32, &'static [crate::drops::Drop])> {
     let class = class_of(enemy)?;
-    if riku_story() {
+    if riku_story() && !super::movement::riku_on() {
         return None;
     }
     let w = world();
@@ -237,7 +299,7 @@ pub fn drop_classes() -> usize {
 /// ground picker subtracts it from the distance, `0x1402A7320`). Assumption: the twin's actor
 /// scale (KH1 actor `+0x40`) is 1.0.
 pub fn lock_radius(enemy: usize) -> Option<f32> {
-    let (class, _) = twin(enemy)?;
+    let (class, _) = twin_any(enemy)?;
     STATS.get()?.lock_radius(class)
 }
 
@@ -245,7 +307,7 @@ pub fn lock_radius(enemy: usize) -> Option<f32> {
 /// its proxy's / boss twin's record set at its stats init. The level KH1's MP charge reads
 /// (`0x1402BF330`, `super::mp`).
 pub fn twin_level(enemy: usize) -> Option<i32> {
-    twin(enemy).map(|(_, t)| t.level).or_else(|| proxied(enemy).map(|t| t.level))
+    twin_any(enemy).map(|(_, t)| t.level).or_else(|| proxied(enemy).map(|t| t.level))
 }
 
 /// Re:CoM's enemy stats init (`0x14017FF50(enemy, category, id, …)`; category 0xC for enemies,
@@ -283,6 +345,16 @@ pub unsafe extern "win64" fn stat_init(enemy: usize, kind: i32, variant: i32, x:
                 g.remove(0);
             }
         }
+    }
+    // 0.198.38: Riku's first Ansem fight (`super::story_skip::riku_fight_armed`): Ansem at 240 / 320 of Re:CoM's HP, its max
+    // too (the gauge reads `max_hp`), at either Damage setting (the owner's number for this fight).
+    if r & 0xFF != 0 && kind == ENEMY_KIND && variant == crate::story_skip::RIKU_ANSEM_ID && super::story_skip::riku_fight_armed() {
+        let recom: i32 = rd(enemy + 0x274);
+        let hp = crate::story_skip::riku_ansem_hp(recom);
+        wr(enemy + 0x274, hp);
+        g.retain(|(e, _)| *e != enemy);
+        g.push((enemy, hp));
+        super::story_skip::riku_ansem_made(enemy, recom, hp);
     }
     r
 }
@@ -326,7 +398,7 @@ unsafe fn class_name(enemy: usize) -> String {
 /// An enemy without an ordinary twin, in Sora's story: its KH1 HP as a proxy or boss twin
 /// (`Kh1Stats::proxy`), with the record kept for its hits. None: Re:CoM's numbers stand.
 unsafe fn proxy(enemy: usize, id: i32) -> Option<i32> {
-    if riku_story() || !(0..=0xFFFF).contains(&id) {
+    if !sora_rules() || !(0..=0xFFFF).contains(&id) {
         return None;
     }
     let stats = STATS.get()?;
@@ -490,7 +562,7 @@ fn resist_of(t: &EnemyStats, data: &kh1_core::AttackData) -> f32 {
 pub fn kh1_spell_hit(enemy: usize, data: &kh1_core::AttackData, max_mp: i32, hp: i32) -> Option<(i32, CapLater)> {
     let t = match twin(enemy) {
         Some((_, t)) => t.clone(),
-        None if !riku_story() => proxied(enemy)?,
+        None if sora_rules() => proxied(enemy)?,
         None => return None,
     };
     let mut resist = [1.0f32; 16];
@@ -518,7 +590,7 @@ pub fn kh1_hit_with(enemy: usize, kh1_row: usize, sora_level: u32, hp_now: i32, 
     // A twin, else a proxy / boss twin set up at its stats init (Sora's story only).
     let t = match twin(enemy) {
         Some((_, t)) => t.clone(),
-        None if !riku_story() => proxied(enemy)?,
+        None if sora_rules() => proxied(enemy)?,
         None => return None,
     };
     let w = equipped_weapon();
@@ -569,9 +641,10 @@ pub fn berserk_share(enemy: usize, kh1_row: usize, sora_level: u32, hp_now: i32,
 /// Sora's damage cap: the enemy's KH1 record (twin, else proxy / boss twin, as [`kh1_record`]) and what
 /// it is ("twin", "proxy", "proxy boss", "boss twin").
 pub fn record_from(enemy: usize) -> Option<(EnemyStats, &'static str)> {
-    match twin(enemy) {
+    // 0.169.0: the twin in Riku's story too (his hits' damage cap, as Sora's).
+    match twin_any(enemy) {
         Some((_, t)) => Some((t.clone(), "twin")),
-        None if !riku_story() => PROXIED.lock().ok()?.iter().find(|(e, _, _)| *e == enemy).map(|(_, s, w)| (s.clone(), *w)),
+        None if sora_rules() => PROXIED.lock().ok()?.iter().find(|(e, _, _)| *e == enemy).map(|(_, s, w)| (s.clone(), *w)),
         None => None,
     }
 }
@@ -591,7 +664,7 @@ pub fn recom_max_hp(enemy: usize) -> Option<i32> {
 pub fn kh1_record(enemy: usize) -> Option<EnemyStats> {
     match twin(enemy) {
         Some((_, t)) => Some(t.clone()),
-        None if !riku_story() => proxied(enemy),
+        None if sora_rules() => proxied(enemy),
         None => None,
     }
 }

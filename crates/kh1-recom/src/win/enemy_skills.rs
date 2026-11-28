@@ -255,7 +255,8 @@ pub unsafe fn battle_start(kh1: bool) {
 
 /// Whether the skills act for this player now: installed, Combat = KH1, Sora's story, the main Sora.
 unsafe fn live(pl: usize) -> bool {
-    installed() && mv::kh1_on() && mv::is_main_sora(pl) && !super::stats::riku_story()
+    // 0.164.0: Riku's too (his story's skills, his save).
+    installed() && mv::kh1_on() && ((mv::is_main_sora(pl) && !super::stats::riku_story()) || mv::kh1_riku(pl))
 }
 
 /// A KH1 frame of Sora (`win::movement::run_frame`): the first one of a player object or after a
@@ -278,7 +279,7 @@ pub unsafe fn refresh(why: &str) {
         return;
     }
     let pl: usize = rd(va(base(), data::MAIN_PLAYER));
-    if pl == 0 || !mv::is_main_sora(pl) {
+    if pl == 0 || !(mv::is_main_sora(pl) || mv::kh1_riku(pl)) {
         return;
     }
     apply(pl, true, why);

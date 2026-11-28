@@ -77,6 +77,8 @@ struct FakeRecom {
     /// Re:CoM's body guard as we set it, a guarded hit to report, and the no-damage bit.
     guard: bool,
     block_next: bool,
+    /// 0.183.1: the guard side's KH1 clash record for the next block.
+    clash_next: Option<(u8, i32)>,
     untouchable: bool,
     clinks: u32,
     draws: u32,
@@ -140,6 +142,7 @@ impl FakeRecom {
             swing_ends: 0,
             guard: false,
             block_next: false,
+            clash_next: None,
             untouchable: false,
             clinks: 0,
             draws: 0,
@@ -295,6 +298,9 @@ impl Host for FakeRecom {
     }
     fn guard_clink(&mut self) {
         self.clinks += 1;
+    }
+    fn guard_clash(&mut self) -> Option<(u8, i32)> {
+        self.clash_next.take()
     }
     fn take_swing_clash(&mut self) -> Option<(u8, i32)> {
         self.swing_clash.take()
@@ -2510,4 +2516,238 @@ fn every_combination_runs_jumps_and_lands() {
         assert!(f.iter().all(|x| x.ours.x.is_finite() && x.ours.y.is_finite() && x.ours.z.is_finite()), "combination {b}");
         assert!(f.iter().filter(|x| x.out.events.contains(&Event::Landed)).count() >= 3, "combination {b}");
     }
+}
+
+/// 0.183.0: the Guard faces KH1's lock pair, which holds Auto Lock's soft target too (`0x1402A3B00`
+/// reads `0x142DB3518`, states 1–4; `read_pad` puts it in `lock_target` on a Square press), and sets the
+/// combo counter to 1.
+#[test]
+fn guard_faces_the_soft_target_and_restarts_the_combo() {
+    let mut p = Pair::new(Abilities { counterattack: true, ..all() }, Floor::flat());
+    let side = kh1_core::TargetPart { owner: 1, centre: Vec3::new(150.0, 0.0, 0.0), radius: 30.0 };
+    let press = |p: &mut Pair, square: bool, locked: bool| {
+        let sq = Button::from_held(p.prev.square, square);
+        p.prev = Pad { square, ..Default::default() };
+        let out = p.ours.frame(&mut p.recom, &FrameInput { move_dir: Vec3::ZERO, tilt: 0.0, recom_tilt: 0.0, jump: Button::default(), square: sq, lock_target: locked.then_some(side.centre), attack: Button::default(), target: None, locked: false, magic: None, item: None, special: None }, p.first);
+        p.first = false;
+        p.recom.after_exe();
+        out
+    };
+    for _ in 0..4 {
+        press(&mut p, false, true);
+    }
+    p.ours.combo_counter = 2;
+    let out = press(&mut p, true, true);
+    assert!(out.events.contains(&Event::Guarded), "{:?}", out.events);
+    let want = Vec3::new(1.0, 0.0, 0.0).yaw();
+    assert!(crate::movement::wrap_angle(p.ours.target_yaw - want).abs() < 1e-4, "turned to the soft target: {} vs {want}", p.ours.target_yaw);
+    assert_eq!(p.ours.combo_counter, 1, "the Guard sets KH1's combo counter to 1");
+
+    // Not locked (Auto Lock off, no R1): Re:CoM's attack target is not KH1's lock pair, he keeps his facing.
+    let mut q = Pair::new(Abilities { counterattack: true, ..all() }, Floor::flat());
+    for _ in 0..4 {
+        press(&mut q, false, false);
+    }
+    let before = q.ours.facing;
+    press(&mut q, true, false);
+    assert!(crate::movement::wrap_angle(q.ours.target_yaw - before).abs() < 1e-4, "kept facing: {} vs {before}", q.ours.target_yaw);
+}
+
+/// 0.183.1: a KH1 enemy's attack 40+ over the guard gives kind 7 (request 0x6F, no Counterattack); one
+/// under it, kind 6 with KH1's push back (`0x14029D720`).
+#[test]
+fn guard_success_takes_kh1s_clash_kind_and_push() {
+    for (clash, want, push) in [(Some((7u8, -60)), crate::rows::STRONG_RECOIL, false), (Some((6, 20)), crate::rows::RECOIL, false), (Some((6, -20)), crate::rows::RECOIL, true), (None, crate::rows::RECOIL, false)] {
+        let mut p = Pair::new(Abilities { counterattack: true, ..all() }, Floor::flat());
+        for k in 0..5 {
+            step_with_target(&mut p, Pad { square: k == 4, ..Default::default() });
+        }
+        for _ in 0..14 {
+            step_with_target(&mut p, Pad::default());
+        }
+        assert!(p.recom.guard, "the guard object is live");
+        p.recom.block_next = true;
+        p.recom.clash_next = clash;
+        let out = step_with_target(&mut p, Pad::default());
+        assert!(out.events.contains(&Event::GuardSucceeded), "{clash:?}");
+        assert_eq!(p.ours.rec.head(), want, "{clash:?}");
+        assert_eq!(p.ours.push.is_some(), push, "{clash:?}");
+        if want == crate::rows::STRONG_RECOIL {
+            for _ in 0..12 {
+                step_with_target(&mut p, Pad::default());
+            }
+            assert!(p.recom.untouchable && p.ours.lock, "flag 0x80 holds while 0x6F holds the lock");
+            for _ in 0..8 {
+                step_with_target(&mut p, Pad::default());
+            }
+            assert!(!p.ours.counter_offered(true), "no Counterattack after kind 7");
+        }
+    }
+}
+
+/// 0.183.4 (fork owner, 2026-11-23: the Guard is slow to start; "faça o teste do neoshadow com o Riku"): Riku's
+/// Guard, frame by frame on the shared port, against the Neoshadow's KH1 hit windows (the player's files: the
+/// asset step's `neoshadow::tests::builds_from_the_players_files`, Checked (files): the claw 202's hands at
+/// frames 40..54 and 52..68 (priority 40), the rising slash 207 at 26..50 and the dive 205 at 0..40 (priority
+/// 100: KH1's Guard never stops them, `kh1_core::enemy::guard::meeting`)). The guard object must be live from
+/// the 10th frame after the press to the 36th (KH1's motion 212, Checked (files)), and the press window that
+/// covers the claw's first hit frame follows from it.
+#[test]
+fn rikus_guard_against_the_neoshadows_windows() {
+    let riku = crate::riku::abilities(0);
+    let mut p = Pair::new(riku, Floor::flat());
+    for _ in 0..4 {
+        step_with_target(&mut p, Pad::default());
+    }
+    let out = step_with_target(&mut p, Pad { square: true, ..Default::default() });
+    assert!(out.events.contains(&Event::Guarded), "Riku's Square at rest starts the Guard: {:?}", out.events);
+    // Frames after the press (the press frame is 0) with the guard object live.
+    let mut live = Vec::new();
+    for k in 1..60 {
+        step_with_target(&mut p, Pad::default());
+        if p.recom.guard {
+            live.push(k);
+        }
+    }
+    let (first, last) = (*live.first().expect("the guard comes on"), *live.last().unwrap());
+    assert_eq!(live.len(), last - first + 1, "one unbroken window: {live:?}");
+    eprintln!("Riku's guard object: live on frames {first}..={last} after the press ({} frames)", live.len());
+    // KH1: frames 10..36 of motion 212. The port runs a frame's motion update at the next handler call (the
+    // oracle's order), so Re:CoM's collision of game frame k sees KH1's motion as it was at k − 1: one frame
+    // (16 ms) after KH1, the same 26 frames.
+    assert_eq!((first, last), (11, 36), "KH1's frames 10..36, one frame later");
+    // The Neoshadow's attacks (motion, first and last hit frame, priority) against that window: the press
+    // frames (counted from the attack's start) that have the guard live on its first hit frame.
+    for (name, from, to, priority) in [("claw (202)", 40, 67, 40), ("rising slash (207)", 26, 49, 100), ("dive (205)", 0, 39, 100)] {
+        let presses: Vec<i32> = (-60..from as i32).filter(|&q| (first as i32..=last as i32).contains(&(from as i32 - q))).collect();
+        // 0.198.11: KH1's Guard holds against every one of them (kind 6 under 98, kind 7 with no harm at 100)
+        let m = kh1_core::enemy::guard::meeting((2, 30, false), (0, priority, false));
+        let stops = m.a_unharmed();
+        eprintln!(
+            "Neoshadow {name}: hits frames {from}..={to}; a press on attack frames {}..={} has the guard up on its first hit; KH1's Guard {}",
+            presses.first().unwrap(),
+            presses.last().unwrap(),
+            if m.b_stops { "stops it" } else if stops { "holds (kind 7, the attack goes on but does no harm)" } else { "does not stop it" }
+        );
+        assert_eq!(presses.len(), last - first + 1);
+        assert!(stops);
+        assert_eq!(m.b_stops, priority < 98);
+    }
+}
+
+/// 0.184.3 (fork owner, 2026-11-23: "e teste com o Neo SHadow todas as variações para ver se falta algo"): every spell,
+/// level, on the ground and in the air, cast by Riku's KH1 frame (his abilities): it starts, every motion it asks
+/// has one of Riku's cast rows (`crate::riku::cast_row`: no Sora-only clip left), it releases once at KH1's frame
+/// (Fire 28 after the command; the others their script's wait), Re:CoM's magic action ends once, and Riku's row
+/// table has the row (`crate::magic::riku_look`). Printed as a table with `--nocapture`. The Neoshadow's numbers for
+/// each are `magic::tests::every_spell_and_level_on_kh1s_neoshadow`.
+#[test]
+fn riku_every_spell_level_and_air_casts_fully() {
+    use crate::magic::{self as mg, CastEvent, MagicCommand};
+    let rows = mg::riku_look(&mg::kh1_magic_table(&mg::recom_rows()));
+    let names = ["Fire", "Blizzard", "Thunder", "Cure", "Gravity", "Stop", "Aero"];
+    for spell in 0..7u8 {
+        for level in 1..=3u8 {
+            assert!(mg::table_index(spell, level).is_some_and(|i| rows[i][0] != 0), "{} {level}: Riku's row", names[spell as usize]);
+            for air in [false, true] {
+                let mut p = Pair::new(crate::riku::abilities(0), Floor::flat());
+                for _ in 0..5 {
+                    step_cast(&mut p, Pad::default(), None);
+                }
+                if air {
+                    step_cast(&mut p, Pad { jump: true, ..Default::default() }, None);
+                    for _ in 0..8 {
+                        step_cast(&mut p, Pad { jump: true, ..Default::default() }, None);
+                    }
+                }
+                let out = step_cast(&mut p, Pad { jump: air, ..Default::default() }, Some(MagicCommand { spell, level }));
+                let started = out.cast.iter().find_map(|e| match e {
+                    CastEvent::Started { air, .. } => Some(*air),
+                    _ => None,
+                });
+                let Some(in_air) = started else { panic!("{} {level} air {air}: no start ({:?})", names[spell as usize], out.cast) };
+                let mut release = None;
+                for k in 1..200 {
+                    let out = step_cast(&mut p, Pad { jump: air, ..Default::default() }, None);
+                    if let Some(f) = out.cast.iter().find_map(|e| match e {
+                        CastEvent::Released { frame, .. } => Some(*frame),
+                        _ => None,
+                    }) {
+                        assert!(release.is_none(), "{} {level}: released twice", names[spell as usize]);
+                        release = Some((k, f));
+                    }
+                    if p.ours.cast.is_none() && release.is_some() {
+                        break;
+                    }
+                }
+                let unmapped: Vec<u16> = p.recom.plays.iter().map(|x| x.0).filter(|&r| mg::is_cast_request(r) && crate::riku::cast_row(r).is_none()).collect();
+                eprintln!("{} {level} {}: released {:?}, motions {:x?}", names[spell as usize], if in_air { "air" } else { "ground" }, release, p.recom.plays.iter().map(|x| x.0).filter(|&r| mg::is_cast_request(r)).collect::<Vec<_>>());
+                assert!(unmapped.is_empty(), "{} {level}: cast motions without a Riku row {unmapped:x?}", names[spell as usize]);
+                // Sora, the same cast on the same frame (the shared port): Riku must do what he does.
+                let mut q = Pair::new(all(), Floor::flat());
+                for _ in 0..5 {
+                    step_cast(&mut q, Pad::default(), None);
+                }
+                if air {
+                    for _ in 0..9 {
+                        step_cast(&mut q, Pad { jump: true, ..Default::default() }, None);
+                    }
+                }
+                step_cast(&mut q, Pad { jump: air, ..Default::default() }, Some(MagicCommand { spell, level }));
+                for _ in 1..200 {
+                    step_cast(&mut q, Pad { jump: air, ..Default::default() }, None);
+                }
+                assert_eq!(p.recom.releases.len(), q.recom.releases.len(), "{} {level} air {in_air}: Riku and Sora differ", names[spell as usize]);
+                if !in_air {
+                    assert!(release.is_some(), "{} {level}: never released", names[spell as usize]);
+                    assert_eq!(p.recom.releases.len(), 1, "{} {level}", names[spell as usize]);
+                } else if release.is_none() {
+                    eprintln!("  (air: landed before the release frame; Sora too: KH1's air cast ends at the landing)");
+                }
+            }
+        }
+    }
+}
+
+// ---- Riku's own combo on KH1's rules (fork owner, 2026-11-27) ----
+
+/// Riku's rows started over `n` frames (ours only: the KH1 oracle is Sora).
+fn riku_rows(p: &mut Pair, n: usize, press: &[usize]) -> (Vec<(usize, usize)>, Vec<(usize, kh1_core::Refused)>) {
+    let (mut rows, mut refused) = (Vec::new(), Vec::new());
+    for k in 0..n {
+        let f = p.step(Pad { attack: press.contains(&k), ..Default::default() });
+        rows.extend(attack_rows(&f.out.events).into_iter().map(|(r, ..)| (k, r)));
+        refused.extend(refusals(&f.out.events).into_iter().map(|r| (k, r)));
+    }
+    (rows, refused)
+}
+
+#[test]
+fn rikus_ground_combo_is_his_own_order_and_rhythm() {
+    use kh1_core::data::row;
+    let mut p = Pair::new(Abilities::default(), Floor::flat());
+    p.ours.set_riku_moves(Some(false));
+    // A Shadow-sized target 1.5 m ahead (KH1 units, y down).
+    p.target = Some(kh1_core::TargetPart { owner: 1, centre: Vec3::new(0.0, -40.0, 150.0), radius: 40.0 });
+    p.recom.hit = true;
+    // Presses at 1, 20 (swing 1's chain window 13..48) and 45 (the lunge's 21..64, 25 frames in).
+    let (rows, refused) = riku_rows(&mut p, 140, &[1, 20, 45]);
+    assert_eq!(rows.iter().map(|r| r.1).collect::<Vec<_>>(), vec![row::SWING_1, row::LUNGE, row::GROUND_FINISHER], "{rows:?}");
+    assert!(refused.is_empty(), "{refused:?}");
+    // The swings start on the press (Re:CoM's chain cuts the swing once it has hit).
+    assert_eq!(rows.iter().map(|r| r.0).collect::<Vec<_>>(), vec![1, 20, 45]);
+}
+
+#[test]
+fn rikus_far_opener_and_a_miss() {
+    use kh1_core::data::row;
+    let mut p = Pair::new(Abilities::default(), Floor::flat());
+    p.ours.set_riku_moves(Some(false));
+    // 5 m away: the far opener (Re:CoM's situation 3, the lunge clip).
+    p.target = Some(kh1_core::TargetPart { owner: 1, centre: Vec3::new(0.0, -40.0, 500.0), radius: 40.0 });
+    // Nothing hit: KH1's rule takes no next press in the window.
+    p.recom.hit = false;
+    let (rows, refused) = riku_rows(&mut p, 60, &[1, 30]);
+    assert_eq!(rows.iter().map(|r| r.1).collect::<Vec<_>>(), vec![row::LUNGE]);
+    assert_eq!(refused, vec![(30, kh1_core::Refused::LastSwingMissed)]);
 }

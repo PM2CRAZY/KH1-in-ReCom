@@ -589,11 +589,6 @@ pub fn set_turn_rate<C, A, X>(cx: &Cx<C, A, X>, deg: f32) {
     cx.borrow_mut().body.turn = Some(deg / 180.0 * std::f32::consts::PI);
 }
 
-/// `sys 51`: the KH1 request playing.
-pub fn current_motion<C, A, X>(cx: &Cx<C, A, X>) -> Option<u16> {
-    cx.borrow().w.motion
-}
-
 /// `sys 172` (`0x14029EFC0`): the motion has played to its end (`+0x280 ≤ step × +0x284 +
 /// +0x16C`: its length against its time plus this frame's step) with no blend running and nothing
 /// queued. The time is [`Core::clock`] (the frames the request playing has played, counted by the

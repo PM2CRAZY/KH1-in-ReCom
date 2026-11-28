@@ -156,6 +156,8 @@ pub fn learned() -> Set {
     // SAFETY: Re:CoM's own test (bytes checked at install), a pure read.
     let f = unsafe { func::<LearnedFn>(LEARNED) };
     let mut s = 0;
+    // 0.198.16: Riku's story too follows Re:CoM's test: the King's sleights (0x62..0x64) are taught by
+    // B11's hall script `WORLD00/2103` (0.150.0-0.198.15 counted them as taught from the start).
     for (i, fr) in pt::ALL.iter().enumerate() {
         // SAFETY: as above.
         if unsafe { f(fr.sleight) } & 0xFF != 0 {

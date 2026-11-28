@@ -192,7 +192,7 @@ stay Re:CoM's.
 ### Time
 
 Both games step 60 Hz frames by a delta: KH1 `0x14233FBDC` (1.0 a frame), Re:CoM the enemy's
-`+0x14` (50 units a frame) × 0.02. Checked (decomp; `docs/recom-timing.md`). KH1 frame counts are
+`+0x14` (50 units a frame) × 0.02. Checked (decomp; `knowledge/ReCoM/recom-timing.md`). KH1 frame counts are
 used as they are; clip ends are Re:CoM's motion clock `0x1401A47C0` against KH1's length × 50.
 
 ## The asset step

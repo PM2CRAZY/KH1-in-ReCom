@@ -77,13 +77,7 @@ fn active() -> bool {
     READY.load(Ordering::Acquire) && ON.load(Ordering::Relaxed) && mv::kh1_on()
 }
 
-unsafe fn class_name(obj: usize) -> String {
-    if obj == 0 {
-        return "none".into();
-    }
-    let vt: usize = rd(obj);
-    super::stats::rtti_name(base(), vt).map(|n| n.trim_start_matches(".?AV").trim_end_matches("@@").to_string()).unwrap_or_else(|| format!("vt {vt:#x}"))
-}
+use super::stats::object_class as class_name;
 
 fn block_log(line: impl FnOnce() -> String) {
     if BLOCKS.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| (n < g::BLOCK_LOG_LINES).then_some(n + 1)).is_ok() {
@@ -118,7 +112,8 @@ pub(super) unsafe fn on_result(c: usize, list: usize, r: i32) -> i32 {
         return r;
     }
     let pl: usize = rd(va(b, data::MAIN_PLAYER));
-    if !mv::is_main_sora(pl) || !super::attack::guard_live(pl) {
+    // 0.152.0: Riku's (and Dark Riku's) Guard too.
+    if !(mv::is_main_sora(pl) || (mv::riku_on() && mv::is_main_riku(pl))) || !super::attack::guard_live(pl) {
         return r;
     }
     let owner: u32 = rd(c + coll::OWNER);
@@ -151,6 +146,8 @@ pub(super) unsafe fn on_result(c: usize, list: usize, r: i32) -> i32 {
             other(obj, c, "a KH1 banana peel: blocked, not turned back");
             return r;
         }
+        // 0.159.0 (fork owner: "Magias deveriam voltar"): Riku's Guard turns a shot back as
+        // Sora's does (0.153.0 cancelled it).
         if rd::<usize>(obj + bullet::COLL) == c && turn_back(obj, c, s) {
             return 0;
         }
@@ -164,6 +161,8 @@ pub(super) unsafe fn on_result(c: usize, list: usize, r: i32) -> i32 {
     other(obj, c, "not one of its CAttackMotion entries (its own collision): left as Re:CoM");
     r
 }
+
+
 
 /// Whether `c` is one of the actor's `CAttackMotion` entries (its melee attack collisions).
 unsafe fn is_melee(b: usize, obj: usize, c: usize) -> bool {
@@ -210,6 +209,10 @@ unsafe fn remember(obj: usize, c: usize, id: u32) {
     drop(v);
     block_log(|| {
         let f: u64 = rd(obj + enemy::FLAGS);
+        if c == 0 {
+            // 0.153.0: Riku's own front test (no collision at hand).
+            return format!("block melee {} id={id} (Riku's Guard, our front test) flags={f:#x} state={:?}", class_name(obj), g::state_index(obj, rd(obj + enemy::STATE)));
+        }
         format!(
             "block melee {} id={id} coll={c:#x} kind={} elem={} ap={} serial={} flags={f:#x} state={:?}",
             class_name(obj),
@@ -414,19 +417,17 @@ pub(super) unsafe fn after_enemy_hit(e: usize, r: u64, hp: i32) {
 /// gives it the same card-interrupt bit as a KH1 swing (`+0x260 & 0x2000000`; Re:CoM's own
 /// "end the card, then take the hit" path). Owner's log on 0.11.0 (Checked): every turned-back
 /// shot met its shooter with 0 damage, "card playing: Re:CoM's hit handler took no hit".
-pub(super) unsafe fn turned_hit_pending(e: usize) -> bool {
+///
+/// 0.161.0 (fork owner's 0.160.0 log: every turned-back shot met its Wizard with "damage 0 … card
+/// playing", the card-interrupt bit never set): the hit info `+0xF8` is filled by Re:CoM's gather
+/// `0x140154EB0`, which the handler itself calls first (`0x14017F81F`, Checked (disasm)); before
+/// the handler it holds the last hit. The attacker is read from the waiting hurt body (`by`, the
+/// apply's `+0x98`, as Riku's swings are), as the caller passes it.
+pub(super) fn turned_hit_pending(by: Option<u32>) -> bool {
+    let Some(by) = by.filter(|&b| b != 0) else { return false };
     if TURNED_N.load(Ordering::Relaxed) == 0 || !active() {
         return false;
     }
-    let info: usize = rd(e + enemy::INFO);
-    if info == 0 || rd::<u32>(info + enemy::INFO_FLAGS) & enemy::INFO_HIT == 0 {
-        return false;
-    }
-    let hit_body: usize = rd(info + enemy::INFO_BODY);
-    if hit_body == 0 {
-        return false;
-    }
-    let by: u32 = rd(hit_body + body::ATTACKER);
     TURNED.lock().map(|t| t.iter().any(|&(_, i)| i == by)).unwrap_or(false)
 }
 

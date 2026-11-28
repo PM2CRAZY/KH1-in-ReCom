@@ -40,6 +40,9 @@ pub static ORIG_EXE_MAGIC: AtomicUsize = AtomicUsize::new(0);
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 /// The KH1 magic rows (`crate::magic::kh1_magic_table`). Never freed: `+0x3C8` points into it.
 static TABLE: OnceLock<&'static [[u8; 16]]> = OnceLock::new();
+/// 0.184.2: Riku's copy of [`TABLE`], his spells' looks (`crate::magic::riku_look`): the same KH1 rows but the effect
+/// set (`+2`) of his.
+static RIKU_TABLE: OnceLock<&'static [[u8; 16]]> = OnceLock::new();
 /// The command issued this frame (the menu's), for the KH1 frame.
 static PENDING: Mutex<Option<MagicCommand>> = Mutex::new(None);
 /// Our shots: (Re:CoM shot id, spell, level, the cast's shared hit serial or 0), the last 32 (a
@@ -266,6 +269,8 @@ pub unsafe fn install(b: usize) -> bool {
         live.push(got);
     }
     let t: &'static [[u8; 16]] = Box::leak(mg::kh1_magic_table(&live).into_boxed_slice());
+    let rt: &'static [[u8; 16]] = Box::leak(mg::riku_look(t).into_boxed_slice());
+    let _ = RIKU_TABLE.set(rt);
     if TABLE.set(t).is_err() {
         return false;
     }
@@ -294,8 +299,57 @@ pub unsafe fn install(b: usize) -> bool {
     true
 }
 
+/// 0.184.0 (fork owner, 2026-11-23: Sora's KH1 spells for Riku): Re:CoM's Riku and Dark Riku have no magic
+/// action: their `initMagic` / `exeMagic` slots (`+0x148` / `+0x150`) are the base class's empty `ret`s
+/// (`0x1401F2F20` / `0x1401EEAA0`; Checked (exe: both vtables, the bytes)). [`start_cast`] writes `initMagic`'s
+/// fields itself, so only the exe slot is pointed at [`exe_magic`], which runs the KH1 frame of a KH1 cast for
+/// them and nothing otherwise (the stub's behaviour). Checked old values; not fatal.
+pub unsafe fn riku_slots(b: usize) {
+    let stub = (va(b, RIKU_EXE_MAGIC_STUB) as u64).to_le_bytes();
+    let ours = (exe_magic as *const () as usize as u64).to_le_bytes();
+    for (vt, who) in [(crate::sites::data::RIKU_VTABLE, "Riku"), (crate::sites::data::DRIKU_VTABLE, "Dark Riku")] {
+        let slot = va(b, vt) + 0x150;
+        if std::slice::from_raw_parts(slot as *const u8, 8) == stub {
+            super::hook::patch(slot, &stub, &ours, "magic: Riku's exeMagic slot");
+        } else {
+            log(&format!("magic: {who}'s exeMagic slot is not Re:CoM's empty 0x1401EEAA0; no KH1 cast for him"));
+        }
+    }
+}
+
+/// Re:CoM's empty member function in Riku's and Dark Riku's `exeMagic` slot.
+const RIKU_EXE_MAGIC_STUB: u64 = 0x1_401E_EAA0;
+
+/// 0.184.0: Riku's spells cost nothing (`riku_free_magic`, the owner's test setting) for the main player.
+pub unsafe fn riku_free() -> bool {
+    super::settings().riku_free_magic && mv::is_main_riku(rd(va(base(), crate::sites::data::MAIN_PLAYER)))
+}
+
+/// A spell's MP at its release ([`super::mp::pay`]), nothing for Riku with `riku_free_magic`.
+fn pay_spell(cost: i32, why: &str) {
+    // SAFETY: reads of the image's main-player pointer and its vtable word.
+    if unsafe { riku_free() } {
+        note(|| format!("{why}: free (riku_free_magic)"));
+        return;
+    }
+    super::mp::pay(cost, why);
+}
+
 pub fn mark_installed() {
     INSTALLED.store(true, Ordering::Release);
+}
+
+/// 0.184.5: the level of the cast started last (Riku's cast rows play their effects at it).
+static CAST_LEVEL: AtomicU32 = AtomicU32::new(1);
+
+/// The level of the cast started last, 1..=3.
+pub fn cast_level() -> u32 {
+    CAST_LEVEL.load(Ordering::Relaxed).clamp(1, 3)
+}
+
+/// The KH1 cast is installed (the menu lists KH1 spells only then).
+pub fn installed() -> bool {
+    INSTALLED.load(Ordering::Acquire)
 }
 
 /// A KH1 magic command from the command menu (and the shortcuts, stage 7.12): taken by Sora's
@@ -373,10 +427,11 @@ pub fn release_root_off() {
 
 /// The KH1 row `+0x3C8` points at, if it points into our magic table: a KH1 cast.
 pub unsafe fn kh1_cast(pl: usize) -> bool {
-    let Some(t) = TABLE.get() else { return false };
     let ptr: usize = rd(pl + f::ROW_PTR);
-    let start = t.as_ptr() as usize;
-    ptr >= start && ptr < start + t.len() * 16
+    [TABLE.get(), RIKU_TABLE.get()].into_iter().flatten().any(|t| {
+        let start = t.as_ptr() as usize;
+        ptr >= start && ptr < start + t.len() * 16
+    })
 }
 
 /// M12 step 3 (Leaf Bracer): Sora's KH1 Cure is casting: Re:CoM's magic action (`initMagic`'s
@@ -391,14 +446,17 @@ pub unsafe fn kh1_cure_casting(pl: usize) -> bool {
 }
 
 fn row(s: u8, level: u8) -> Option<&'static [u8; 16]> {
-    let t = TABLE.get()?;
+    // SAFETY: reads of the image's main-player pointer and its vtable word.
+    let riku = unsafe { mv::is_main_riku(rd(va(base(), crate::sites::data::MAIN_PLAYER))) };
+    let t = if riku { RIKU_TABLE.get().or(TABLE.get())? } else { TABLE.get()? };
     t.get(mg::table_index(s, level)?).filter(|r| r[0] != 0)
 }
 
 /// KH1's usable test (`0x14028EFD0`): the spell is learned (the menu offers only learned ones),
 /// and MP pays its cost (`0x1402A4C10`).
 pub fn can_cast(s: u8, level: u8) -> bool {
-    row(s, level).is_some() && mg::castable(s) && super::mp::can_pay(mg::cost(s))
+    // SAFETY: reads of the image's main-player pointer and its vtable word.
+    row(s, level).is_some() && mg::castable(s) && (unsafe { riku_free() } || super::mp::can_pay(mg::cost(s)))
 }
 
 /// `initMagic`'s writes for a KH1 cast, cardless (Checked (decomp `0x1402203D0`), in its order):
@@ -408,6 +466,7 @@ pub fn can_cast(s: u8, level: u8) -> bool {
 /// request, played by the KH1 frame.
 pub unsafe fn start_cast(pl: usize, c: &CastStart) -> bool {
     let Some(r) = row(c.spell, c.level) else { return false };
+    CAST_LEVEL.store(c.level as u32, Ordering::Relaxed);
     let cur: u32 = rd(pl + f::ACTION);
     wr(pl + f::PREV_ACTION, cur);
     wr(pl + f::ACTION_TIME, 0u64);
@@ -440,7 +499,8 @@ pub unsafe fn start_cast(pl: usize, c: &CastStart) -> bool {
         effect_on_bone(pl, rd(pl + WEAPON), 2, set_name(r, 0), 0, &CHARGE_OFFSET, true);
         thunder_command(pl);
     }
-    if c.spell == mg::spell::CURE || c.spell == mg::spell::AERO {
+    // 0.184.8: Riku's Cure has no `cure_all` charge (his heal sparkle at the release instead).
+    if (c.spell == mg::spell::CURE && !mv::is_main_riku(pl)) || c.spell == mg::spell::AERO {
         // `initMagic` case 0x1D / 0x20's charge: the set's effect id 0 on the Keyblade's bone 2.
         charge_on_weapon(pl, r, 0);
     }
@@ -595,7 +655,7 @@ unsafe fn release_aero(pl: usize, c: &CastStart) -> Option<u32> {
         BARRIER_ON.store(true, Ordering::Release);
         STRIKING.store(true, Ordering::Release);
     }
-    super::mp::pay(mg::aero::COST, "Aero release");
+    pay_spell(mg::aero::COST, "Aero release");
     note(|| format!("release aero{}: KH1's barrier {frames} f (max MP {max_mp}), damage taken halved; Re:CoM's Aero shot {shot:?} follows Sora{}", c.level, if !wind { " (look only)" } else if c.level == 1 { ", Aerora's KH1 wind 0.8 m re-hitting every 30 f with the Aero card's AP (Damage = Re:CoM)" } else { ", KH1's wind 0.8 m re-hitting every 30 f" }));
     event(format!("barrier {frames:.0}{}", if wind { " wind" } else { "" }));
     shot
@@ -728,7 +788,7 @@ unsafe fn release_stop(pl: usize, c: &CastStart) -> Option<u32> {
         Err(_) => None,
     };
     // KH1 pays after the thread starts (sys 20, then sys 47).
-    super::mp::pay(mg::stop::COST, "Stop release");
+    pay_spell(mg::stop::COST, "Stop release");
     note(|| format!("release stop{}: centre ({:.2},{:.2},{:.2}) r {} m ±3 m, {n} enemies listed, first {first:?}", c.level, centre[0], centre[1], centre[2], mg::stop::RADIUS[c.level.clamp(1, 3) as usize - 1] / 100.0));
     first
 }
@@ -1077,7 +1137,7 @@ unsafe fn release_gravity(pl: usize, c: &CastStart) -> Option<u32> {
         STRIKING.store(true, Ordering::Release);
     }
     // KH1 pays after the falling thread starts (sys 20, then sys 47).
-    super::mp::pay(mg::gravity::COST, "Gravity release");
+    pay_spell(mg::gravity::COST, "Gravity release");
     note(|| {
         format!(
             "release gravity{}: sphere {id} from ({:.2},{:.2},{:.2}) falls {fall} m over {n} f to ({:.2},{:.2},{:.2}), impact radius {:.2} m, Re:CoM's growth {:.4} m an update, drawn at scale {:.3} at the impact (Re:CoM's rule: radius / 1.5 m), target {h:#x}",
@@ -1691,16 +1751,34 @@ unsafe fn release_cure(pl: usize, c: &CastStart) -> Option<u32> {
         note(|| format!("release cure{}: Sora can't be healed (HP {hp}, dying {dead}): no heal, no MP", c.level));
         return None;
     }
-    effect_on_bone(pl, pl, 0, set_name(r, 0), (r[2] as u32).wrapping_sub(0xE), &BODY_OFFSET, true);
+    if mv::is_main_riku(pl) {
+        // 0.184.8 (fork owner, 2026-11-23: "o efeito de cura com aqueles sininhos ficaram muito comicos era bom achar outro
+        // efeito melhor"): Riku's own heal sparkle, the one his item use plays (`always` 1, his `p002_034` at frame 37;
+        // the workspace's `knowledge/ReCoM/recom-m13-recom-fx.md` § 8, Checked (files)), on his bone 0 at Re:CoM's Cure
+        // offset, once per level (Cura twice, Curaga three times: brighter), instead of Re:CoM's `cure_all`.
+        let name: usize = rd(base() + EFFECT_ALWAYS as usize);
+        if name != 0 && std::slice::from_raw_parts(name as *const u8, 7) == b"always\0" {
+            for _ in 0..c.level.clamp(1, 3) {
+                effect_on_bone(pl, pl, 0, name, RIKU_HEAL_SPARKLE, &BODY_OFFSET, true);
+            }
+        }
+    } else {
+        effect_on_bone(pl, pl, 0, set_name(r, 0), (r[2] as u32).wrapping_sub(0xE), &BODY_OFFSET, true);
+    }
     let ap: i32 = rd(pl + f::AP);
     func::<HealFn>(HEAL)(pl, ap, 0, 1, 0);
     let after: i32 = rd(pl + HP);
-    super::mp::pay(mg::cure::COST, "Cure release");
+    pay_spell(mg::cure::COST, "Cure release");
     note(|| format!("release cure{}: Re:CoM's heal {ap} -> HP {hp} -> {after} (max {})", c.level, rd::<i32>(pl + HP + 4)));
     event(format!("heal {ap} hp {after}"));
     // No shot: the trace's release token shows `no-shot`, a heal is its own event.
     None
 }
+
+/// Riku's item heal sparkle: `always.dpx` id 1 (Checked (files): his item use `p002_034`'s EET).
+const RIKU_HEAL_SPARKLE: u32 = 1;
+/// Re:CoM's `"always"` effect name pointer (`0x1407C2C40`, as `win::attack` reads it).
+const EFFECT_ALWAYS: u32 = 0x007C_2C40;
 
 /// Sora's HP (`+0x42C`, max `+0x430`) and Re:CoM's death flag (`+0x7B0`). Checked (decomp
 /// `0x1401E59A0`, `0x1401E6DE0`).
@@ -1769,7 +1847,7 @@ unsafe fn release_fire(pl: usize, c: &CastStart) -> Option<u32> {
     }
     remember_shot(id, c.spell, c.level, 0);
     // KH1 pays after the launch (`xm_fire01.mag`: sys 20, then sys 47).
-    super::mp::pay(mg::fire::COST, "Fire release");
+    pay_spell(mg::fire::COST, "Fire release");
     note(|| {
         format!(
             "release {}{}: shot id {id} at ({:.2},{:.2},{:.2}), speed {:.2} m/f, life {} ticks, turn {}°/f, radius {:.2} m, target {}",
@@ -1856,7 +1934,7 @@ unsafe fn release_blizzard(pl: usize, c: &CastStart) -> Option<u32> {
     }
     let first = first?;
     // KH1 pays after the spawner thread starts (sys 20, then sys 47).
-    super::mp::pay(mg::blizzard::COST, "Blizzard release");
+    pay_spell(mg::blizzard::COST, "Blizzard release");
     note(|| format!("release {}{}: {made} shards from ({:.2},{:.2},{:.2}) yaw {:.3}, speed {speed:.2} m/f, life {life} ticks, radius {:.2} m, serial {serial}", mg::spell::NAMES[c.spell as usize], c.level, hand[0], hand[1], hand[2], ang[1], r[4] as f32 * 0.01));
     Some(first)
 }
@@ -2014,7 +2092,7 @@ unsafe fn release_thunder(pl: usize, c: &CastStart) -> Option<u32> {
         Err(_) => None,
     };
     // KH1 pays after the strike thread starts (sys 20, then sys 47).
-    super::mp::pay(mg::thunder::COST, "Thunder release");
+    pay_spell(mg::thunder::COST, "Thunder release");
     note(|| format!("release thunder{}: area centre ({:.2},{:.2},{:.2}) r {} m ±{} m, {n} enemies listed from ({:.2},{:.2},{:.2}), first bolt {first:?}", c.level, centre[0], centre[1], centre[2], mg::thunder::RADIUS / 100.0, mg::thunder::HALF_HEIGHT / 100.0, from[0], from[1], from[2]));
     first
 }
@@ -2358,7 +2436,15 @@ pub fn on_events(ev: &[CastEvent]) {
 /// through our case): KH1's frame for a KH1 cast, Re:CoM's exe otherwise.
 pub unsafe extern "win64" fn exe_magic(pl: usize) {
     let o: PlFn = orig(&ORIG_EXE_MAGIC);
-    if !mv::kh1_sora(pl) || !kh1_cast(pl) {
+    // 0.184.0: Riku's and Dark Riku's own slots (`+0x150`, Re:CoM's empty `0x1401EEAA0`) point here too
+    // ([`riku_slots`]), and the Field exe's case 0x13 (shared with Riku) calls Sora's exeMagic directly: only
+    // Sora's object ever runs Sora's exe; anyone else runs the KH1 frame of a KH1 cast or nothing (Re:CoM's
+    // own stub).
+    if rd::<usize>(pl) != va(base(), crate::sites::data::SORA_VTABLE) {
+        if !(mv::kh1_riku(pl) && kh1_cast(pl)) {
+            return;
+        }
+    } else if !mv::kh1_sora(pl) || !kh1_cast(pl) {
         return o(pl);
     }
     if !mv::continues(pl) {

@@ -78,6 +78,7 @@ pub mod d2;
 pub mod dim;
 pub mod damage;
 pub mod damage_cap;
+pub mod dark_points;
 pub mod effects;
 pub mod fx;
 pub mod enemy_skills;
@@ -112,6 +113,8 @@ pub mod mp;
 pub mod mp_bar;
 pub mod notices;
 pub mod revenge;
+pub mod riku;
+pub mod riku_skin;
 pub mod rows;
 pub mod settings;
 pub mod kh1_enemy;
@@ -127,6 +130,7 @@ pub mod text_fit;
 pub mod trace;
 pub mod units;
 pub mod unlocks;
+pub mod riku_unlocks;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

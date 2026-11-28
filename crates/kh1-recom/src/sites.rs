@@ -53,6 +53,10 @@ pub const MOVE_HOOKS: &[Site] = &[
     Site { name: "jump exe (action 7)", rva: 0x001E_DA60, expect: &[0x4C, 0x8B, 0xDC, 0x53, 0x48, 0x81, 0xEC, 0xD0, 0x00, 0x00, 0x00] },
     // push rbx; sub rsp,0x30; mov rax,[rcx+0xF0]; mov rbx,rcx
     Site { name: "CPlayerSora avoid exe (action 6)", rva: 0x0021_7310, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B, 0x81, 0xF0, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD9] },
+    // 0.153.0: Riku's (`CPlayerRiku +0x1C8`) and Dark Riku's (`CPlayerDRiku +0x1C8`) own avoid exes (action 6): the same
+    // first 16 bytes as Sora's. Checked (exe).
+    Site { name: "CPlayerRiku avoid exe (action 6)", rva: 0x0021_2350, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B, 0x81, 0xF0, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD9] },
+    Site { name: "CPlayerDRiku avoid exe (action 6)", rva: 0x001F_FC30, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B, 0x81, 0xF0, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xD9] },
     // push rbx; sub rsp,0x80; and dword [rcx+0x428],-9
     Site { name: "CPlayerSora glide exe (action 8)", rva: 0x0021_7B50, expect: &[0x40, 0x53, 0x48, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, 0x83, 0xA1, 0x28, 0x04, 0x00, 0x00, 0xF7] },
 ];
@@ -285,6 +289,10 @@ pub const KEYBLADE_CALLEES: &[Site] = &[
     Site { name: "card ever obtained (0x14015B3F0)", rva: 0x0015_B3F0, expect: &[0x84, 0xC9, 0x74, 0x37, 0x48, 0x8B, 0x05, 0xED, 0xF3, 0x71, 0x00] },
     // sub rsp,0x28; movzx eax,byte [rcx]; cmp al,0xDB; jae
     Site { name: "card name (0x140164CA0)", rva: 0x0016_4CA0, expect: &[0x48, 0x83, 0xEC, 0x28, 0x0F, 0xB6, 0x01, 0x3C, 0xDB, 0x73, 0x1D] },
+    // 0.198.17: Re:CoM's Sleights List on Riku's Customize (the workspace's `recom-riku-sleights.md` § 3).
+    Site { name: "camp Sleights List update (0x1400EBE30)", rva: 0x000E_BE30, expect: &[0x40, 0x57, 0x48, 0x83, 0xEC, 0x40, 0x48, 0xC7, 0x44, 0x24, 0x30, 0xFE, 0xFF, 0xFF, 0xFF, 0x48, 0x89, 0x5C, 0x24, 0x58] },
+    Site { name: "camp prompt bar (0x1400DEC60)", rva: 0x000D_EC60, expect: &[0x48, 0x8B, 0xC4, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x81, 0xEC, 0xC0, 0x00, 0x00] },
+    Site { name: "camp: pad press (0x140111AE0)", rva: 0x0011_1AE0, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0xF2, 0x48, 0x8B, 0xD9] },
 ];
 
 /// Re:CoM data the Keyblades page passes to Re:CoM's own code or copies, checked the same way.
@@ -326,6 +334,16 @@ pub const MODEL_HOOKS: &[Site] = &[
     // push rbx; sub rsp,0x30; mov qword [rsp+0x20],-2: the field's camp open / close
     // (`0x1401A9590(field, open)`); with open = 0 the field resumes after the camp is gone.
     Site { name: "field camp open/close (0x1401A9590)", rva: 0x001A_9590, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x48, 0xC7, 0x44, 0x24, 0x20, 0xFE, 0xFF, 0xFF, 0xFF] },
+    // mov [rsp+8],rbx; mov [rsp+0x10],rsi; push rdi; sub rsp,0x30: Re:CoM's "play clip `slot` of motion pack `id`"
+    // (`0x14024D860(ctrl, id, slot, start, …)`: `0x1402A4820(id)` at ctrl +0x28, then `0x14024C760`); 0.197.4: Riku's event
+    // pack copies (`win::models::pack_pick`). Checked (exe; the workspace's `knowledge/ReCoM/recom-skeleton-limits.md`).
+    Site { name: "motion pack pick (0x14024D860)", rva: 0x0024_D860, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x30] },
+    // mov [rsp+8],rbx; mov [rsp+0x10],rsi; push rdi; sub rsp,0x20 (15 bytes; next `mov rbx,rcx`): the same pick without a blend
+    // (`0x14024ED00(ctrl, id, slot, start)`: `0x1402A4820(id)` at ctrl +0x28, then `0x14024D320`), taken by `0x1401A3580` when the blend
+    // is < 0 (the sleight path `0x1401F73A0` / `0x1401F7290` with -1); 0.198.32: the battle Dark Riku's pack copies
+    // (`win::models::pack_set`). Checked (exe: its only reference is the call at `0x1401A35F5`; no branch or pointer lands in the moved
+    // bytes (scan of rel32 calls / jumps, jcc, rel8 jumps, 8-byte pointers)).
+    Site { name: "motion pack pick, no blend (0x14024ED00)", rva: 0x0024_ED00, expect: &[0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20] },
 ];
 
 /// Re:CoM functions the model code calls (or reaches through a vtable it checks).
@@ -1144,6 +1162,11 @@ pub const COMMAND_MENU_CALLEES: &[Site] = &[
 
 /// Re:CoM code the context row's reading relies on (not called).
 pub const COMMAND_MENU_CHECKED: &[Site] = &[
+    // The pad type the button glyphs follow: the controller config getter `0x14034E930`
+    // (lea rax,[0x14083F574]; ret) and `0x140349120`'s pick on its +0x1C (movsx ecx,word
+    // [rdi+0x1C]; mov ebx,0xE3F2: type 1 from 0xE3F0, 2 from 0xE410, 3 from 0xE430).
+    Site { name: "controller config getter (0x14034E930)", rva: 0x0034_E930, expect: &[0x48, 0x8D, 0x05, 0x3D, 0x0C, 0x4F, 0x00, 0xC3] },
+    Site { name: "button glyphs by pad type (0x1403491B7)", rva: 0x0034_91B7, expect: &[0x0F, 0xBF, 0x4F, 0x1C, 0xBB, 0xF2, 0xE3, 0x00, 0x00] },
     // The field action pick `0x1401E80C0`: the object is player +0x5FC's handle when > 0, else
     // +0x84C's (mov esi,[rcx+0x5FC]; test; jg; mov esi,[rcx+0x84C]; test; jg).
     Site { name: "field action pick: handles (0x1401E80E8)", rva: 0x001E_80E8, expect: &[0x8B, 0xB1, 0xFC, 0x05, 0x00, 0x00, 0x85, 0xF6, 0x7F, 0x11, 0x8B, 0xB1, 0x4C, 0x08, 0x00, 0x00, 0x85, 0xF6, 0x7F, 0x07] },
@@ -2834,6 +2857,10 @@ pub const MAGIC_FX_BRANCHES: &[Site] = &[
     Site { name: "camp open (menu button): battle set unload (0x1401A99F9)", rva: 0x001A_99F9, expect: &[0xE8, 0x62, 0x7B, 0x06, 0x00] },
 ];
 
+/// 0.184.2 (Riku's spells' effects): `CGameSubBattle` state 1's tail `jmp 0x140211960` (the battle set's load; its
+/// context in [`MAGIC_FX_CHECKED`]'s "battle state 1"), retargeted through a jump placed near it.
+pub const RIKU_FX_BRANCH: &[Site] = &[Site { name: "battle state 1: battle set jump (0x1401AEA33)", rva: 0x001A_EA33, expect: &[0xE9, 0x28, 0x2F, 0x06, 0x00] }];
+
 /// What the field's battle set calls (Re:CoM's battle-set loader and unloader), and the code
 /// around the retargeted branches, checked only.
 pub const MAGIC_FX_CHECKED: &[Site] = &[
@@ -2939,6 +2966,12 @@ pub mod data {
     pub const MAIN_PLAYER: u64 = 0x1_4087_B380;
     /// `CPlayerSora` vtable (RTTI). Riku's are `0x1405A8868` / `0x1405A50E8`.
     pub const SORA_VTABLE: u64 = 0x1_405A_9938;
+    /// `CPlayerRiku` vtable (RTTI; `docs/recom-player.md`). Its Battle exe slot `+0xB8` is a
+    /// `jmp` to the shared Battle exe `0x1401F9840`. Checked (exe).
+    pub const RIKU_VTABLE: u64 = 0x1_405A_8868;
+    /// `CPlayerDRiku` vtable (RTTI; Dark Mode's player, `docs/recom-riku-kh1.md`). Its Battle exe
+    /// `+0xB8` is `jmp 0x1401F9840` too; its Field exe is `ret`. Checked (exe).
+    pub const DRIKU_VTABLE: u64 = 0x1_405A_50E8;
     /// Pad devices, one pointer per port (`0x14029BF60` reads `[port]+0x74`).
     pub const PAD_DEVICES: u64 = 0x1_40AC_5D40;
     /// Sora's action table and the per-character table pointers (`docs/recom-motion-switch.md`).
@@ -2970,6 +3003,11 @@ pub const STORY_SKIP_CALLEES: &[Site] = &[
     // mov r11d,r8d; mov r9d,edx; cmp ecx,2; jae: a system flag set (table, index, value), as
     // script op 0x6E calls it.
     Site { name: "system flag set (0x1401B1650)", rva: 0x001B_1650, expect: &[0x45, 0x8B, 0xD8, 0x44, 0x8B, 0xCA, 0x83, 0xF9, 0x02, 0x73, 0x57] },
+    // cmp ecx,2; jae: a system byte set (table, index, value), as script op 0x62 calls it (fork, 0.196.0, Riku's tutorial).
+    // Checked (exe, the workspace's `knowledge/ReCoM/recom-riku-ansem-tutorial.md`).
+    Site { name: "system byte set (0x1401B15D0)", rva: 0x001B_15D0, expect: &[0x83, 0xF9, 0x02, 0x73, 0x2A] },
+    // push rbx; sub rsp,0x20; movzx ebx,cx; call: the card give syscall 0xAD sub 7 calls (fork, 0.196.0). Checked (exe).
+    Site { name: "card give (0x14023AA60)", rva: 0x0023_AA60, expect: &[0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x0F, 0xB7, 0xD9, 0xE8, 0x92, 0x00, 0xF7, 0xFF] },
 ];
 
 /// M10, KH1's Shadow (`crate::shadow`, `win::shadow`, `docs/recom-m10-shadow.md`): the wrapper on
@@ -4427,6 +4465,7 @@ pub fn all_sites() -> impl Iterator<Item = &'static Site> {
         SHOP_CHECKED,
         MAGIC_FX_BRANCHES,
         MAGIC_FX_CHECKED,
+        RIKU_FX_BRANCH,
         CUSTOMIZE_GLYPHS_CHECKED,
         ABILITY_CALLEES,
         ENEMY_SKILL_HOOKS,

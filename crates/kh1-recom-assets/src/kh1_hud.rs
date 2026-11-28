@@ -309,6 +309,54 @@ impl Pic {
         }
         p
     }
+    /// A copy resampled to `w`×`h` by area averaging: each texel is the mean of the source area
+    /// it covers, colour weighted by alpha (clear texels add no colour), as [`Pic::bilinear`].
+    fn resampled(&self, w: usize, h: usize) -> Pic {
+        let (sx, sy) = (self.w as f64 / w as f64, self.h as f64 / h as f64);
+        // Each output column's / row's source spans: (source index, coverage).
+        let spans = |n: usize, s: f64, max: usize| -> Vec<Vec<(usize, f64)>> {
+            (0..n)
+                .map(|i| {
+                    let (a, b) = (i as f64 * s, (i + 1) as f64 * s);
+                    let mut v = Vec::new();
+                    let mut k = a.floor() as usize;
+                    while (k as f64) < b && k < max {
+                        let c = (b.min(k as f64 + 1.0) - a.max(k as f64)).max(0.0);
+                        if c > 0.0 {
+                            v.push((k, c));
+                        }
+                        k += 1;
+                    }
+                    v
+                })
+                .collect()
+        };
+        let (xs, ys) = (spans(w, sx, self.w), spans(h, sy, self.h));
+        let mut p = Pic::blank(w, h);
+        for (j, yrow) in ys.iter().enumerate() {
+            for (i, xcol) in xs.iter().enumerate() {
+                let (mut acc, mut area) = ([0f64; 4], 0f64);
+                for &(y, cy) in yrow {
+                    for &(x, cx) in xcol {
+                        let t = self.px[y * self.w + x];
+                        let a = t[3] as f64 * cx * cy;
+                        for c in 0..3 {
+                            acc[c] += t[c] as f64 * a;
+                        }
+                        acc[3] += a;
+                        area += cx * cy;
+                    }
+                }
+                p.px[j * w + i] = if acc[3] <= 0.0 || area <= 0.0 {
+                    [0; 4]
+                } else {
+                    let c = |k: usize| (acc[k] / acc[3]).round().clamp(0.0, 255.0) as u8;
+                    [c(0), c(1), c(2), (acc[3] / area).round().clamp(0.0, 255.0) as u8]
+                };
+            }
+        }
+        p
+    }
     /// A copy whose clear texels take the colour of the covered texels beside them (`passes`
     /// texels deep; alpha unchanged). The PC atlas is filtered: a clear texel's colour (black or
     /// white in the pictures) leaked into the edges of the art as a dark or light fringe, which
@@ -385,6 +433,36 @@ pub struct Source {
     pub scale: usize,
 }
 
+/// KH1 FM PC's own scale of its HUD pictures over the PS2 ones (the faces, pictures 1..7).
+const HD_SCALE: usize = 2;
+/// KH1 FM PC's scale of picture 0 (the LOCK ON! plate / shortcut panel frame).
+const HD_SCALE_PLATE: usize = 4;
+
+/// The PC texture at a whole multiple of the PS2 picture, at most `max` (KH1 FM PC's own scale
+/// for that picture). A replaced (texture mod) PC texture may be any size, e.g. Sora's face at
+/// 1200×400 over the PS2's 192×64 (6.25×), Donald's at 8×: it is resampled to the nearest whole
+/// scale, capped at `max` (the PC atlas then stays the stock 2048 × 1024; a texture mod's 4×-8×
+/// pictures made a 2048 × 4096 atlas per language that crashed Re:CoM on load), its height kept
+/// in proportion. A stock one (a whole multiple, at most `max`) is returned as it is.
+fn fit_hd(ps2: &Pic, hd: Pic, max: usize) -> Pic {
+    if ps2.w == 0 || hd.w == 0 || (hd.w % ps2.w == 0 && hd.w / ps2.w <= max && hd.h >= ps2.h * (hd.w / ps2.w)) {
+        return hd;
+    }
+    let r = hd.w as f64 / ps2.w as f64;
+    let s = (r.round() as usize).clamp(1, max.max(1));
+    let w = ps2.w * s;
+    let h = ((hd.h as f64 * w as f64 / hd.w as f64).round() as usize).max(ps2.h * s);
+    hd.resampled(w, h)
+}
+
+/// [`fit_hd`] for a picture's language copies, all at one size: a texture mod may replace some
+/// languages' copies only, so each copy is brought to the largest copy's size.
+fn fit_all(ps2: &Pic, per: Vec<Pic>, max: usize) -> Vec<Pic> {
+    let per: Vec<Pic> = per.into_iter().map(|p| fit_hd(ps2, p, max)).collect();
+    let Some(big) = per.iter().max_by_key(|p| p.w * p.h).map(|p| (p.w, p.h)) else { return per };
+    per.into_iter().map(|p| if (p.w, p.h) == big { p } else { p.resampled(big.0, big.1) }).collect()
+}
+
 fn hd_scale(ps2: &Pic, hd: &Pic) -> Result<usize> {
     let s = hd.w / ps2.w.max(1);
     if s == 0 || hd.w != ps2.w * s || hd.h < ps2.h * s {
@@ -438,7 +516,7 @@ pub fn face_section(sec: &[u8], at: usize, assets: &[HdAsset]) -> Result<Source>
     let ps2 = Pic { w, h, px };
     let name = format!("-{:x}.dds", at + 0x410);
     let a = assets.iter().find(|a| a.name.eq_ignore_ascii_case(&name)).ok_or_else(|| crate::Error::Format(format!("mdls: no PC face texture {name}")))?;
-    let hd = from_pc(&decode_dds(&a.data)?);
+    let hd = fit_hd(&ps2, from_pc(&decode_dds(&a.data)?), HD_SCALE);
     let scale = hd_scale(&ps2, &hd)?;
     Ok(Source { ps2, hd, scale })
 }
@@ -1217,6 +1295,9 @@ pub struct MenuSources<'a> {
     pub item: Option<&'a [u8]>,
     /// M8b: `UK_uibin_sum.bin`, the Summon list ([`SUM`]); same rule.
     pub sum: Option<&'a [u8]>,
+    /// 0.179.1: Re:CoM's `FO0104.RTM` level-up texture ([`menu::DP_EMBLEM_ASSET`]), for the DP
+    /// sleights' mark. Without it no mark is built.
+    pub dp_emblem: Option<&'a [u8]>,
 }
 
 /// The built files.
@@ -1249,6 +1330,8 @@ pub struct Built {
     pub party: Option<[usize; 2]>,
     /// H7: the lock-on cursor's group.
     pub cursor: Option<usize>,
+    /// KH1's orange auto-target ring's group (`lockon_d`, 0.180.0).
+    pub auto_ring: Option<usize>,
     /// H8: the LEVEL UP!! box's group.
     pub level_up: Option<usize>,
     /// PC texture rects redrawn from the PS2 pictures (repacked on PC, see [`fit_layouts`]).
@@ -1335,6 +1418,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
             let hd = uitex_asset(src.uitex_hd, data, l)?.ok_or_else(|| crate::Error::Format(format!("uitex.bin: no PC texture for picture {i} (-{data:x}.dds)")))?;
             per.push(hd);
         }
+        let per = fit_all(&ps2, per, HD_SCALE);
         let scale = hd_scale(&ps2, &per[0])?;
         if per.iter().any(|p| p.w != per[0].w || p.h != per[0].h) {
             return bad(format!("uitex.bin: picture {i}'s language textures differ in size"));
@@ -1554,6 +1638,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
         for l in langs {
             per.push(uitex_asset(src.uitex_hd, data, l)?.ok_or_else(|| crate::Error::Format(format!("uitex.bin: no PC texture for picture {i}")))?);
         }
+        let per = fit_all(&ps2, per, HD_SCALE);
         let scale = hd_scale(&ps2, &per[0])?;
         // FM's context tab draws from picture 2's PC-only rows (`0x140278B40`): kept whole.
         if i == 2 {
@@ -1577,6 +1662,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
         for l in langs {
             per.push(uitex_asset(src.uitex_hd, data, l)?.ok_or_else(|| crate::Error::Format(format!("uitex.bin: no PC texture for picture {i}")))?);
         }
+        let per = fit_all(&ps2, per, HD_SCALE_PLATE);
         let scale = hd_scale(&ps2, &per[0])?;
         let whole: Vec<Pic> = per.iter().map(|p| p.crop(0, 0, 128 * scale, 128 * scale)).collect();
         let whole = if whole.iter().all(|p| *p == whole[0]) { vec![whole[0].clone()] } else { whole };
@@ -1595,7 +1681,8 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
         None => None,
     };
     // Stage 7.12: KH1's shortcut panel (with the menu: its words are the menu's).
-    let shortcut_built = match src.menu.as_ref().and_then(|ms| ms.cut.map(|c| (c, ms.icon))) {
+    let shortcut_icon = src.menu.as_ref().and_then(|ms| ms.icon);
+    let mut shortcut_built = match src.menu.as_ref().and_then(|ms| ms.cut.map(|c| (c, ms.icon))) {
         Some((cut, icon)) => Some(shortcut::build(cut, &mut atlas, p0_whole, mp[0], icon, &mut groups)?),
         None => None,
     };
@@ -1615,13 +1702,15 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
             }
             let ps2 = Pic { w: 128, h: 128, px: t.pixels.clone() };
             let hd = uitex_asset(src.uitex_hd, data, langs[0])?.ok_or_else(|| crate::Error::Format(format!("uitex.bin: no PC texture for picture {i}")))?;
+            let hd = fit_hd(&ps2, hd, HD_SCALE);
             let scale = hd_scale(&ps2, &hd)?;
             let item = atlas.add(ps2, vec![hd.crop(0, 0, 128 * scale, 128 * scale)], scale);
             cursor_item = Some(item);
-            Some(cursor::build(l, item, &mut groups)?)
+            Some((cursor::build(l, item, &mut groups)?, cursor::build_ring(l, item, &mut groups)?))
         }
         None => None,
     };
+    let (cursor_built, auto_ring_built) = (cursor_built.map(|c| c.0), cursor_built.map(|c| c.1));
     let mut party5 = None;
     // H6: Donald's and Goofy's gauges, full (Re:CoM's friends have no HP or MP).
     let party_built = match src.g_c {
@@ -1653,9 +1742,17 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
         let inputs = ring::Inputs { objs, it5, it7, back, mp: mp_q, charge: charge_q, black, div };
         groups.extend(ring::groups(&inputs, &mut ring_stats)?);
     }
+    let ring_end = groups.len();
+    // The other pad types' button glyphs (the shortcut panel's and the context tab's), after
+    // every other group so no group before them moves.
+    if let Some(sc) = shortcut_built.as_mut() {
+        if sc.icons {
+            sc.pads = shortcut::pad_glyphs(&mut atlas, shortcut_icon, &mut groups)?;
+        }
+    }
     let groups_total = groups.len();
     // The ring's straight pieces, before they get boxes of their own (`ring::lift_straights`).
-    let straights = ring::straight_marks(&groups[ring_first..], &[it5, it7]);
+    let straights = ring::straight_marks(&groups[ring_first..ring_end], &[it5, it7]);
     let mut raw = vec![it5, it6, it7, p0, p0_whole];
     raw.extend(&faces);
     raw.extend(&mp);
@@ -1663,7 +1760,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
     raw.extend(party5);
     let refit = fit_layouts(&mut atlas, &groups, &raw);
     split_raw(&mut atlas, &mut groups, &raw);
-    ring::lift_straights(&mut atlas, &mut groups[ring_first..], &straights)?;
+    ring::lift_straights(&mut atlas, &mut groups[ring_first..ring_end], &straights)?;
     let packed = build_atlas(&atlas, langs.len())?;
     let base = seqd(&groups, &packed, false)?;
     let hd = seqd(&groups, &packed, true)?;
@@ -1683,6 +1780,7 @@ pub fn build(src: &Sources, langs: &[&str]) -> Result<Built> {
         target: target_built,
         party: party_built,
         cursor: cursor_built,
+        auto_ring: auto_ring_built,
         level_up: level_built,
         refit,
         ring: (ring_first, ring_stats),
@@ -2019,6 +2117,57 @@ pub mod menu {
         pub summon_list: Option<usize>,
         /// M8b: why `uibin_sum.bin` was not used (for the step's note).
         pub summon_note: Option<String>,
+        /// 0.179.1: the DP sleights' mark (Re:CoM's Heartless emblem, [`dp_emblem`]), one group after
+        /// the Summon list's; None without [`MenuSources::dp_emblem`] or when it can't be read.
+        pub dp_icon: Option<usize>,
+        /// 0.179.1: why there is no mark (for the step's note).
+        pub dp_note: Option<String>,
+    }
+
+    /// 0.179.1 (fork owner, 2026-11-23, verbatim: "preciso que no shorcut e no menu de commands tenha
+    /// algo identificando que consomem DP, pode ser o ícone de um heartless"; "a direita fica
+    /// perfeito"): Re:CoM's own Heartless emblem, the DP icon of Riku's level-up screen, drawn right
+    /// of a DP sleight's name. Checked (files: `knowledge/ReCoM/recom-ui-textures.md` in the KH
+    /// modding workspace): black with a red outline and a purple glow, between the Soul Eater and a
+    /// fist in `FO0104.RTM`'s PC texture.
+    pub const DP_EMBLEM_FILE: &str = "FORM/0104/FO0104.RTM";
+    /// Its PC asset (any language's holds the same art; UK is read).
+    pub const DP_EMBLEM_ASSET: &str = "UK_levelup.imz";
+    /// The part of the 1024 × 1024 texture searched (x, y, w, h): right of the Soul Eater (it ends at
+    /// x 120), left of the fist (from x 239).
+    pub const DP_EMBLEM_AREA: [usize; 4] = [128, 40, 104, 140];
+
+    /// The emblem at the menu font's PC height ([`CELL`]`.1`, the width kept in proportion, even),
+    /// from `FO0104.RTM`'s `UK_levelup.imz` (an `IMGZ` of one 32-bit `IMGD`, PS2 alpha, as the atlas
+    /// keeps it): the covered texels of [`DP_EMBLEM_AREA`], area-averaged.
+    pub fn dp_emblem(imz: &[u8]) -> Result<Pic> {
+        if imz.len() < 0x60 || &imz[0..4] != b"IMGZ" || &imz[0x20..0x24] != b"IMGD" {
+            return bad(format!("{DP_EMBLEM_ASSET}: not an IMGZ of one IMGD"));
+        }
+        let rd32 = |o: usize| u32::from_le_bytes([imz[o], imz[o + 1], imz[o + 2], imz[o + 3]]) as usize;
+        let rd16 = |o: usize| u16::from_le_bytes([imz[o], imz[o + 1]]) as usize;
+        let (off, size, w, h) = (0x20 + rd32(0x28), rd32(0x2C), rd16(0x3C), rd16(0x3E));
+        let [ax, ay, aw, ah] = DP_EMBLEM_AREA;
+        if size != w * h * 4 || imz.len() < off + size || w < ax + aw || h < ay + ah {
+            return bad(format!("{DP_EMBLEM_ASSET}: {w}×{h}, {size} bytes (a 1024 × 1024 32-bit picture expected)"));
+        }
+        let pic = Pic { w, h, px: imz[off..off + size].chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]).collect() };
+        let area = pic.crop(ax, ay, aw, ah);
+        let (mut x0, mut y0, mut x1, mut y1) = (aw, ah, 0, 0);
+        for j in 0..ah {
+            for i in 0..aw {
+                if area.px[j * aw + i][3] > 2 {
+                    (x0, y0, x1, y1) = (x0.min(i), y0.min(j), x1.max(i + 1), y1.max(j + 1));
+                }
+            }
+        }
+        if x1 <= x0 + 8 || y1 <= y0 + 8 {
+            return bad(format!("{DP_EMBLEM_ASSET}: no emblem in {DP_EMBLEM_AREA:?}"));
+        }
+        let (bw, bh) = (x1 - x0, y1 - y0);
+        let th = CELL.1;
+        let tw = ((th * bw + bh / 2) / bh + 1) & !1;
+        Ok(area.crop(x0, y0, bw, bh).resampled(tw, th))
     }
 
     /// The menu font: its PC picture and glyphs (character → x, y, advance in PC texels).
@@ -2307,6 +2456,15 @@ pub mod menu {
         sub_list(&mag.objs, groups);
         // FM's context tab: picture 2's PC-only rows, one atlas item a UV rect.
         debug_assert_eq!(groups.len() - first, g::TAB);
+        // The tab's pieces are made at KH1 FM PC's 2×: a texture mod's picture 2 at another whole
+        // scale (e.g. 4×, 512 × 768) is resampled to 2× first.
+        let pic2_2x;
+        let (pic2, s2) = if s2 > 2 {
+            pic2_2x = pic2.resampled(pic2.w * 2 / s2, pic2.h * 2 / s2);
+            (&pic2_2x, 2)
+        } else {
+            (pic2, s2)
+        };
         if s2 != 2 || pic2.h < 175 * s2 || pic2.w < 128 * s2 {
             return bad(format!("uitex.bin picture 2's PC texture is {}×{}: not KH1 FM PC's 256 × 384 with the context tab's rows", pic2.w, pic2.h));
         }
@@ -2400,7 +2558,21 @@ pub mod menu {
             sub_list(&u.objs, groups);
             at
         });
-        Ok(Built { first, words, widths, glyphs: glyph_item.len(), missing, tab_icon, items_list, summon_list, summon_note })
+        // 0.179.1: the DP sleights' mark, after the Summon list's (every group the DLL knows keeps
+        // its number): one piece at the font's height, from the pen's place (x 0, as a word).
+        let (dp_icon, dp_note) = match ms.dp_emblem.map(dp_emblem) {
+            Some(Ok(hd)) => {
+                let ps2 = half(&hd);
+                let item = atlas.add(ps2.clone(), vec![hd.clone()], 2);
+                let (w, h) = ((hd.w as f32 * FONT_UNITS).round() as i32, (hd.h as f32 * FONT_UNITS).round() as i32);
+                let at = groups.len();
+                groups.push(held1(vec![Piece { item, uv: [0, 0, ps2.w as i32, ps2.h as i32], rect: [0, CELL_DY, w, CELL_DY + h], colour: 0x8080_8080, grad: 0 }]));
+                (Some(at), None)
+            }
+            Some(Err(e)) => (None, Some(e.to_string())),
+            None => (None, None),
+        };
+        Ok(Built { first, words, widths, glyphs: glyph_item.len(), missing, tab_icon, items_list, summon_list, summon_note, dp_icon, dp_note })
     }
 }
 
@@ -2435,6 +2607,15 @@ pub mod shortcut {
 
     /// The glyphs' `FontIcon.inf` records, in the groups' order.
     pub const GLYPH_CODES: [u16; 4] = [ICON_TRIANGLE, ICON_SQUARE, ICON_CROSS, ICON_CIRCLE];
+    /// The other pad types' glyphs, in [`GLYPH_CODES`]' order (Triangle's place, Square's, Cross's,
+    /// Circle's). Re:CoM's controller config (`0x14034E930` → `0x14083F574`) `+0x1C` is the pad
+    /// type; `0x140349120` fills its button glyphs from `0xE3F0` (type 1), `0xE410` (type 2, the
+    /// PlayStation set above) or `0xE430` (type 3), each set Square's place, Triangle's, Cross's,
+    /// Circle's (Checked (exe)). `Icon.tm2`: `0xE3F0..` the Xbox X / Y / A / B, `0xE430..` a
+    /// generic pad's left / top / bottom / right (Checked (files)).
+    pub const PAD_CODES: [[u16; 4]; 2] = [[0xE3F1, 0xE3F0, 0xE3F2, 0xE3F3], [0xE431, 0xE430, 0xE432, 0xE433]];
+    /// The pad glyph groups ([`pad_glyphs`]): pad type 1's four, then type 3's.
+    pub const PAD_COUNT: usize = 8;
     /// `cut_ico_a / b / c`'s places (the DLL's `crate::command_menu::shortcut::GLYPH_AT`).
     pub const GLYPH_AT: [(i32, i32); 3] = [(91, 23), (91, 45), (91, 67)];
 
@@ -2445,6 +2626,29 @@ pub mod shortcut {
         pub first: usize,
         /// The glyph groups hold the PC's button art.
         pub icons: bool,
+        /// The other pad types' glyph groups' first ([`pad_glyphs`]), when built.
+        pub pads: Option<usize>,
+    }
+
+    /// One glyph's group: the cell drawn 16 × 19 at its own origin (as the context tab's Triangle).
+    fn glyph_group(atlas: &mut Atlas, hd: Pic) -> Group {
+        let (w, h) = (hd.w / 2, hd.h / 2);
+        let item = atlas.add(menu::half(&hd), vec![hd], 2);
+        menu::held1(vec![Piece { item, uv: [0, 0, w as i32, h as i32], rect: menu::tab::TRIANGLE_RECT, colour: 0x8080_8080, grad: 0 }])
+    }
+
+    /// The other pad types' glyphs ([`PAD_CODES`]), [`PAD_COUNT`] groups appended to `groups`;
+    /// their first, or None without `Icon.tm2`.
+    pub(crate) fn pad_glyphs(atlas: &mut Atlas, icon: Option<[&[u8]; 2]>, groups: &mut Vec<Group>) -> Result<Option<usize>> {
+        let Some([tm2, inf]) = icon else { return Ok(None) };
+        let pic = menu::tim2_rgba(tm2)?;
+        let cells = PAD_CODES.iter().flatten().map(|&c| menu::icon_cell(&pic, inf, c)).collect::<Result<Vec<Pic>>>()?;
+        let first = groups.len();
+        for hd in cells {
+            groups.push(glyph_group(atlas, hd));
+        }
+        debug_assert_eq!(groups.len() - first, PAD_COUNT);
+        Ok(Some(first))
     }
 
     /// Builds the panel's groups (appended to `groups`): `p0` an atlas item of `uitex.bin`'s
@@ -2475,17 +2679,12 @@ pub mod shortcut {
         let icons = pics.is_some();
         for k in 0..GLYPH_CODES.len() {
             match &pics {
-                Some(p) => {
-                    let hd = p[k].clone();
-                    let (w, h) = (hd.w / 2, hd.h / 2);
-                    let item = atlas.add(menu::half(&hd), vec![hd], 2);
-                    groups.push(menu::held1(vec![Piece { item, uv: [0, 0, w as i32, h as i32], rect: menu::tab::TRIANGLE_RECT, colour: 0x8080_8080, grad: 0 }]));
-                }
+                Some(p) => groups.push(glyph_group(atlas, p[k].clone())),
                 None => groups.push(held(&[vec![]])),
             }
         }
         debug_assert_eq!(groups.len() - first, g::COUNT);
-        Ok(Built { first, icons })
+        Ok(Built { first, icons, pads: None })
     }
 }
 
@@ -2610,11 +2809,11 @@ pub mod target {
 /// H6: Donald's and Goofy's gauges (slots 1 and 2; KH1 Checked (decomp + exe + files) unless
 /// tagged): `g_c` objects at their places, the slot's offset (Donald (0, 0), Goofy (68, 20):
 /// `0x140527330`, `0x140527370`) + the right margin; the face (48 × 48, `xa_ex_0040` / `0050`)
-/// centred on (399, 44) (`0x1405272C0`, `0x14027F470`). Drawn full: the HP ring's three quarters
-/// (`g_c_bar_b/c/d_hp`, picture 5, the texels KH1's fan samples for r26) and the MP ring's
-/// (`_mp`, r32), over their dark backs (`g_c_fra_b/c/d_*`, picture 6), the face frame
-/// (`g_c_fra_a_w`) and disc (`g_c_fra_a_a`). Order as Sora's (`0x14026CF90`): frame, disc, HP
-/// back, MP back, MP, HP, face. Assumption: the party's draw order is Sora's.
+/// centred on (399, 44) (`0x1405272C0`, `0x14027F470`). Drawn: the face frame (`g_c_fra_a_w`),
+/// the disc (`g_c_fra_a_a`) and the face, in Sora's order (`0x14026CF90`). No HP / MP rings and
+/// no ring backs (`g_c_bar_*`, `g_c_fra_b/c/d_*`): Re:CoM's friends have no HP or MP (fork owner,
+/// 2026-11-23, answer 4b; until 0.178.1 the rings were drawn full). Assumption: the party's draw
+/// order is Sora's.
 pub mod party {
     use super::*;
 
@@ -2622,15 +2821,9 @@ pub mod party {
     pub const CENTRE: (i32, i32) = (399, 44);
 
     /// Builds Donald's and Goofy's groups; returns them.
-    pub(crate) fn build(g_c: &[u8], [p6, p5]: [usize; 2], faces: [usize; 2], face_h: [i32; 2], groups: &mut Vec<Group>) -> Result<[usize; 2]> {
+    pub(crate) fn build(g_c: &[u8], [p6, _p5]: [usize; 2], faces: [usize; 2], face_h: [i32; 2], groups: &mut Vec<Group>) -> Result<[usize; 2]> {
         let u = Uibin::parse(g_c)?;
-        let names = ["g_c_fra_a_w", "g_c_fra_a_a", "g_c_fra_b_hp", "g_c_fra_b_mp", "g_c_fra_c_hp", "g_c_fra_c_mp", "g_c_fra_d_hp", "g_c_fra_d_mp"];
-        for (k, n) in names.iter().enumerate() {
-            if u.objs.get(k).map(|o| o.name.as_str()) != Some(n) {
-                return bad(format!("{G_C}: object {k} is not {n}"));
-            }
-        }
-        for (k, n) in [(14, "g_c_bar_b_hp"), (15, "g_c_bar_b_mp"), (16, "g_c_bar_c_hp"), (17, "g_c_bar_c_mp"), (18, "g_c_bar_d_hp"), (19, "g_c_bar_d_mp")] {
+        for (k, n) in ["g_c_fra_a_w", "g_c_fra_a_a"].iter().enumerate() {
             if u.objs.get(k).map(|o| o.name.as_str()) != Some(n) {
                 return bad(format!("{G_C}: object {k} is not {n}"));
             }
@@ -2640,10 +2833,6 @@ pub mod party {
         let mut out = [0usize; 2];
         for m in 0..2 {
             let mut v = vec![obj_piece(&o[0], p6, 0, 0, 0, None), obj_piece(&o[1], p6, 0, 0, 0, None)];
-            v.extend([2, 4, 6].map(|k| obj_piece(&o[k], p6, 0, 0, 0, None)));
-            v.extend([3, 5, 7].map(|k| obj_piece(&o[k], p6, 0, 0, 0, None)));
-            v.extend([15, 17, 19].map(|k| obj_piece(&o[k], p5, 0, 0, 0, None)));
-            v.extend([14, 16, 18].map(|k| obj_piece(&o[k], p5, 0, 0, 0, None)));
             let h = face_h[m];
             let (cx, cy) = CENTRE;
             v.push(Piece { item: faces[m], uv: [0, 0, h, h], rect: [cx - h / 2, cy - h / 2, cx + h / 2, cy + h / 2], colour: one, grad: 0 });
@@ -2665,6 +2854,12 @@ pub mod cursor {
 
     /// KH1's cursor of a lock (`DAT_14284F9E0` = object 2).
     pub const OBJECT: &str = "lockon_c";
+    /// KH1's auto-target ring (`DAT_14284F9F8` = object 3; drawn for lock states 1, 2 and 4, so
+    /// the soft target of Auto Lock On). The owner's `UK_uibin_lock.bin`: 30 × 30 at uv (33, 1) of
+    /// the same picture's layout, colour (112, 80, 12), alpha keys 0 → 250 → 112, position keys
+    /// (−4, −4, 38, 38) → (2, 2, 26, 26) → (0, 0, 30, 30), 2 + 2 key units. Checked (decomp
+    /// `0x140274290` / `0x140274B20`, this machine's KH1 project; files).
+    pub const RING: &str = "lockon_d";
 
     fn lerp(keys: &[crate::uibin::Key], t: f32) -> Vec<f32> {
         let mut at = 0.0;
@@ -2684,9 +2879,19 @@ pub mod cursor {
 
     /// Builds the cursor's group (appended); returns it.
     pub(crate) fn build(lock: &[u8], item: usize, groups: &mut Vec<Group>) -> Result<usize> {
+        build_object(lock, 2, OBJECT, item, groups)
+    }
+
+    /// Builds the auto-target ring's group (appended), as the cursor's; returns it.
+    pub(crate) fn build_ring(lock: &[u8], item: usize, groups: &mut Vec<Group>) -> Result<usize> {
+        build_object(lock, 3, RING, item, groups)
+    }
+
+    /// Object `index` (`name`) of `lock` played from its keys' start, baked per frame, then held.
+    fn build_object(lock: &[u8], index: usize, name: &str, item: usize, groups: &mut Vec<Group>) -> Result<usize> {
         let u = Uibin::parse(lock)?;
-        let o = u.objs.get(2).filter(|o| o.name == OBJECT).ok_or_else(|| crate::Error::Format(format!("{LOCK}: object 2 is not {OBJECT}")))?;
-        let ck = u.c_keys(o).ok_or_else(|| crate::Error::Format(format!("{LOCK}: {OBJECT} has no position keys")))?;
+        let o = u.objs.get(index).filter(|o| o.name == name).ok_or_else(|| crate::Error::Format(format!("{LOCK}: object {index} is not {name}")))?;
+        let ck = u.c_keys(o).ok_or_else(|| crate::Error::Format(format!("{LOCK}: {name} has no position keys")))?;
         let (f0, n) = o.keys_a;
         let ak = u.keys_a.get(f0.max(0) as usize..(f0 + n).max(0) as usize).unwrap_or(&[]);
         let len = |k: &[crate::uibin::Key]| k.iter().take_while(|k| k.dur > 0).map(|k| k.dur).sum::<i32>();
@@ -2870,6 +3075,9 @@ pub fn manifest_json(b: &Built, langs: &[String], sources: &[(&str, String)], re
     if let Some(c) = b.cursor {
         let _ = writeln!(s, "  \"cursor\": {c},");
     }
+    if let Some(c) = b.auto_ring {
+        let _ = writeln!(s, "  \"auto_ring\": {c},");
+    }
     if let Some([d, g]) = b.party {
         let _ = writeln!(s, "  \"party\": [{d}, {g}],");
     }
@@ -2877,12 +3085,21 @@ pub fn manifest_json(b: &Built, langs: &[String], sources: &[(&str, String)], re
         let _ = writeln!(s, "  \"target\": {{\"first\": {t}}},");
     }
     if let Some(sc) = &b.shortcut {
-        let _ = writeln!(s, "  \"shortcut\": {{\"first\": {}, \"icons\": {}}},", sc.first, sc.icons);
+        match sc.pads {
+            Some(p) => {
+                let _ = writeln!(s, "  \"shortcut\": {{\"first\": {}, \"icons\": {}, \"pads\": {p}}},", sc.first, sc.icons);
+            }
+            None => {
+                let _ = writeln!(s, "  \"shortcut\": {{\"first\": {}, \"icons\": {}}},", sc.first, sc.icons);
+            }
+        }
     }
     if let Some(mn) = &b.menu {
         let words = mn.words.iter().map(|(l, w)| format!("\"{l}\": [{}]", w.iter().map(|(id, g)| format!("[{id}, {g}]")).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join(", ");
         let items = mn.items_list.map(|g| format!("\"items_list\": {g}, ")).unwrap_or_default();
         let summons = mn.summon_list.map(|g| format!("\"summon_list\": {g}, ")).unwrap_or_default();
+        // 0.179.1, optional (older DLLs don't read it).
+        let summons = summons + &mn.dp_icon.map(|g| format!("\"dp_icon\": {g}, ")).unwrap_or_default();
         // Squeeze to fit (owner, 2026-11-04): each word's width in tenths of a unit; a key older
         // DLLs don't read.
         let widths = mn.widths.iter().map(|(l, w)| format!("\"{l}\": [{}]", w.iter().map(|(id, x)| format!("[{id}, {x}]")).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join(", ");
@@ -3041,6 +3258,50 @@ mod tests {
 
     /// With `KH1_HUD_DUMP` set to a `hud-h0` dump folder (the player's own files, outside the
     /// repository): builds the set from it and writes the atlases and layouts to `KH1_HUD_OUT`.
+    /// 0.179.1: with `KH1_DP_EMBLEM_IMZ` set to the player's `FO0104.RTM` `UK_levelup.imz` (outside
+    /// the repository): the emblem is found, at the font's height, mostly opaque in its middle;
+    /// `KH1_DP_EMBLEM_OUT` set: its raw RGBA (PS2 alpha) is written there for a look.
+    /// 0.180.0: KH1's auto-target ring from the player's `UK_uibin_lock.bin` (`KH1_LOCK_BIN`)
+    /// and, with `KH1_UITEX`, its texels covered in `uitex.bin`'s picture 10.
+    #[test]
+    fn auto_ring_from_the_players_file() {
+        let Ok(p) = std::env::var("KH1_LOCK_BIN") else { return };
+        let lock = std::fs::read(p).unwrap();
+        let mut groups = Vec::new();
+        let c = cursor::build(&lock, 0, &mut groups).unwrap();
+        let r = cursor::build_ring(&lock, 0, &mut groups).unwrap();
+        assert_eq!((c, r), (0, 1));
+        let ring = &groups[r];
+        let last = ring.steps.last().unwrap().pieces[0];
+        // Settles at 30 × 30 centred, alpha 112 of KH1's orange (112, 80, 12).
+        assert_eq!(last.rect, [-15, -15, 15, 15]);
+        assert_eq!(last.colour, 112 | 80 << 8 | 12 << 16 | 112 << 24);
+        assert_eq!(last.uv, [33, 1, 63, 31]);
+        // The first frame is the larger, faint one; the cursor's own group is unchanged.
+        assert!(ring.steps[0].pieces[0].rect[2] > 15 && ring.steps[0].pieces[0].colour >> 24 < 112);
+        assert_eq!(groups[c].steps.last().unwrap().pieces[0].rect, [-19, -19, 19, 19]);
+        if let Ok(u) = std::env::var("KH1_UITEX") {
+            let tims = mb::tim2_pictures(&std::fs::read(u).unwrap()).unwrap();
+            let t = &tims[CURSOR_PICTURE.0];
+            let covered = (1..31).flat_map(|y| (33..63).map(move |x| (x, y))).filter(|&(x, y)| t.pixels[y * t.width + x][3] > 0x10).count();
+            eprintln!("lockon_d texels covered: {covered} of 900");
+            assert!(covered > 100, "the ring's texels are drawn in picture {}", CURSOR_PICTURE.0);
+        }
+    }
+
+    #[test]
+    fn dp_emblem_from_the_players_file() {
+        let Ok(p) = std::env::var("KH1_DP_EMBLEM_IMZ") else { return };
+        let e = menu::dp_emblem(&std::fs::read(p).unwrap()).unwrap();
+        assert_eq!(e.h, menu::CELL.1);
+        assert!(e.w % 2 == 0 && e.w > e.h / 2 && e.w < e.h, "{}×{}", e.w, e.h);
+        assert!(e.px[(e.h / 2) * e.w + e.w / 2][3] > 0x40, "the middle is covered");
+        if let Ok(out) = std::env::var("KH1_DP_EMBLEM_OUT") {
+            std::fs::write(out, e.px.iter().flatten().copied().collect::<Vec<u8>>()).unwrap();
+        }
+        eprintln!("dp emblem {}×{}", e.w, e.h);
+    }
+
     #[test]
     fn builds_from_a_dump() {
         let Ok(dir) = std::env::var("KH1_HUD_DUMP") else { return };
@@ -3079,6 +3340,7 @@ mod tests {
                 cut: Some(&cut),
                 item: Some(&item),
                 sum: sum.as_deref(),
+                dp_emblem: None,
             }),
             faces: [face("xa_ex_0010.mdls", 0xA2E80), face("xa_ex_0040.mdls", 0x75600), face("xa_ex_0050.mdls", 0x8D400)],
         };
@@ -3163,6 +3425,7 @@ mod tests {
         assert!(b.target.is_some());
         assert!(b.party.is_some());
         assert!(b.cursor.is_some());
+        assert_eq!(b.auto_ring, b.cursor.map(|c| c + 1));
         assert!(b.level_up.is_some());
         // KH1's g_act tracks at 2 frames a key unit: vibe_s 5 units, vibe_ss 11, vibe_sss 19,
         // the slides 10.
@@ -3175,5 +3438,56 @@ mod tests {
             std::fs::write(o.join("UK_kh1hud.imz"), &b.imz_hd[4]).unwrap();
             std::fs::write(o.join("kh1-hud.json"), manifest_json(&b, &langs.map(String::from), &[], None)).unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod hd_fit_tests {
+    use super::*;
+
+    fn solid(w: usize, h: usize, c: [u8; 4]) -> Pic {
+        Pic { w, h, px: vec![c; w * h] }
+    }
+
+    #[test]
+    fn a_stock_texture_is_kept_as_it_is() {
+        let ps2 = solid(192, 64, [1, 2, 3, 128]);
+        let hd = solid(384, 128, [9, 8, 7, 128]);
+        assert_eq!(fit_hd(&ps2, hd.clone(), HD_SCALE), hd);
+        // Picture 0 at KH1 FM PC's 4× stays 4×.
+        let (p0, hd0) = (solid(128, 128, [0; 4]), solid(512, 512, [5, 5, 5, 128]));
+        assert_eq!(fit_hd(&p0, hd0.clone(), HD_SCALE_PLATE), hd0);
+    }
+
+    #[test]
+    fn a_texture_mod_face_is_fitted_to_the_stock_scale() {
+        // A texture mod's Sora face: 1200×400 over the PS2's 192×64 (6.25×).
+        let ps2 = solid(192, 64, [0; 4]);
+        let hd = fit_hd(&ps2, solid(1200, 400, [200, 100, 50, 128]), HD_SCALE);
+        assert_eq!((hd.w, hd.h), (384, 128));
+        assert_eq!(hd_scale(&ps2, &hd).unwrap(), 2);
+        assert!(hd.px.iter().all(|p| *p == [200, 100, 50, 128]));
+        // Donald's / Goofy's at 8×, the uitex pictures at 4× and picture 2 (with its PC-only rows).
+        let f = fit_hd(&solid(48, 48, [0; 4]), solid(384, 384, [1; 4]), HD_SCALE);
+        assert_eq!((f.w, f.h), (96, 96));
+        let p2 = fit_hd(&solid(128, 128, [0; 4]), solid(512, 768, [1; 4]), HD_SCALE);
+        assert_eq!((p2.w, p2.h), (256, 384));
+    }
+
+    #[test]
+    fn language_copies_end_at_one_size() {
+        // A texture mod that replaced some languages' copies only.
+        let ps2 = solid(128, 128, [0; 4]);
+        let per = fit_all(&ps2, vec![solid(512, 512, [1; 4]), solid(256, 256, [2; 4]), solid(300, 300, [3; 4])], HD_SCALE);
+        assert!(per.iter().all(|p| (p.w, p.h) == (256, 256)));
+    }
+
+    #[test]
+    fn resampling_weights_colour_by_alpha() {
+        // Half clear (black), half opaque red: the mean keeps the red, alpha halves.
+        let mut p = solid(2, 1, [0, 0, 0, 0]);
+        p.px[1] = [255, 0, 0, 128];
+        let r = p.resampled(1, 1);
+        assert_eq!(r.px[0], [255, 0, 0, 64]);
     }
 }

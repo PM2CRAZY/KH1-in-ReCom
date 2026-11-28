@@ -174,14 +174,14 @@ pub(super) unsafe fn after_step(this: usize, before: i32, after: i32) {
         }
     }
     // No card-stock help page at KH1 (owner): the CTechHelp 0xF just made ends at once.
-    if ((before == state::LEARNED_SHOW && after == state::LEARNED_HELP) || (before == state::RESULT && after == state::PICK_HELP)) && super::mp::active() {
+    if ((before == state::LEARNED_SHOW && after == state::LEARNED_HELP) || (before == state::RESULT && after == state::PICK_HELP)) && super::mp::live() {
         skip_tech_help(this);
     }
     if after != state::END || before == state::END {
         return;
     }
     // The next notice on the same task, when this screen was a level-up or a sleight-learned one.
-    if (before == state::NEXT || before == state::LEARNED_CLOSE) && PENDING.load(Ordering::Relaxed) && super::mp::active() {
+    if (before == state::NEXT || before == state::LEARNED_CLOSE) && PENDING.load(Ordering::Relaxed) && super::mp::live() {
         if let Some(l) = pop() {
             start_on(this, l);
         }
@@ -232,7 +232,7 @@ pub(super) unsafe fn frame(pl: usize) {
     if !PENDING.load(Ordering::Relaxed) || !ptrs_ok() {
         return;
     }
-    if rd::<i32>(pl + super::movement::p::BATTLE) != 0 || !super::mp::active() || !field_gate() {
+    if rd::<i32>(pl + super::movement::p::BATTLE) != 0 || !super::mp::live() || !field_gate() {
         return;
     }
     let Some(l) = pop() else { return };

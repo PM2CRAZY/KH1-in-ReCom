@@ -205,14 +205,6 @@ impl Clip {
         self.loop_start_clamped() >= 1
     }
 
-    /// Default blend in 60 Hz frames (8 when no field is stored).
-    pub fn default_blend(&self) -> u16 {
-        if self.has_blend != 0 {
-            self.blend
-        } else {
-            8
-        }
-    }
 
     /// The name as text.
     pub fn name_str(&self) -> String {

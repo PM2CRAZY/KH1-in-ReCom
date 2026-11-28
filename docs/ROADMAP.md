@@ -21,18 +21,30 @@ and it is checked against KH1 traces.
 - **M0.6, mod skeleton:** a DLL that Panacea loads, which checks the Steam build and future hook
   sites. Build bot in place.
 
-## Where we are (2026-10-30, version 0.7.0)
+## Where we are (2026-11-23, version 0.178.0, fork branch `Re-Re-Reverse/Rebirth`)
+
+From the stages in `AGENTS.md` and each milestone's doc. `cargo test --workspace`: 1325 passed, 0 failed (tests that
+need the player's files skip without them). Most stages since 0.12.0 say **not seen in game**; no real-KH1 trace has
+been recorded yet, so no milestone's "done when" check has passed against KH1.
 
 | Milestone | State |
 |---|---|
-| M1 oracle vs KH1 | Tool built. No real-KH1 recordings yet, so "1:1" rests on the KH1 decomp and files, not traces. |
-| M2 motions | Done in game: Re:CoM's clips where it has them, 69 KH1 clips added. |
-| M3 Config | Done in game (row, panel, help line with the version). |
-| M4 movement | Built; fixes in game (springs 0.6.0, roll/guard position 0.6.1, ledge grab 0.6.3 untested). Not yet diffed against the oracle ×50. |
-| M5 Attack | Combos, windows and press rules match KH1 in the owner's traces. 0.7.0: KH1 damage and HP on 31 Re:CoM enemy classes (each world's KH1 record), Sora's KH1 Strength by level (keep Rod, give up Shield); not seen in game yet. Next: Guard's block, recoil and Counterattack, with new Re:CoM enemy reactions behind a toggle (decision 20). MP charge comes with M7. |
-| M6 battles without cards | Stages 1–3 built (0.14.0: bosses react to KH1 swings, human bosses' cards hidden, Marluxia 3's folder hidden), not seen in game (`recom-m6-battles.md`): at KH1, Heartless and Heartless bosses attack without cards, several at once (stage 1); Sora fights with an empty revolver built by Re:CoM's own constructor, no deck HUD, no Friend-card drops, cards still collected (stage 2). Enemy pace setting (0.13.2): Re:CoM's crowd sharing by default. Open: the tutorial battles' card flags. Next: stage 3 (bosses, P5 first). |
-| M7 | Planned in 13 stages (`recom-m7-plan.md`, decision 34). 0.15.0: 7.1 KH1 MP; 0.15.2: refills where HP refills; 0.16.0: 7.2 the MP bar; 0.17.0: 7.3 the command menu; 0.18.0: 7.4 cardless cast + Fire; 0.19.0 Blizzard; 0.20.0 Thunder; 0.21.0 Cure; 0.22.0 Gravity; 0.23.0 Stop; 0.24.0 Aero; 0.27.x spell follow-ups; 0.28.0 spell unlocks. |
-| M8–M14 | Not started. |
+| M1 oracle vs KH1 | Tool built (`kh1-trace`). No real-KH1 recordings yet (`testers/kh1-traces`). |
+| M2 motions | Done in game. |
+| M3 Config | Done in game; now the camp's Settings pages (Combat, Movement, Camera, Effects & Sound). |
+| M4 movement | Built. Not diffed against the oracle ×50; ledge grab untested. |
+| M5 Attack | Built; combos and windows match KH1 in the owner's traces. KH1 damage, damage cap (0.143.0). |
+| M6 battles without cards | Stages 1–3 built, enemy card sounds, cooldowns, Parasite Cage, Oogie's gate. Open: **Marluxia 3's card duel** (answer 2026-11-23: a winnable, balanced duel from Marluxia's patterns in his other games; spec first), the enemy enchant gauge, the tutorial battles' card flags. |
+| M7 command menu, MP, magic | All 13 stages built. |
+| M8 items and summons | Items, quick slots, shop (buy / sell), summons (Cloud included) built. Open: the owners' `0x39` row, slot growth. |
+| M9 abilities | 9a, 9b (AP screen), 9c (Sonic Blade, Strike Raid, Ars Arcanum, Ragnarok) built; Enemy Skills (some greyed "not built yet", e.g. Treasure Magnet). |
+| M10 Shadow | Done in game. |
+| M11 enemies | 20 ported besides the Shadow (`enemy::SPECS`). Not ported: Barrel Spider, Wizard, Sea Neon, Aquatank, Screwdiver, White Mushroom, Black Fungus, Creeper Plant, Spade Soldier, Heart Soldier (stopped at the owner's ask, 0.97.0). KH1 bosses (Guard Armor … Hades) not started. No KH1 trace of any ported enemy. |
+| M12 camera, lock-on, sleights | Camera stages 1–5 (KH1 and KH2 modes), KH1 lock rules, Auto / Target Lock; sleights as abilities and in the field. |
+| M13 effects and sounds | Stages 1–4 built. To add (2026-11-23): KH1's room dust and splashes, clash EXP. |
+| KH1 HUD | H1–H8 built; each doc's "Not done / to check" lists remain. Changes asked 2026-11-23: event hides at once, the friends' rings hidden, KH1's EXP / munny popups. |
+| Riku (fork branch) | KH1 movement (`riku_kh1_movement`), Attack, MP, command menu, HUD, Guard, Dark Mode / DP, items, costumes (0.144.0–0.178.0); mostly not seen in game. The fork's `main` release is at 0.155.3. |
+| M14 | GitHub install and first-launch build done (0.141.0). Not started: full playthrough at both settings, performance check. |
 
 ## Phase 1: foundations inside Re:CoM
 
@@ -156,6 +168,12 @@ wherever Re:CoM has the motion; only the KH1 motions it lacks are converted; no 
 Persistent party (Donald and Goofy with AI); KH1 stat growth, AP and abilities as progression;
 Cloud; enemy cards; sleights with no KH1 equivalent; Riku's story at KH1 setting.
 
+- **Riku's spells with his own behaviour** (fork branch; fork owner, 2026-11-23, verbatim: "por enquanto só a
+  aparência mas guarde como oportunidade futura esses achados"). The first version gives Riku Sora's KH1 spells with
+  Sora's rules and numbers, only their look made Riku's (effects, colours, sounds, cast motions from his own games).
+  Later, a spell may also act as his version does (e.g. a Fire that is a Dark Firaga spread), from the research
+  kept in the workspace's `knowledge/` (the searcher's Riku spell notes).
+
 ## Open questions to settle on the way
 
 - How abilities are equipped while progression is Re:CoM's (M9).
@@ -163,28 +181,14 @@ Cloud; enemy cards; sleights with no KH1 equivalent; Riku's story at KH1 setting
   them (M4/M5).
 - Bosses that read card values (M6): the full list, found by testing.
 
-## Owner questions waiting (owner away since 2026-11-01 01:43: "assume everything is correct until I say otherwise")
+## Owner questions
 
-- Gravity (0.27.2): KH1 has no slow; built KH1's squash under the falling sphere. Keep the squash,
-  the slow as decided in decision 38 (not KH1), or neither? KH1's Gravity hit also flattens the
-  enemy to 0.1 height: add it?
-- Spell unlocks (0.28.0): review the boss table in `recom-m7-unlocks.md`; "+1 per boss" or each
-  row sets its own level; repeated Organization fights count only the first.
-- KH1 HUD: the hit shake was built as baked animation data (owner to confirm).
-- KH1 HUD: once the KH1 elements look right, the owner gives places for Re:CoM's extras (minimap,
-  room plate, …).
-- KH1 HUD (H2b–H8): Re:CoM's event hides fade the HUD over KH1's 10 frames (not instantly): OK?
-- KH1 HUD (H4): the menu words are KH1's menu-font glyphs baked as sprites (Re:CoM's own font
-  format is not decoded): OK, or decode Re:CoM's font?
-- KH1 HUD (H4): one icon per row (key / hat / bottle), Summon row greyed until summons exist.
-- KH1 HUD (H6): Donald's and Goofy's rings are full (Re:CoM's friends have no HP / MP).
-- KH1 HUD (H7): which lock-on marker states map to KH1's cursor, and whether KH1's orange
-  auto-target ring is wanted.
-- KH1 HUD (H8): EXP / munny pop-ups not mapped (Re:CoM counts EXP at battle end); the level-up
-  box shows its header only.
-- KH1 HUD (0.33.1): KH1 PC's repacked textures: 40–71 straight-bar rects are drawn from the PS2
-  art at 2×; owner to confirm the bar now looks like KH1's.
-- Command menu (0.35.0): row 3 before summons shows KH1's greyed "–" (1:1) — or 0.34.0's greyed
-  "Summon"? Near NPCs KH1 also puts Talk in row 0 (a dimmed Attack that buzzes); kept 7.3's
-  normal Attack with Talk only in the tab. Re:CoM look's tab: teal-green tint or an exact-green
-  plate? Triangle glyph: fixed PlayStation glyph, or follow the pad in use as KH1 PC does?
+Answered on 2026-11-23 by the fork owner (`design-philosophy-instructions.md` § Open questions round): Marluxia 3's
+duel, Re:CoM's HUD extras (hidden), event hides (at once), the friends' rings (hidden), KH1's orange auto-target ring
+(shown), EXP / munny popups (KH1's), command menu row 3 ("–"), Talk near NPCs (KH1 1:1), the context tab (teal-green),
+Effects / Sounds mix (KH1's own sounds), room dust and splashes (added), clash EXP (added), the item hand effect (none).
+Already settled before: Gravity (KH1's flatten built), spell unlocks (M12 progression), the menu font (KH1's), the hit
+shake (native), the pad glyphs (follow the pad, `fix/shortcut-pad-glyphs`).
+
+Still to check in game rather than decide: the KH1 HUD bar textures drawn from the PS2 art at 2× (0.33.1); which
+Re:CoM lock-on marker states map to KH1's cursor (H7).

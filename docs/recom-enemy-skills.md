@@ -699,7 +699,7 @@ down, and a real enemy card played meanwhile keeps its own count.
 taken, `(` the card's own trigger, `)` revolver / reload events (A), `*` card plays ended. Durations
 are counts, not time; the only timers are Regen's 6000 dt tick, Bio's 1000 dt tick, Xemnas'
 2 s barrier, Aero Guard's 6000 dt re-hit and Auto-Life's 1 s invulnerability (dt = 3000 per second,
-`docs/recom-timing.md`).
+`knowledge/ReCoM/recom-timing.md`).
 
 ## 4. What I could not check
 

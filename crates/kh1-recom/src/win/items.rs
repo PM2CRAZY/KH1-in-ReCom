@@ -121,7 +121,8 @@ fn save() -> Option<usize> {
 /// Reads Sora's inventory from our extension, runs `f`, writes it back when it changed. None when
 /// KH1's MP (and so the KH1 setting in Sora's story with a save) isn't live.
 fn with_inventory<R>(f: impl FnOnce(&mut Inventory) -> R) -> Option<R> {
-    if !super::mp::active() {
+    // 0.163.0: Riku's too (his story's save holds his own block, as his MP).
+    if !super::mp::live() {
         return None;
     }
     let at = save()? + it::EXT_FIRST;
@@ -342,7 +343,7 @@ pub unsafe fn end_item(pl: usize, airborne: bool) -> bool {
 /// our case): KH1's frame for a KH1 item use, Re:CoM's exe otherwise (its item cards, untouched).
 pub unsafe extern "win64" fn exe_item(pl: usize) {
     let o: PlFn = orig(&ORIG_EXE_ITEM);
-    if !mv::kh1_sora(pl) || ACTIVE.load(Ordering::Acquire) != pl {
+    if !mv::kh1_fighter(pl) || ACTIVE.load(Ordering::Acquire) != pl {
         return o(pl);
     }
     if !mv::continues(pl) {

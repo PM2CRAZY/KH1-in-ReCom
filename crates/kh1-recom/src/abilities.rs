@@ -489,6 +489,20 @@ pub const RECOM_CP_PER_UP: i32 = 25;
 /// CP is 275 at every level. Checked (files + decomp + exe).
 pub const RECOM_START_CP: i32 = 275;
 
+/// Riku's DP at his new game (fork, 0.164.0): `CardInit.BIN` record `index[15]` (level 1, HP 80,
+/// DP 8, AP 10; `0x14023A250`'s Riku branch writes bytes 9 / 0xB to his stats `+0x14`). His
+/// level-up DP row adds 2 (`0x14010F70F`, cap 99). Checked (files + disasm). Assumption: nothing
+/// else raises it (his floors' decks don't load a CardInit record).
+pub const RIKU_START_DP: i32 = 8;
+/// Riku's DP per DP Up pick.
+pub const RIKU_DP_PER_UP: i32 = 2;
+
+/// Old saves (fork, 0.164.0, owner: "concordo" with the DP row becoming his AP Up): the DP Up picks
+/// a Riku save has taken: (DP − 8) ÷ 2, at most level − 1, never below 0.
+pub fn ap_ups_from_dp(dp: i32, level: u32) -> u8 {
+    (((dp - RIKU_START_DP).max(0) / RIKU_DP_PER_UP) as u32).min(level.saturating_sub(1)).min(u8::MAX as u32) as u8
+}
+
 /// Old saves (owner, M12: "each CP Up already taken counts as an AP Up"): the CP Up picks a save
 /// has taken, from its CP: (CP − 275) ÷ 25, at most one per level-up (level − 1), never below 0.
 pub fn ap_ups_from_cp(cp: i32, level: u32) -> u8 {

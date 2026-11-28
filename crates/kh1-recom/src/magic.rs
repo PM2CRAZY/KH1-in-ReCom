@@ -1540,6 +1540,24 @@ pub fn kh1_magic_table(recom: &[[[u8; 16]; 3]]) -> Vec<[u8; 16]> {
     t
 }
 
+/// 0.184.2 (fork owner, 2026-11-23: Riku's spells' look, "gostei das sugestões"): Re:CoM's effect set of Dark Riku's
+/// Dark Firaga (`0x1405A1730` set 48: `dark_faiga` in `EFFECT/1500/EF1500.EFF`, Riku's own effect file; Checked (exe +
+/// files), the workspace's `knowledge/ReCoM/recom-m13-recom-fx.md` § 8).
+pub const DARK_FIRAGA_SET: u8 = 48;
+
+/// Riku's copy of the KH1 rows ([`kh1_magic_table`]): every number Sora's (the owner: only the look changes), Fire's
+/// three levels' effect set (`+2`, which Re:CoM's Fire ball reads) Dark Firaga's. The other spells keep Re:CoM's own
+/// sets (their effects load with Sora's battle set in his battles too, `win::magic_fx::battle_load`).
+pub fn riku_look(t: &[[u8; 16]]) -> Vec<[u8; 16]> {
+    let mut out = t.to_vec();
+    for lv in 1..=3 {
+        if let Some(r) = table_index(spell::FIRE, lv).and_then(|i| out.get_mut(i)).filter(|r| r[0] != 0) {
+            r[2] = DARK_FIRAGA_SET;
+        }
+    }
+    out
+}
+
 /// The index of a spell level in [`kh1_magic_table`].
 pub fn table_index(s: u8, level: u8) -> Option<usize> {
     (s < 7 && (1..=3).contains(&level)).then(|| s as usize * 3 + level as usize - 1)

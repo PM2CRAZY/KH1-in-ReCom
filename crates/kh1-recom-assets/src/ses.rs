@@ -141,6 +141,19 @@ pub fn add_kh1(entries: &mut Vec<Entry>, guard: Option<&str>, counter: Option<&s
     Ok(added)
 }
 
+/// 0.185.5: an entry `name` (a Guard clip of Riku's or Dark Riku's) with a whoosh and a grunt at frame 0, as Sora's
+/// Guard has ([`add_kh1`]): the whoosh (group 1) copied from `whoosh_clip`'s events, the grunt (group 3, random from
+/// its weighted table, flag 4) from `voice_clip`'s, both of the same actor's own SES (Checked (files): `PL0101.SES`
+/// `p002_044` 1333 and the grunts 3011 / 3014 / 3013; `PL0201.SES` `p003_056` 1332, `p003_053` 3005 / 3006).
+pub fn guard_entry(entries: &[Entry], name: &str, whoosh_clip: &str, voice_clip: &str) -> Result<Entry> {
+    let whoosh = event_of(entries, whoosh_clip, |e| group(e) == 1)?;
+    let voice = event_of(entries, voice_clip, |e| group(e) == 3 && flags(e) & 4 != 0)?;
+    let mut head = entries.iter().find(|e| e.name() == voice_clip).map(|e| e.head).ok_or_else(|| Error::Format(format!("SES: no {voice_clip}")))?;
+    head[..0x20].fill(0);
+    head[..name.len().min(15)].copy_from_slice(&name.as_bytes()[..name.len().min(15)]);
+    Ok(Entry { head, events: vec![with(whoosh, None, 0), with(voice, None, 0)] })
+}
+
 // ---- M9 stage 9a: the KH1-only combo modifier clips ----
 
 /// The combo modifiers' KH1 mset entries, and whether their row is a finisher (row voice group 5 /

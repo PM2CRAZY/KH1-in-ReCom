@@ -86,6 +86,15 @@ const POINT_TRIANGLE: u32 = 0x0029_B550;
 /// Re:CoM's confirm button (u16, PS2 order; `0x140346BB0` returns it, `sites::COMMAND_MENU_CHECKED`):
 /// the shortcut panel's third glyph.
 const CONFIRM_KEY: u32 = 0x0083_F3F0;
+/// Re:CoM's pad type (u16; its controller config `0x14083F574` (`0x14034E930`) `+0x1C`): the
+/// button glyph set `0x140349120` shows (1 Xbox, 2 PlayStation, 3 a generic pad;
+/// `sites::COMMAND_MENU_CHECKED`). The shortcut panel's and the context tab's glyphs follow it.
+const PAD_TYPE: u32 = 0x0083_F590;
+
+/// Re:CoM's pad type now ([`PAD_TYPE`]).
+unsafe fn pad_type() -> u16 {
+    rd::<u16>(base() + PAD_TYPE as usize)
+}
 /// CGimmickDoor's type getter (its vtable `+0x28`); the others are `mov eax, imm32; ret`.
 const DOOR_TYPE: u32 = 0x001B_8A10;
 const SEQ_CTRL_VTABLE: u32 = 0x0060_7340;
@@ -141,6 +150,17 @@ struct Row {
     view: RowView,
     /// H4 (KH1's look): the word's control (KH1's menu font, a group of the `kh1hud` set).
     text: usize,
+    /// 0.179.1 (KH1's look): a DP sleight's mark right of its word (0: none).
+    icon: usize,
+}
+
+/// 0.179.1: the gap (units) between a DP sleight's name and its mark.
+const DP_ICON_GAP: f32 = 3.0;
+
+/// Word `name` is a DP sleight's (`crate::dark_points::DP_SLEIGHTS`; a sleight's word is
+/// `crate::sleights::WORD_BASE` + its id).
+fn dp_word(name: u16) -> bool {
+    name & 0xFF00 == crate::sleights::WORD_BASE && crate::dark_points::pays_dp(name - crate::sleights::WORD_BASE)
 }
 
 /// The context tab's controls: KH1's look (plate, Triangle, word), or Re:CoM's (one plate with its
@@ -194,6 +214,8 @@ struct ShortCtl {
     panel: usize,
     glyphs: [usize; 3],
     words: [usize; 3],
+    /// 0.179.1: a DP sleight's mark right of its word (0: none).
+    icons: [usize; 3],
     view: [SlotView; 3],
     alpha: f32,
 }
@@ -312,7 +334,7 @@ fn mp_view() -> Option<(i32, i32, u16)> {
 /// A new player gauge (its init and the MP bar have run, on draw list `list`): the menu is made
 /// for it, fading in.
 pub unsafe fn build(gauge: usize, list: i32) {
-    if !INSTALLED.load(Ordering::Acquire) || !super::mp::active() || super::mp_bar::menu_groups().is_none() {
+    if !INSTALLED.load(Ordering::Acquire) || !super::mp::live() || super::mp_bar::menu_groups().is_none() {
         return;
     }
     if mp_view().is_none() {
@@ -386,7 +408,7 @@ pub fn refresh(gauges: &[(usize, i32)]) {
     if !INSTALLED.load(Ordering::Acquire) {
         return;
     }
-    if super::mp::active() {
+    if super::mp::live() {
         for &(g, list) in gauges {
             let have = STATE.lock().map(|s| s.uis.iter().any(|u| u.gauge == g)).unwrap_or(true);
             if !have {
@@ -420,6 +442,9 @@ impl Ui {
             super::d2::delete(r.ctrl, self.list);
             if r.text != 0 {
                 super::d2::delete(r.text, self.list);
+            }
+            if r.icon != 0 {
+                super::d2::delete(r.icon, self.list);
             }
         }
         if let Some(l) = self.look.take() {
@@ -473,7 +498,7 @@ impl Ui {
 
     unsafe fn clear_short(&mut self) {
         if let Some(p) = self.short.take() {
-            for c in [p.panel].into_iter().chain(p.glyphs).chain(p.words).filter(|&c| c != 0) {
+            for c in [p.panel].into_iter().chain(p.glyphs).chain(p.words).chain(p.icons).filter(|&c| c != 0) {
                 super::d2::delete(c, self.list);
             }
         }
@@ -500,7 +525,9 @@ impl Ui {
                 for k in 0..3 {
                     if p.words[k] != 0 && (p.alpha != alpha || p.view[k].bright != slots[k].bright) {
                         let b = kh1_word_level(slots[k].bright);
-                        func::<VecFn>(COLOUR)(p.words[k], V4([b, b, b, alpha]).0.as_ptr());
+                        for c in [p.words[k], p.icons[k]].into_iter().filter(|&c| c != 0) {
+                            func::<VecFn>(COLOUR)(c, V4([b, b, b, alpha]).0.as_ptr());
+                        }
                     }
                 }
                 p.view = *slots;
@@ -537,13 +564,15 @@ impl Ui {
         let confirm = if cm::shortcut::confirm_is_circle(rd::<u16>(base() + CONFIRM_KEY as usize)) { g::CIRCLE } else { g::CROSS };
         let mut glyphs = [0; 3];
         if sg.icons {
+            let pad = pad_type();
             for (k, grp) in [g::TRIANGLE, g::SQUARE, confirm].into_iter().enumerate() {
                 let (x, y) = at::GLYPH_AT[k];
-                glyphs[k] = self.kh1_ctrl(PRIORITY_ROOT, o.0 + x, o.1 + y + cm::tab::GLYPH_DY, 1.0, &[(sg.first + grp, None)]).unwrap_or(0);
+                glyphs[k] = self.kh1_ctrl(PRIORITY_ROOT, o.0 + x, o.1 + y + cm::tab::GLYPH_DY, 1.0, &[(sg.glyph(grp, pad), None)]).unwrap_or(0);
                 colour(glyphs[k], one);
             }
         }
         let mut words = [0; 3];
+        let mut icons = [0; 3];
         for (k, v) in slots.iter().enumerate() {
             let Some(wg) = mg.word(&lang, v.name) else { continue };
             // Squeeze to fit (owner, 2026-11-04): a name wider than its black box drawn narrower.
@@ -554,8 +583,14 @@ impl Ui {
             words[k] = self.kh1_ctrl(PRIORITY_ROOT, o.0 + at::WORD_AT.0, o.1 + at::WORD_AT.1 + at::PITCH * k as f32, sx, &[(wg, None)]).unwrap_or(0);
             let b = kh1_word_level(v.bright);
             colour(words[k], [b, b, b, alpha]);
+            // 0.179.1: a DP sleight's mark right of its (squeezed) name.
+            if let Some(ig) = mg.dp_icon.filter(|_| dp_word(v.name)) {
+                let x = o.0 + at::WORD_AT.0 + mg.width(&lang, v.name).unwrap_or(0.0) * sx + DP_ICON_GAP;
+                icons[k] = self.kh1_ctrl(PRIORITY_ROOT, x, o.1 + at::WORD_AT.1 + at::PITCH * k as f32, 1.0, &[(ig, None)]).unwrap_or(0);
+                colour(icons[k], [b, b, b, alpha]);
+            }
         }
-        self.short = Some(ShortCtl { panel, glyphs, words, view: *slots, alpha });
+        self.short = Some(ShortCtl { panel, glyphs, words, icons, view: *slots, alpha });
     }
 
     unsafe fn clear_tab(&mut self) {
@@ -591,7 +626,11 @@ impl Ui {
         }
         self.clear_tab();
         let mut ctrls = Vec::new();
-        let tri = g.tab_icon.then_some(g.first + kh::menu::TRIANGLE);
+        // The Triangle of the pad in use (the Xbox Y, ...): the shortcut panel's glyph groups.
+        let tri = g.tab_icon.then(|| match super::kh1_hud::manifest().and_then(|m| m.shortcut).filter(|sg| sg.icons && sg.pads.is_some()) {
+            Some(sg) if pad_type() != 2 => sg.glyph(kh::shortcut::TRIANGLE, pad_type()),
+            _ => g.first + kh::menu::TRIANGLE,
+        });
         let word = g.word(lang, t.name);
         for (k, grp) in [Some(g.first + kh::menu::TAB), tri, word].into_iter().enumerate() {
             let c = grp.and_then(|grp| self.kh1_ctrl(PRIORITY_ROOT, at[k].0, at[k].1, 1.0, &[(grp, None)])).unwrap_or(0);
@@ -704,7 +743,9 @@ impl Ui {
                 }
                 if r.text != 0 && (alpha_changed || r.view.bright != v.bright) {
                     let b = kh1_word_level(v.bright);
-                    func::<VecFn>(COLOUR)(r.text, V4([b, b, b, sc.alpha]).0.as_ptr());
+                    for c in [r.text, r.icon].into_iter().filter(|&c| c != 0) {
+                        func::<VecFn>(COLOUR)(c, V4([b, b, b, sc.alpha]).0.as_ptr());
+                    }
                 }
                 r.view = *v;
             }
@@ -782,6 +823,7 @@ impl Ui {
             func::<VecFn>(COLOUR)(c, V4([1.0, 1.0, 1.0, sc.alpha]).0.as_ptr());
             // The word (FM's 4th row: the blank dash until summons, M8; `cm::ROW3_CMD`).
             let mut text = 0;
+            let mut icon = 0;
             if let Some(wg) = (v.name != 0).then(|| g.word(&lang, v.name)).flatten() {
                 let at = kh1_at(v, true);
                 // Squeeze to fit (owner, 2026-11-04): in the Magic / Summon / Sleights lists a sleight
@@ -796,6 +838,14 @@ impl Ui {
                     let b = kh1_word_level(v.bright);
                     func::<VecFn>(COLOUR)(t, V4([b, b, b, sc.alpha]).0.as_ptr());
                     text = t;
+                    // 0.179.1: a DP sleight's mark right of its (squeezed) name, at its brightness.
+                    if let Some(ig) = g.dp_icon.filter(|_| dp_word(v.name)) {
+                        let x = at.0 + g.width(&lang, v.name).unwrap_or(0.0) * sx + DP_ICON_GAP;
+                        if let Some(c) = self.kh1_ctrl(prio, x, at.1, 1.0, &[(ig, None)]) {
+                            func::<VecFn>(COLOUR)(c, V4([b, b, b, sc.alpha]).0.as_ptr());
+                            icon = c;
+                        }
+                    }
                 }
             } else if v.name == crate::sleights::ROW_WORD || v.name == cm::cmd::PARTY_WORD || v.name & 0xFF00 == crate::sleights::WORD_BASE {
                 // M12 step 5: an asset step from before the Sleights words: the row has no word.
@@ -804,7 +854,7 @@ impl Ui {
                     log(&format!("command menu: kh1-hud.json has no KH1-font word {:#x} (\"Sleights\" / a sleight's name): run this version's asset step; drawn without it", v.name));
                 }
             }
-            self.rows.push(Row { ctrl: c, fnt: 0, view: *v, text });
+            self.rows.push(Row { ctrl: c, fnt: 0, view: *v, text, icon });
         }
         self.shown = Some(sc.clone());
         // 0.111.0: the pointing arrow beside the root's cursor row.
@@ -845,7 +895,7 @@ impl Ui {
             }
         }
         func::<VecFn>(COLOUR)(c, V4([1.0, 1.0, 1.0, sc.alpha]).0.as_ptr());
-        Some(Row { ctrl: c, fnt, view: *v, text: 0 })
+        Some(Row { ctrl: c, fnt, view: *v, text: 0, icon: 0 })
     }
 
     /// Shows `sc`: rebuilds the rows when what they show changed, else writes colours and the
@@ -930,6 +980,11 @@ fn sub_groups(g: &kh::MenuGroups, list: Kind) -> u32 {
 /// H4: the KH1 look's groups when the KH1 HUD is up and its menu look was built.
 fn kh1_look() -> Option<&'static kh::MenuGroups> {
     if !super::kh1_hud::menu_on() {
+        return None;
+    }
+    // Riku's story (0.149.0): his FO0071 has the set only from this version's asset step; without
+    // it Re:CoM's look (a registry lookup, Riku's story only).
+    if super::stats::riku_story() && !super::kh1_hud::set_registered() {
         return None;
     }
     super::kh1_hud::manifest()?.menu.as_ref()
@@ -1074,6 +1129,12 @@ pub fn spell_view() -> ([u8; 7], [u8; 3]) {
 
 /// A KH1 word of the menu's language (`kh1-command-menu.json`, Re:CoM font bytes, NUL-terminated)
 /// by message id, when the command menu's words are loaded.
+/// 0.181.0: the highlighted command has KH1's flag 4 (`Menu::highlighted_targets`), so KH1 would
+/// pick a soft target. No menu, or the menu busy this instant: KH1's default entry 0x43 (flag 4).
+pub fn highlighted_targets() -> bool {
+    STATE.try_lock().ok().and_then(|s| s.menu.as_ref().map(|m| m.highlighted_targets())).unwrap_or(true)
+}
+
 pub fn word(id: u16) -> Option<Vec<u8>> {
     WORDS.get().and_then(|w| w.get(id)).map(|b| b.to_vec())
 }
@@ -1084,7 +1145,133 @@ pub fn confirm_is_circle() -> bool {
     cm::shortcut::confirm_is_circle(unsafe { rd::<u16>(base() + CONFIRM_KEY as usize) })
 }
 
+/// Riku's menu (`crate::riku`, `riku_kh1_movement`): Attack, and his Sleights list
+/// (`crate::riku::SLEIGHTS`, started by his own sleight start) on row 3; no spells, items, summons,
+/// Party or specials. His shortcut slots are filled with his first sleights once, while all three
+/// are empty and never set up; his Customize page (0.149.0, his Settings list) sets them after.
+/// Riku's spell levels (0.187.0): Sora's seven at level 3 while the magic is in (the owner's "deixa desbloqueado no
+/// menu"); the command menu and his Customize picker read this one answer, so a spell unlocks in both together.
+/// 0.198.0 (fork owner, 2026-11-26): learned through his story (`crate::riku_unlocks`, `super::unlocks::riku_sync`), not all at 3.
+pub fn riku_spell_levels() -> [u8; crate::command_menu::spell::COUNT] {
+    if !super::magic::installed() {
+        return [0; crate::command_menu::spell::COUNT];
+    }
+    // 0.198.18, development builds only (`settings::DEV_KEYS`; fork owner, 2026-11-27: "quero testar as magias habilita"):
+    // `kh1_all_spells = on` gives Riku all seven at level 3 too, as it does Sora (not written to the save).
+    if cfg!(feature = "dev") && ALL_SPELLS.load(Ordering::Relaxed) {
+        return [3; crate::command_menu::spell::COUNT];
+    }
+    // SAFETY: a read inside Re:CoM's save block.
+    let l = unsafe { super::unlocks::riku_levels() };
+    let mut out = [0u8; crate::command_menu::spell::COUNT];
+    for (o, v) in out.iter_mut().zip(l) {
+        *o = v;
+    }
+    out
+}
+
+unsafe fn riku_world(pl: usize) -> World {
+    // 0.198.15: only what Re:CoM has taught him (none before the Ansem tutorial's end), as Re:CoM's Sleights List.
+    let dark = mv::is_main_dark_riku(pl);
+    let ids = riku_learned_sleights(dark);
+    let mut shortcuts = super::mp::riku_shortcuts().unwrap_or([0; 3]);
+    // 0.198.18: Dark Mode has its own three slots (filled once from his with the Dark twins).
+    if dark {
+        shortcuts = riku_dark_shortcuts(&ids);
+    } else if let Some(f) = crate::riku::fill_shortcuts(shortcuts, &ids).filter(|_| !super::mp::riku_shortcuts_set()) {
+        if super::mp::set_riku_shortcuts(f) {
+            shortcuts = f;
+            riku_learned_note();
+            note(|| format!("riku: shortcut slots set to his first sleights {f:02x?}"));
+        }
+    }
+    // 0.150.0: page 2 (Left) as Sora's, its Party list holding the King's sleights (Riku's only
+    // friend; the Summon row stays greyed: he has none).
+    let mut w = World { mp: mp_view(), dp: super::dark_points::sleight_view(pl), shortcuts, page: super::summons::page(), ..Default::default() };
+    // 0.184.0 (fork owner, 2026-11-23: "deixa desbloqueado no menu"): Sora's seven KH1 spells, all at level 3,
+    // while the magic is in (its exeMagic slots, `super::magic::riku_slots`); MP free with `riku_free_magic`.
+    if super::magic::installed() {
+        w.spells = riku_spell_levels();
+        w.free_spells = super::magic::riku_free();
+        if let Some(t) = super::attack::attack_target(pl) {
+            let b: usize = rd(pl + p::BODY);
+            if b != 0 {
+                w.target_dist = Some((to_kh1(rd_vec(b + body::POS)) - t.centre).length());
+            }
+        }
+    }
+    // 0.163.0: his KH1 item slots (the Items row), as Sora's.
+    if super::items::installed() {
+        (w.slots, w.slot_count) = super::items::slots();
+    }
+    if let Ok(g) = mv::SORA.try_lock() {
+        if let Some(s) = g.as_ref().filter(|s| s.player == pl) {
+            w.state = s.sora.state;
+            if mv::sync_ok(pl, s) {
+                w.gate_any = s.sora.accepts_spell(crate::magic::spell::BLIZZARD);
+                w.gate_fire = s.sora.accepts_spell(crate::magic::spell::FIRE);
+            }
+        }
+    }
+    w.context = context(pl);
+    // 0.162.0: a held gimmick card's "Stagger", as Sora's.
+    if w.context == 0 {
+        w.gimmick = super::gimmick::offer(pl);
+    }
+    if super::summons::installed() {
+        (w.battle, w.summon_out) = super::summons::gate_state(pl);
+        w.summon_out |= super::summons::sleight_running(pl);
+    }
+    for (k, &id) in ids.iter().enumerate().take(crate::sleights::MAX) {
+        w.sleights[k] = id as u8;
+    }
+    w.sleight_count = ids.len().min(crate::sleights::MAX) as u8;
+    if super::party::installed() && (w.page == cm::Page::Two || w.shortcuts.iter().any(|&b| cm::shortcut::slot_sleight(b).is_some_and(|id| crate::party::index(id).is_some()))) {
+        (w.party_learned, w.party_avail) = super::party::sets(pl);
+    }
+    w
+}
+
+/// 0.198.18: Dark Mode's three shortcut slots (`crate::riku::dark_block`); the first time (never set up), Riku's own
+/// set through `crate::riku::dark_fill` (Impulse → Dark Impulse ..), written once. `dark_learned`: Dark Riku's learned
+/// sleights ([`riku_learned_sleights`]`(true)`).
+pub(super) fn riku_dark_shortcuts(dark_learned: &[u16]) -> [u8; 3] {
+    let Some((slots, set)) = super::mp::riku_dark_shortcuts() else { return [0; 3] };
+    // As his own set's fill (Stage 414): nothing is written (nor marked set up) while Dark Riku has learned nothing.
+    if set || dark_learned.is_empty() {
+        return slots;
+    }
+    let riku = super::mp::riku_shortcuts().unwrap_or([0; 3]);
+    let f = crate::riku::dark_fill(riku, dark_learned);
+    if super::mp::set_riku_dark_shortcuts(f) {
+        log(&format!("riku: Dark Mode shortcut slots set up from his {riku:02x?}: {f:02x?}"));
+        return f;
+    }
+    slots
+}
+
+/// 0.198.15: Riku's (or Dark Riku's) sleights that Re:CoM's own test (`0x14023AB00`) answers as learned
+/// (`crate::riku::learned_ids`). His command menu, shortcuts and Customize page list only these.
+pub(super) unsafe fn riku_learned_sleights(dark: bool) -> Vec<u16> {
+    let f = super::abilities::sleight_learned_fn();
+    crate::riku::learned_ids(dark, |id| unsafe { f(id) } & 0xFF != 0)
+}
+
+/// Re:CoM's own "learned" answer for each of Riku's sleights (`0x14023AB00`), logged once (0.198.15: the lists
+/// follow it).
+unsafe fn riku_learned_note() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let f = super::abilities::sleight_learned_fn();
+        let v: Vec<String> = crate::riku::SLEIGHTS.iter().map(|s| format!("{} {}", s.name, if f(s.id) & 0xFF != 0 { "learned" } else { "not learned" })).collect();
+        log(&format!("riku: Re:CoM's sleight-learned test: {}", v.join(", ")));
+    });
+}
+
 unsafe fn world(pl: usize) -> World {
+    if mv::is_main_riku(pl) {
+        return riku_world(pl);
+    }
     let (spells, shortcuts) = spells();
     let mut w = World { mp: mp_view(), spells, shortcuts, ..Default::default() };
     // M8 stage 8a.1: Sora's item slots (a read of our save block), only with the items in.
@@ -1257,7 +1444,7 @@ unsafe fn step_frame(pl: usize) -> Option<Keep> {
     }
     let (set, first) = super::mp_bar::menu_groups()?;
     let words = WORDS.get()?;
-    if !super::mp::active() {
+    if !super::mp::live() {
         return None;
     }
     let pad = read_pad(pl);

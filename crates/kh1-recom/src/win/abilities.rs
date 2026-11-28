@@ -50,11 +50,16 @@ static LOGGED_FIRST: AtomicBool = AtomicBool::new(false);
 
 /// Re:CoM's "sleight learned" (`0x14023AB00(u16 id)`, `sites::ABILITY_CALLEES`).
 const SLEIGHT_LEARNED: u32 = 0x0023_AB00;
-type LearnedFn = unsafe extern "win64" fn(u16) -> u64;
+pub(super) type LearnedFn = unsafe extern "win64" fn(u16) -> u64;
 /// Re:CoM's int variable getter (`0x1401B08C0(set, id)`, `sites::M6_DECK_CALLEES`, bytes checked at
 /// start), for its ability variable (`crate::abilities::recom::VAR`).
 const VAR_GET: u32 = 0x001B_08C0;
 type VarGetFn = unsafe extern "win64" fn(u32, u32) -> u64;
+
+/// Re:CoM's "sleight learned" test, for Riku's log line (`super::command_menu`).
+pub unsafe fn sleight_learned_fn() -> LearnedFn {
+    func::<LearnedFn>(SLEIGHT_LEARNED)
+}
 
 pub fn set_rows_ready(bits: ab::Bits) {
     // The modifiers' bits are all below 64.
@@ -106,9 +111,13 @@ fn usable(e: ab::Bits) -> ab::Bits {
 /// older block once; writes it back when it changed. None unless KH1's MP is live (the KH1
 /// setting, Sora's story, a save).
 pub fn sync() -> Option<State> {
-    if !super::mp::active() {
+    // 0.164.0 (fork owner, 2026-11-23: Enemy Skills for Riku, "as cartas que o Riku ganha durante a
+    // play dele"): Riku's state in his story's save. Only the Enemy Skills (card sources) reach it:
+    // no KH1 level grants, no Re:CoM movement abilities, no sleight abilities (Sora's).
+    if !super::mp::live() {
         return None;
     }
+    let riku = super::mp::riku_live();
     let save = save()?;
     let at = save + ab::BLOCK_FIRST;
     let ext_at = save + ab::EXT_FIRST;
@@ -122,25 +131,33 @@ pub fn sync() -> Option<State> {
     // The words as stored (an older block may still hold the kit's bits, which `read` hides).
     let raw = ab::raw(&block, &ext, &skills);
     let mut s: State = before;
-    let level = super::stats::sora_level();
+    let level = if riku { 0 } else { super::stats::sora_level() };
     // SAFETY: Re:CoM's own getter (bytes checked at start), a pure read of its save variables.
-    let recom_var = unsafe { func::<VarGetFn>(VAR_GET)(ab::recom::VAR.0, ab::recom::VAR.1) } as u32;
+    let recom_var = if riku { 0 } else { (unsafe { func::<VarGetFn>(VAR_GET)(ab::recom::VAR.0, ab::recom::VAR.1) }) as u32 };
     // SAFETY: Re:CoM's own test (`sites::ABILITY_CALLEES`, bytes checked at start), a pure read of
     // its save.
     let learned = unsafe { func::<LearnedFn>(SLEIGHT_LEARNED) };
-    let mut ask = |id: u16| unsafe { learned(id) } & 0xFF != 0;
+    let mut ask = |id: u16| !riku && unsafe { learned(id) } & 0xFF != 0;
     // Enemy Skills: Re:CoM's "obtained at least once" (`0x14015B3F0`) for the skill's card.
     // SAFETY: Re:CoM's own read of its collection (Keyblades' checked call), guarded by the collection.
     let mut card = |kind: u16| unsafe { super::keyblades::ever_obtained(kind) };
     let migrating = version < ab::BLOCK_NOW;
     // M12: an older block's past CP Up picks count as AP Ups (owner), read once from Re:CoM's CP.
     let cp = super::stats::sora_cp().unwrap_or(ab::RECOM_START_CP);
-    let cp_ups = ab::ap_ups_from_cp(cp, level);
-    let r = if migrating {
-        ab::migrate_with(&mut s, raw, version, level, recom_var, INI_EQUIPPED.load(Ordering::Relaxed) as ab::Bits, cp_ups, &mut ask, &mut card)
+    // 0.164.0: Riku's past DP Up picks count as his AP Ups (his DP row is his AP Up).
+    let cp_ups = if riku { ab::ap_ups_from_dp(super::stats::riku_dp().unwrap_or(ab::RIKU_START_DP), super::stats::sora_level()) } else { ab::ap_ups_from_cp(cp, level) };
+    let ini = if riku { 0 } else { INI_EQUIPPED.load(Ordering::Relaxed) as ab::Bits };
+    let mut r = if migrating {
+        ab::migrate_with(&mut s, raw, version, level, recom_var, ini, cp_ups, &mut ask, &mut card)
     } else {
         ab::sync_with(&mut s, level, recom_var, &mut ask, &mut card)
     };
+    if riku {
+        s.unlocked &= ab::CARD_BITS;
+        s.equipped &= s.unlocked;
+        r.new &= ab::CARD_BITS;
+        r.new_equipped &= ab::CARD_BITS;
+    }
     if s != before || migrating {
         ab::write(&s, &mut block, &mut ext, &mut skills);
         // SAFETY: as above.
@@ -282,6 +299,7 @@ pub fn page_state() -> Option<(State, u32)> {
     Some((s, super::stats::sora_level()))
 }
 
+
 /// M12: one AP Up pick on Re:CoM's level-up screen at Combat = KH1 (+2 max AP). The state is
 /// synced first (an older block is migrated with its past CP picks before this one is added).
 /// Returns (picks, max AP) after it, or None when the state isn't live.
@@ -296,13 +314,14 @@ pub fn add_ap_up() -> Option<(u8, i32)> {
 /// Sora's max AP now (for the level-up screen's panel), or None when the state isn't live. A read
 /// (an older block reads its count as the migration will set it).
 pub fn max_ap_now() -> Option<i32> {
-    if !super::mp::active() {
+    if !super::mp::live() {
         return None;
     }
     let save = save()?;
     // SAFETY: inside the 0x2AD4-byte save block.
     let block: [u8; ab::BLOCK_LEN] = unsafe { rd(save + ab::BLOCK_FIRST) };
-    let ups = if ab::version(&block) >= ab::BLOCK_V5 { block[ab::field::AP_UPS] } else { ab::ap_ups_from_cp(super::stats::sora_cp().unwrap_or(ab::RECOM_START_CP), super::stats::sora_level()) };
+    let old = || if super::mp::riku_live() { ab::ap_ups_from_dp(super::stats::riku_dp().unwrap_or(ab::RIKU_START_DP), super::stats::sora_level()) } else { ab::ap_ups_from_cp(super::stats::sora_cp().unwrap_or(ab::RECOM_START_CP), super::stats::sora_level()) };
+    let ups = if ab::version(&block) >= ab::BLOCK_V5 { block[ab::field::AP_UPS] } else { old() };
     Some(ab::max_ap(ups as u32))
 }
 

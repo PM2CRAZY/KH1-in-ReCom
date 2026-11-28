@@ -589,7 +589,7 @@ mod tests {
         let expected = kh1_recom_assets::keyblade::new_resource_names();
         let previous: Vec<String> = ["PLAYER/0001/PL0001.ANN", "raw/FORM/0002/FO0002.SPR", "kh1-stats.json", "PLAYER/0021/PL0021.MDL", "PLAYER/0099/PL0099.MDL"].iter().map(|s| s.to_string()).collect();
         // Re:CoM's names: what the step replaces (here: everything not in a group past 20).
-        let in_recom = |n: &str| !(n.starts_with("PLAYER/00") && n[9..11].parse::<u32>().is_ok_and(|g| g > 20));
+        let in_recom = |n: &str| !(n.starts_with("PLAYER/") && n[7..11].parse::<u32>().is_ok_and(|g| g > 20));
         let have = |rel: &str| rel == "raw/PLAYER/0022/PL0022.RTM";
         let p = placeholders(&expected, &previous, in_recom, have);
         assert_eq!(p.len(), expected.len() - 1 + 1, "every new name but the one there, and the last build's own new one");

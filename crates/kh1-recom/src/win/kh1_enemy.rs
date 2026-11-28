@@ -2827,6 +2827,15 @@ struct Candidate {
     front: bool,
 }
 
+/// 0.183.1: the KH1 row (clash type, priority) of a live KH1 enemy attack collision `coll`, from the asset
+/// step's records ([`live_rows`]); None for Re:CoM's own attacks and anything else.
+pub(super) unsafe fn attack_row(coll: usize) -> Option<(u32, i32)> {
+    if coll == 0 || !any_installed() {
+        return None;
+    }
+    live_rows().into_iter().find(|c| c.coll == coll).map(|c| (c.row.clash_type, c.row.priority))
+}
+
 /// KH1's front cone (`0x1402B4640`) of a row of clash type `t` against Sora (only guard types test it), with
 /// [`kh1_front`]'s positions.
 unsafe fn row_front(en: usize, r: &ce::ClashRow) -> bool {

@@ -283,7 +283,7 @@ finishers**: its hit callback's vtable slot (`cage_hit_callback`, `cage::callbac
   `0x1403C49EE`, `0x1403C5149`, `0x1403C523D`; the only four calls in its code), which writes 250
   over the 6000 (`0x14017E5F5`). Its update is Re:CoM's `0x140185320` (vtable `+0x80`), which
   counts `+0x2C8` down by the task step `+0x14` (50 a 60 Hz frame; 100 a frame at 30 fps, the same
-  time; `docs/recom-timing.md`) in every state and runs the think only while it is < 1 with the
+  time; `knowledge/ReCoM/recom-timing.md`) in every state and runs the think only while it is < 1 with the
   think bit `0x10`. The think: above 30 % HP an attack 1 in `0x14017F380` (its `@ENP +0x98 +
   level × 4`, × 10 while `+0x2D0` ≥ 1) per call; below 30 % at once while Sora attacks (P5), else 1
   in 30; then state 2..5 by distance and angle (and 41 % a state 3 once it lost 25 % of its max HP
